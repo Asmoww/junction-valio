@@ -1,0 +1,198 @@
+openapi: 3.1.0
+info:
+  title: Trade Gateway (DRAFT)
+  version: 0.1.0
+  description: >
+    The API an outside purchasing agent uses to buy from Valio Aimo.
+    Request → Lookup → Quote (fixed price) → Order → Approval. Every write is
+    checked against the buyer's mandate; the response says whether a human must sign off.
+paths:
+  /products/search:
+    get:
+      summary: Targeted product lookup (never returns the whole catalogue)
+      parameters:
+        - {name: q, in: query, required: true, schema: {type: string}}
+        - {name: category, in: query, schema: {type: string}}
+        - {name: limit, in: query, schema: {type: integer, maximum: 20, default: 10}}
+      responses:
+        "200":
+          description: Matching products
+          content:
+            application/json:
+              schema: {type: array, items: {$ref: "#/components/schemas/Product"}}
+  /availability:
+    get:
+      summary: Price and availability for specific products and a delivery date
+      parameters:
+        - {name: product_ids, in: query, required: true, schema: {type: array, items: {type: string}}}
+        - {name: quantity, in: query, schema: {type: number}}
+        - {name: deliver_by, in: query, schema: {type: string, format: date}}
+      responses:
+        "200":
+          description: Offers per product
+          content:
+            application/json:
+              schema: {type: array, items: {$ref: "#/components/schemas/Offer"}}
+  /quotes:
+    post:
+      summary: Lock prices for a set of lines (fixed until expires_at)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/QuoteRequest"}
+      responses:
+        "201":
+          description: Quote with policy verdict
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Quote"}
+  /orders:
+    post:
+      summary: Commit a quote. Idempotent per Idempotency-Key.
+      parameters:
+        - {name: Idempotency-Key, in: header, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [quote_id]
+              properties:
+                quote_id: {type: string}
+                rationale: {type: string, description: Agent's explanation, stored in the decision record}
+      responses:
+        "201":
+          description: Order placed (auto-approved) or pending human approval
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Order"}
+        "409": {description: Quote expired or prices changed}
+        "403": {description: Blocked by a hard limit in the mandate}
+  /approvals/{order_id}:
+    post:
+      summary: Human approves, rejects or edits a pending order
+      parameters:
+        - {name: order_id, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision, approver]
+              properties:
+                decision: {type: string, enum: [approve, reject]}
+                approver: {type: string}
+                comment: {type: string}
+      responses:
+        "200":
+          description: Updated order
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Order"}
+  /orders/{order_id}/decision:
+    get:
+      summary: Human-readable decision record (what the agent did and why)
+      parameters:
+        - {name: order_id, in: path, required: true, schema: {type: string}}
+      responses:
+        "200":
+          description: Decision record
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/DecisionRecord"}
+components:
+  schemas:
+    Product:
+      type: object
+      properties:
+        product_id: {type: string}
+        name: {type: string}
+        category: {type: string}
+        unit: {type: string, description: e.g. L, kg, pcs}
+        pack_size: {type: number}
+        attributes: {type: array, items: {type: string}, description: e.g. lactose-free, organic}
+        delivery_reliability: {type: number, description: 0..1}
+        carbon_kg_co2e_per_unit: {type: number}
+    Offer:
+      type: object
+      properties:
+        product_id: {type: string}
+        unit_price_eur: {type: number}
+        available_quantity: {type: number}
+        earliest_delivery: {type: string, format: date}
+    QuoteRequest:
+      type: object
+      required: [mandate_id, lines]
+      properties:
+        mandate_id: {type: string}
+        need: {type: string, description: Original buyer request, verbatim}
+        deliver_by: {type: string, format: date}
+        lines:
+          type: array
+          items:
+            type: object
+            required: [product_id, quantity]
+            properties:
+              product_id: {type: string}
+              quantity: {type: number}
+              substitution_level: {type: integer, enum: [0, 1, 2, 3], default: 0}
+    Quote:
+      type: object
+      properties:
+        quote_id: {type: string}
+        expires_at: {type: string, format: date-time}
+        lines:
+          type: array
+          items:
+            allOf:
+              - $ref: "#/components/schemas/Offer"
+              - type: object
+                properties:
+                  quantity: {type: number}
+                  line_total_eur: {type: number}
+        total_eur: {type: number}
+        policy:
+          $ref: "#/components/schemas/PolicyVerdict"
+    PolicyVerdict:
+      type: object
+      properties:
+        outcome: {type: string, enum: [auto_approve, needs_approval, blocked]}
+        rules_triggered: {type: array, items: {type: string}}
+        approver_role: {type: string}
+    Order:
+      type: object
+      properties:
+        order_id: {type: string}
+        quote_id: {type: string}
+        status: {type: string, enum: [placed, pending_approval, rejected]}
+        total_eur: {type: number}
+        policy: {$ref: "#/components/schemas/PolicyVerdict"}
+    DecisionRecord:
+      type: object
+      properties:
+        order_id: {type: string}
+        need: {type: string}
+        candidates_considered:
+          type: array
+          items:
+            type: object
+            properties:
+              product_id: {type: string}
+              score: {type: number}
+              reason: {type: string}
+        chosen: {type: array, items: {type: string}}
+        rationale: {type: string}
+        policy: {$ref: "#/components/schemas/PolicyVerdict"}
+        approvals:
+          type: array
+          items:
+            type: object
+            properties:
+              approver: {type: string}
+              decision: {type: string}
+              at: {type: string, format: date-time}
+        api_calls_made: {type: integer}
+        events_hash: {type: string, description: Hash chain over the audit log for this order}

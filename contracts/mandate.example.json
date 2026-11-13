@@ -1,0 +1,30 @@
+{
+  "mandate_id": "mnd_hotel_helsinki_v1",
+  "buyer": "Hotel Example Helsinki",
+  "valid_until": "2026-12-31",
+  "auto_approve": {
+    "max_order_total_eur": 500,
+    "max_line_price_increase_pct": 10,
+    "allowed_categories": ["dairy", "bakery", "produce"]
+  },
+  "require_human_approval_if": [
+    "order_total_eur > auto_approve.max_order_total_eur",
+    "substitution_level >= 2",
+    "category not in auto_approve.allowed_categories",
+    "delivery_date > requested_by"
+  ],
+  "hard_limits": {
+    "max_order_total_eur": 5000,
+    "max_carbon_kg_co2e_per_order": null
+  },
+  "substitutions": {
+    "level_1_same_product_other_pack": "allowed",
+    "level_2_same_spec_other_brand": "with_approval",
+    "level_3_different_spec": "forbidden"
+  },
+  "approvers": [
+    {"role": "chef", "up_to_eur": 1500},
+    {"role": "purchasing_manager", "up_to_eur": 5000}
+  ],
+  "weights": {"price": 0.5, "delivery_reliability": 0.3, "carbon": 0.2}
+}
