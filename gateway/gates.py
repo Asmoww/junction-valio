@@ -58,6 +58,8 @@ RULE_GATE = {
     # 5 Authority: allowed and proven, but a compromise or a size the agent may not decide alone.
     "Substitutions within preferences": "authority",
     "Delivery on time": "authority",
+    "Delivery date stated": "authority",
+    "Delivery not too early": "authority",
     "Full quantity": "authority",
     "Delivery reliability": "authority",
     "Unstated details within tolerance": "authority",

@@ -16,6 +16,11 @@ class SlowValio:
         time.sleep(0.2)  # widen the gap between the checks and the save
         return {i: {"catalogPrice": {"value": 1.0}} for i in ids}
 
+    def availability(self, customer, date, ids):
+        return "2026-11-13T20:00:00+0200", {i: {"closingTime": "2099-01-01T00:00:00+0200", "logisticModel": "Stock",
+                                                "scheduleLines": [{"availableAmount": 10**6, "availableDate": "2026-11-16"}]}
+                                            for i in ids}
+
 
 CAP = 500
 

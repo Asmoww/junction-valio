@@ -135,6 +135,13 @@ def evaluate(mandate, offer, context):
     late = context.get("delivery_date") and context.get("deliver_by") and context["delivery_date"] > context["deliver_by"]
     rule("Delivery on time", not late, "approve",
          f"delivers {context.get('delivery_date')} vs needed by {context.get('deliver_by')}")
+    early = context.get("delivery_date") and context.get("deliver_by") and \
+        (date.fromisoformat(context["deliver_by"][:10]) - date.fromisoformat(context["delivery_date"][:10])).days > 6
+    rule("Delivery not too early", not early, "approve",
+         f"delivers {context.get('delivery_date')}, a week or more before {context.get('deliver_by')} (fresh goods)"
+         if early else "on or near the date")
+    rule("Delivery date stated", not context.get("date_assumed"), "approve",
+         f"no date in the request: {context.get('deliver_by')} was assumed" if context.get("date_assumed") else "stated in the request")
 
     asked = context.get("requested_quantity")
     if asked:

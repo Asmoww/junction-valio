@@ -69,7 +69,7 @@ python scripts/run_traps.py               # same, and publishes results to the V
 - `gateway/catalog.py` local product search (no API calls), allergen/label names
 - `gateway/policy.py` + `gateway/mandates/*.json` mandate rules (the guardrails)
 - `gateway/signing.py` Ed25519 JWS offers · `gateway/store.py` SQLite + hash-chained audit log
-- `gateway/mcp_server.py` MCP tools (streamable HTTP at /mcp, `Authorization: Bearer <password>`)
+- `gateway/mcp_server.py` MCP tools (streamable HTTP at /mcp, `Authorization: Bearer <AGENT_TOKEN>`; the token is on /connect, never the sign-in password)
 - `gateway/ai.py` optional Claude request reading (`ANTHROPIC_API_KEY`), `gateway/security.py` supplier-text injection scanner
 - `tests/traps/cases.py` trap suite (each case: a way buying agents go wrong + the safe outcome); `docs/ASSUMPTIONS.md` mock quirks
 - `gateway/main.py` FastAPI: password gate, `/v1` open API, `/api` demo endpoints · `gateway/templates/` pages (index = buyer agent, valio = dashboard, connect) + shared style.css

@@ -44,6 +44,11 @@ MODIFIERS.discard("drink")  # Finnish lactose-free milk is sold as "milk drink"
 MODIFIERS |= {"cafe", "barista", "kahvi", "kaakao", "piima", "kerma", "jogurtti", "rahka", "annos"}
 # "butter" must not return nut or seed butters, "milk" must not return coconut or almond milk.
 MODIFIERS |= {"nut", "nuts", "cashew", "peanut", "almond", "hazelnut", "seed", "seeds", "shea", "coconut", "apple", "soy", "soya"}
+# "butter" must not return butter croissants: baked goods and dishes made with the product are other products.
+MODIFIERS |= {"croissant", "croissants", "bun", "buns", "butterbun", "cookie", "cookies", "biscuit", "biscuits", "pastry", "pastries",
+              "pie", "muffin", "donut", "doughnut", "roll", "rolls", "bread", "brioche", "danish", "flavoured", "flavored",
+              "squash", "butternutsquash", "tableskirt", "candle", "scotch", "butterscotch", "spray", "glaze", "ball", "balls", "bean", "beans",
+              "popcorn", "microwave", "taste", "aroma", "aromaoil", "voiaromiöljy"}
 # Finnish compounds: "kahvimaito" (coffee milk), "annosmaito" (portion cups), "suklaamaito" ...
 MODIFIER_PREFIXES = ("kahvi", "kaakao", "suklaa", "annos", "piimä", "kerma", "jogurt", "rahka", "vanilja", "mansikka")
 # English words for the Finnish prefixes: when the request itself asks for "coffee milk", "kahvimaito" is the

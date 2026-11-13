@@ -296,7 +296,7 @@ function renderOutcome(res) {
     const sg = res.result.suggestions || [];
     body = `<div class="banner bad"><h3>Reality check: not in Valio's catalog</h3>${esc(res.result.error)}
       ${sg.length ? `<div style="margin-top:10px" class="small">What does exist (nothing is ordered until you ask):</div>
-        <div class="chips" style="margin-top:6px">${sg.map(x => `<button class="chip" onclick='useSuggestion(${JSON.stringify(res.steps[0].intent.product)}, ${JSON.stringify(x.phrase)})'>${esc(x.phrase)} · ${x.count} products</button>`).join('')}</div>` : ''}
+        <div class="chips" style="margin-top:6px">${sg.map(x => `<button class="chip" onclick='useSuggestion(${esc(JSON.stringify(res.steps[0].intent.product))}, ${esc(JSON.stringify(x.phrase))})'>${esc(x.phrase)} · ${x.count} products</button>`).join('')}</div>` : ''}
       <div class="small muted" style="margin-top:8px">Stopped before any price or availability call.</div></div>`;
   }
   else if (!o && res.result.status === 'unit_mismatch') {
@@ -322,9 +322,12 @@ function renderOutcome(res) {
     <ul class="rules" style="margin-top:6px">${o.policy.rules.filter(r => !r.ok && r.level === 'block').map(r => `<li><span class="ic block">✕</span>${esc(r.rule)}<span class="detail">${esc(r.detail)}</span></li>`).join('')}</ul></div>`;
   else {
     const ap = o.policy.approver;
-    body = `<div class="banner warn"><h3>Waiting for ${esc(ap.role.toLowerCase())} sign-off</h3>
+    const fact = o.policy.ladder?.decided_by === 'proven';  // gate 4: a person checks a fact, not just signs
+    body = `<div class="banner warn"><h3>${fact ? 'Waiting for a fact check' : `Waiting for ${esc(ap.role.toLowerCase())} sign-off`}</h3>
       Sent to <b>${esc(ap.name)}</b>, who can approve up to ${eur(ap.up_to_eur)}.
-      <div class="actions"><button class="btn btn-ok" onclick="decide('${o.id}','approve','${esc(ap.name)}')">Approve as ${esc(ap.name.split(' ')[0])}</button>
+      ${fact ? `<div class="small" style="margin-top:6px">The data can't prove: ${o.policy.rules.filter(r => !r.ok && r.gate === 'proven').map(r => esc(r.rule)).join(', ')}.
+        Approving means you checked it.</div><input id="fc-${o.id}" class="field" style="margin-top:8px;width:100%" placeholder="What did you check? e.g. Valio confirmed 1,000 in stock by phone">` : ''}
+      <div class="actions"><button class="btn btn-ok" onclick="decide('${o.id}','approve','${esc(ap.name)}')">${fact ? 'Confirm checked' : 'Approve'} as ${esc(ap.name.split(' ')[0])}</button>
       <button class="btn btn-bad" onclick="decide('${o.id}','reject','${esc(ap.name)}')">Reject</button></div></div>`;
   }
   $('#tl').insertAdjacentHTML('beforeend', `<div class="step final" id="outcome"><div class="bullet">✓</div><div class="card">
@@ -364,7 +367,8 @@ function ladderHtml(l) {
 
 async function decide(id, decision, who) {
   let o;
-  try { o = await post(`/v1/approvals/${id}`, {decision, approver: who, comment: `${decision}d in demo UI`}); }
+  const fc = document.getElementById(`fc-${id}`);
+  try { o = await post(`/v1/approvals/${id}`, {decision, approver: who, comment: fc && fc.value.trim() ? fc.value.trim() : `${decision}d in demo UI`}); }
   catch (e) { $('#outcomeBody').innerHTML = `<div class="banner bad"><h3>Not placed</h3>${esc(e.message)}</div>`; showRecord(id); return; }
   $('#outcomeBody').innerHTML = o.status === 'placed'
     ? `<div class="banner ok"><h3>Approved by ${esc(who)} · order placed</h3>${o.id} · ${eur(o.total)}</div>`

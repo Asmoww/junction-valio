@@ -136,3 +136,23 @@ def save_order(o, expect_status=None):
                      json.dumps(o["policy"]), json.dumps(o["record"], default=str), o.get("created") or now(), now()))
         _db.commit()
         return True
+
+
+def merge_record(order_id, extra):
+    """Add display details to an order's record without touching its status, policy or approvals.
+    (A full save from a stale copy could undo an approval that happened in between.)"""
+    with _lock:
+        r = _db.execute("SELECT record FROM orders WHERE id = ?", (order_id,)).fetchone()
+        if not r:
+            return
+        rec = json.loads(r["record"] or "{}")
+        rec.update(extra)
+        _db.execute("UPDATE orders SET record = ? WHERE id = ?", (json.dumps(rec, default=str), order_id))
+        _db.commit()
+
+
+def auto_spend_since(mandate_id, since):
+    """Total the agent placed on its own under a mandate since a time: one SQL sum over every order."""
+    r = _db.execute("SELECT COALESCE(SUM(total), 0) FROM orders WHERE mandate_id = ? AND status = 'placed' "
+                    "AND json_extract(policy, '$.outcome') = 'auto_approve' AND created >= ?", (mandate_id, since)).fetchone()
+    return round(r[0] or 0, 2)

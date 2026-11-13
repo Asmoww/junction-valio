@@ -13,7 +13,7 @@ from fastapi import Body, FastAPI, Form, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from . import agent, ai, catalog, gates, policy, security, signing, store
-from .config import DEMO_CLOCK, DEMO_PASSWORD
+from .config import AGENT_TOKEN as AGENT_TOKEN_ENV, DEMO_CLOCK, DEMO_PASSWORD
 from .mcp_server import app as mcp_app
 from .mcp_server import mcp
 
@@ -34,6 +34,12 @@ app = FastAPI(
 TEMPLATES = Path(__file__).parent / "templates"
 _COOKIE = "tg_session"
 _token = hmac.new(DEMO_PASSWORD.encode(), b"tg-session", hashlib.sha256).hexdigest() if DEMO_PASSWORD else ""
+# Agents and people have different secrets: an agent's token is not the sign-in password, so a hijacked agent
+# can't swap its token for a browser session and approve its own order.
+AGENT_TOKEN = AGENT_TOKEN_ENV or (hmac.new(DEMO_PASSWORD.encode(), b"tg-agent", hashlib.sha256).hexdigest()[:32]
+                                     if DEMO_PASSWORD else "")
+if AGENT_TOKEN and AGENT_TOKEN == DEMO_PASSWORD:
+    raise SystemExit("AGENT_TOKEN must differ from DEMO_PASSWORD")
 OPEN_PATHS = {"/login", "/healthz", "/.well-known/jwks.json"}
 if not DEMO_PASSWORD:
     logging.getLogger("uvicorn.error").warning(
@@ -42,7 +48,7 @@ if not DEMO_PASSWORD:
 
 @app.middleware("http")
 async def password_gate(request: Request, call_next):
-    """Whole site behind one demo password: browser cookie, or `Authorization: Bearer <password>` for agents.
+    """Whole site behind sign-in: a browser cookie for people (DEMO_PASSWORD), `Authorization: Bearer <agent token>` for agents.
 
     The two are different principals. A signed-in browser is a human; a Bearer token is an agent. Agents
     may look up, quote and order, but only a human session may approve or reject an order, so a hijacked
@@ -54,7 +60,7 @@ async def password_gate(request: Request, call_next):
     if secrets.compare_digest(request.cookies.get(_COOKIE, ""), _token):
         request.state.principal = "human"
         return await call_next(request)
-    if auth.startswith("Bearer ") and secrets.compare_digest(auth[7:], DEMO_PASSWORD):
+    if auth.startswith("Bearer ") and secrets.compare_digest(auth[7:], AGENT_TOKEN):
         request.state.principal = "agent"
         return await call_next(request)
     if request.url.path.startswith(("/v1", "/api", "/mcp")):
@@ -105,7 +111,7 @@ def get_mandates():
 
 
 @app.post("/api/run", tags=["demo"])
-def run_agent(body: dict = Body(...)):
+def run_agent(request: Request, body: dict = Body(...)):
     """Run the buyer agent end to end on a natural-language request."""
     if not str(body.get("request") or "").strip():
         raise HTTPException(422, "request text is required")
@@ -114,9 +120,15 @@ def run_agent(body: dict = Body(...)):
         raise HTTPException(404, "unknown mandate")
     overrides = {}
     if body.get("auto_limit") is not None:
-        # Demo knob. Never above the mandate's hard limit, and never negative.
-        hard = policy.mandates()[mandate_id]["hard_limits"]["max_order_total_eur"]
-        overrides["auto_approve.max_order_total_eur"] = min(max(float(body["auto_limit"]), 0.0), hard)
+        # Demo knob for the buyer's own settings. A signed-in person may set it up to the hard limit; an agent can
+        # only lower its own authority, never raise it.
+        m = policy.mandates()[mandate_id]
+        ceiling = m["hard_limits"]["max_order_total_eur"] if getattr(request.state, "principal", None) == "human" \
+            else m["auto_approve"]["max_order_total_eur"]
+        try:
+            overrides["auto_approve.max_order_total_eur"] = min(max(float(body["auto_limit"]), 0.0), ceiling)
+        except (TypeError, ValueError):
+            raise HTTPException(422, "auto_limit must be a number")
     return agent.run(body["request"], mandate_id, overrides,
                      simulate_price_change=bool(body.get("simulate_price_change")), inject=bool(body.get("inject")),
                      real_clock=bool(body.get("real_clock")))
@@ -161,8 +173,11 @@ def concept_image(name: str):
 
 
 @app.get("/connect", response_class=HTMLResponse, include_in_schema=False)
-def connect_page():
-    return (TEMPLATES / "connect.html").read_text()
+def connect_page(request: Request):
+    page = (TEMPLATES / "connect.html").read_text()
+    if getattr(request.state, "principal", None) == "human" and AGENT_TOKEN:
+        page = page.replace("&lt;agent token&gt;", escape(AGENT_TOKEN))  # people hand this to their agent
+    return page
 
 
 @app.get("/static/style.css", include_in_schema=False)
@@ -251,7 +266,7 @@ def quote(body: dict = Body(..., examples=[{"mandate_id": "mnd_hotel_helsinki", 
     if body.get("mandate_id") not in policy.mandates():
         raise HTTPException(404, "unknown mandate")
     offer, jws, err = agent.quote(body["mandate_id"], body["deliver_by"], body.get("lines") or [],
-                                  requested_quantity=body.get("requested_quantity"))
+                                  requested_quantity=body.get("requested_quantity"), requested_unit=body.get("requested_unit"))
     if err:
         raise HTTPException(409, err)
     return {"offer": offer, "jws": jws}

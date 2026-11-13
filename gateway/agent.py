@@ -61,11 +61,14 @@ def _passed(deadline, now_s):
 
 
 def _number(s):
-    """'1,000' / '1 000' / '1.000' -> 1000; '2,5' / '2.5' -> 2.5 (Finnish and English styles)."""
+    """'1,000' / '1 000' / '1.000' -> 1000; '2,5' / '2.5' -> 2.5 (Finnish and English styles). None if not a number."""
     s = s.strip().replace("\u00a0", " ")
-    if re.fullmatch(r"\d{1,3}([ ,.]\d{3})+", s):
-        return float(re.sub(r"[ ,.]", "", s))
-    return float(s.replace(" ", "").replace(",", "."))
+    try:
+        if re.fullmatch(r"\d{1,3}([ ,.]\d{3})+", s):
+            return float(re.sub(r"[ ,.]", "", s))
+        return float(s.replace(" ", "").replace(",", "."))
+    except (ValueError, OverflowError):
+        return None  # "100.0.0": request_checks.quantity_problem explains
 
 UNIT_WORDS = {"L": "litres", "KG": "kg", "PCS": "pieces"}
 WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
@@ -106,6 +109,28 @@ def parse_request(text, today=None):
             deliver_by = date.fromisoformat(m.group())
         except ValueError:
             deliver_by = None  # not a real date: request_checks.date_problem reports it
+    elif m := re.search(r"\b(\d{1,2})\.(\d{1,2})\.(\d{4})?(?!\d)", t):  # Finnish style: 16.11. / 16.11.2026
+        try:
+            deliver_by = date(int(m.group(3) or today.year), int(m.group(2)), int(m.group(1)))
+            if not m.group(3) and deliver_by < today:
+                deliver_by = deliver_by.replace(year=today.year + 1)
+        except ValueError:
+            deliver_by = date(1900, 1, 1)  # not a real date: date_problem says so
+    elif m := (re.search(r"\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(st|nd|rd|th)?\b", t)
+               or re.search(r"\b(\d{1,2})(st|nd|rd|th)?\s+(?:of\s+)?(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b", t)):
+        g = m.groups()
+        mon, day = (g[0], g[1]) if not g[0].isdigit() else (g[2], g[0])
+        months = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
+        try:
+            deliver_by = date(today.year, months.index(mon) + 1, int(day))
+            if deliver_by < today:
+                deliver_by = deliver_by.replace(year=today.year + 1)
+        except ValueError:
+            deliver_by = date(1900, 1, 1)
+    elif re.search(r"\b(today|tonight|asap|right now|immediately|this (morning|afternoon|evening))\b", t):
+        deliver_by = today  # Valio's earliest delivery day is later: offered as a later delivery for a person to accept
+    elif m := re.search(r"\bin (\d{1,2}) days?\b", t):
+        deliver_by = today + timedelta(days=int(m.group(1)))
     elif "tomorrow" in t:
         deliver_by = today + timedelta(days=1)
     else:
@@ -124,7 +149,8 @@ def parse_request(text, today=None):
              if w not in STOP and w not in WEEKDAYS and w not in UNITS and w not in QUESTION_WORDS
              and w not in ("fresh", "uht", "tuore")]  # shelf life is captured separately below
     fat = re.search(r"(\d+(?:[.,]\d+)?)\s*%", t)
-    shelf = "long_life" if re.search(r"\buht\b|long[- ]life|pitkään säilyvä", t) else \
+    shelf = "fresh" if re.search(r"\b(not|no|non|without|except)[- (]*(uht|long[- ]?life)\b", t) else \
+        "long_life" if re.search(r"\buht\b|long[- ]life|pitkään säilyvä", t) else \
         "fresh" if re.search(r"\bfresh\b|tuore", t) else None
     if re.search(r"\b(cancel|change|modify|amend)\b", t) and re.search(r"\border\b", t):
         request_type = "change"
@@ -163,7 +189,9 @@ FUNCTION_WORDS = {"please", "kindly", "would", "could", "should", "like", "want"
                   "here", "have", "has", "had", "will", "shall", "just", "only", "also", "very", "much", "many", "each",
                   "every", "plain", "regular", "normal", "standard", "basic", "ordinary", "usual", "same", "again",
                   "start", "starting", "next", "week", "weekly", "today", "tomorrow", "tonight", "morning", "afternoon",
-                  "evening", "night", "date", "time", "later", "soon", "quickly", "fast", "liter", "litra", "litraa"}
+                  "evening", "night", "date", "time", "later", "soon", "quickly", "fast", "liter", "litra", "litraa",
+                  # courtesy: "Order 100 L milk by Monday, thanks" must not be sent back
+                  "thanks", "thank", "thx", "cheers", "hello", "hey", "regards", "tack", "kiitos", "sure", "great"}
 # Finnish and Swedish words that frame a request (weekdays, "order", "deliver"); matched as prefixes for inflection.
 FRAME_PREFIXES = ("maanantai", "tiistai", "keskiviiko", "torstai", "perjantai", "lauantai", "sunnuntai", "huomen",
                   "toimitu", "tilaa", "tarvit", "mennessä", "måndag", "tisdag", "onsdag", "torsdag", "fredag", "lördag",
@@ -177,7 +205,7 @@ def _known(w, vocab):
     return any(w.startswith(v) and len(w) - len(v) <= 4 for v in (w[:k] for k in range(5, len(w))) if v in vocab)
 
 
-def unmatched_terms(text, intent, covered_texts=()):
+def unmatched_terms(text, intent, covered_texts=(), strict=False):
     """Words in the request that the reading dropped.
 
     A request like "chili cheese chicken nuggets and 100 litres of milk" must not quietly become an order for
@@ -188,6 +216,7 @@ def unmatched_terms(text, intent, covered_texts=()):
     t = catalog.fold(text)
     for e in request_checks.EXCLUDE.finditer(t):
         t = t.replace(e.group(0), " ")
+    whole = t
     parts = re.split(r"\bfor\b", t, maxsplit=1)
     if len(parts) == 2 and re.search(r"\d", parts[0]):
         t = parts[0]  # "... by Wednesday for the school breakfast": the purpose clause isn't the product
@@ -220,6 +249,15 @@ def unmatched_terms(text, intent, covered_texts=()):
             continue
         if not _known(w, vocab):
             out.add(w)
+    if strict:  # (3) rule-based reading: every other sentence must be understood too (doubt is a no)
+        sentences = [x for x in re.split(r"(?<!\d)[.!?;:\n]+|[.!?;:\n]+(?!\d)", whole) if x.strip()]
+        order_at = next((i for i, x in enumerate(sentences) if re.search(r"\d", x)), 0)
+        for x in sentences[:order_at] + sentences[order_at + 1:]:
+            for w in re.findall(r"[a-zåäö]+", x):
+                if len(w) < 4 or w in ignore or w in request_checks.GENERIC or w.startswith(FRAME_PREFIXES) \
+                        or is_covered(w) or _known(w, vocab):
+                    continue
+                out.add(w)
     return sorted(out)
 
 
@@ -457,7 +495,7 @@ def create_offer(mandate, option, intent):
         "total_eur": option["total_eur"], "deliver_by": intent["deliver_by"],
         # What the buyer asked for, sealed into the signature: the order is checked against this, not against
         # whatever the agent claims later.
-        "requested_quantity": intent.get("quantity"),
+        "requested_quantity": intent.get("quantity"), "requested_unit": intent.get("unit"),
         "issued_at": store.now(), "expires_at": exp.astimezone(timezone.utc).isoformat(timespec="seconds"),
         "expiry_reason": reason,
         # Said inside the signature, so nobody can mistake a demo for a real purchase:
@@ -507,11 +545,16 @@ def _place_order(offer_jws, idempotency_key, mandate, context, client, actor):
     if drift:
         store.log(payload["offer_id"], "gateway", "order.rejected", {"reason": "price changed", "products": drift})
         return None, f"price changed since the offer for {', '.join(drift)}: request a new offer"
-    # How much the agent already ordered on its own under this mandate in the last 24 h (anti-smurfing).
+    # A quote is not a reservation: stock, cut-off and sales blocks are checked again at commit.
+    now_s, avail = client.availability(mandate["customer"], payload["deliver_by"], [l["productId"] for l in payload["lines"]])
+    gone = [p for l in payload["lines"] if (p := _line_problem(l, avail.get(l["productId"]) or {}, now_s, payload["deliver_by"]))]
+    if gone:
+        store.log(payload["offer_id"], "gateway", "order.rejected", {"reason": "availability changed", "problems": gone})
+        return None, f"{'; '.join(gone)}: request a new offer"
+    # How much the agent already ordered on its own under this mandate in the last 24 h (anti-smurfing): one SQL sum
+    # over every order, not a scan of the latest few.
     since = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat(timespec="seconds")
-    context["auto_spend_24h"] = round(sum(o["total"] for o in store.list_orders(500)
-                                          if o["mandate_id"] == mandate["mandate_id"] and o["status"] == "placed"
-                                          and o["policy"]["outcome"] == "auto_approve" and o["created"] >= since), 2)
+    context["auto_spend_24h"] = store.auto_spend_since(mandate["mandate_id"], since)
     verdict = policy.evaluate(mandate, payload, context)
     status = {"auto_approve": "placed", "needs_approval": "pending_approval", "blocked": "blocked"}[verdict["outcome"]]
     order = {"id": "ord_" + uuid.uuid4().hex[:10], "offer_id": payload["offer_id"], "idempotency_key": idempotency_key,
@@ -529,7 +572,22 @@ def _place_order(offer_jws, idempotency_key, mandate, context, client, actor):
     return order, None
 
 
-def quote(mandate_id, deliver_by, lines, client=None, requested_quantity=None):
+def _line_problem(line, av, now_s, deliver_by):
+    """Why a line can't be delivered as offered, or "". One check for quoting, committing and late approval."""
+    pid = line["productId"]
+    deliver_by = max(deliver_by, line.get("deliveryDate") or deliver_by)  # a later delivery the buyer's side accepted
+    if av.get("salesBlock"):
+        return f"{pid} has a sales block"
+    if _passed(av.get("closingTime"), now_s):
+        return f"{pid}: the order deadline (cut-off) passed at {av.get('closingTime')}"
+    sched = [x for x in av.get("scheduleLines", []) if not x.get("salesBlock") and x.get("availableDate")
+             and x["availableDate"] <= deliver_by]
+    if not sched or sum(x.get("availableAmount", 0) for x in sched) < line["units"]:
+        return f"{pid} is no longer available in that quantity by {deliver_by}"
+    return ""
+
+
+def quote(mandate_id, deliver_by, lines, client=None, requested_quantity=None, requested_unit=None):
     """Signed fixed-price offer for explicit lines (used by /v1/quotes and the MCP tool).
 
     Returns (offer, jws, None) or (None, None, error)."""
@@ -547,15 +605,23 @@ def quote(mandate_id, deliver_by, lines, client=None, requested_quantity=None):
         pr, av, p = prices.get(pid), avail.get(pid) or {}, catalog.get(pid)
         if not p or not pr or not pr.get("catalogPrice"):
             return None, None, f"no price for {pid}"
-        if _passed(av.get("closingTime"), now_s):
-            return None, None, f"{pid}: order deadline for {deliver_by} passed at {av['closingTime']}"
+        if problem := _line_problem({"productId": pid, "units": l["units"]}, av, now_s, deliver_by):
+            return None, None, problem
         sched = [x for x in av.get("scheduleLines", []) if not x.get("salesBlock") and x.get("availableDate")
                  and x["availableDate"] <= deliver_by]
-        if not sched or sum(x["availableAmount"] for x in sched) < l["units"]:
-            return None, None, f"{pid} not available in that quantity by {deliver_by}"
+        # Pack size comes from Valio's data, never from the caller: a 2 L carton is 2 L whatever an agent says.
+        unit = (requested_unit or "").upper()
+        per = _per_unit(p, pr, unit) if unit in ("L", "KG") else 1.0
+        if per is None:
+            return None, None, f"{pid}: Valio's data doesn't say how many {unit} one {p['salesUnit']} holds: quote in sales units"
+        claimed = l.get("perUnit")
+        if claimed is not None and abs(float(claimed) - per) > 0.03 * per:
+            store.log("security", "gateway", "security.pack_size_mismatch",
+                      {"mandate_id": mandate_id, "productId": pid, "claimed": claimed, "from_valio": per})
+            return None, None, f"{pid}: one {p['salesUnit']} holds {per:g} {unit or 'sales unit'}, not {claimed}: request a new offer"
         up = pr["catalogPrice"]["value"]
         out.append({"productId": pid, "name": p["name"], "units": l["units"], "salesUnit": p["salesUnit"],
-                    "unitPrice": up, "lineTotal": round(up * l["units"], 2), "perUnit": l.get("perUnit", 1),
+                    "unitPrice": up, "lineTotal": round(up * l["units"], 2), "perUnit": per,
                     "deliveryDate": min(x["availableDate"] for x in sched), "reliability": p["reliability"],
                     "substitution": l.get("substitution"), "orderDeadline": av.get("closingTime"),
                     "priceValidTo": (pr["catalogPrice"].get("validTo") or "")[:10] or None,
@@ -563,7 +629,8 @@ def quote(mandate_id, deliver_by, lines, client=None, requested_quantity=None):
                     "trust": trust_flags(p, pr, av, sum(x["availableAmount"] for x in sched), now_s),
                     "evidence": catalog.evidence(p)})
     option = {"lines": out, "total_eur": round(sum(x["lineTotal"] for x in out), 2)}
-    offer, jws = create_offer(mandate, option, {"deliver_by": deliver_by, "quantity": requested_quantity})
+    offer, jws = create_offer(mandate, option, {"deliver_by": deliver_by, "quantity": requested_quantity,
+                                                "unit": (requested_unit or "").upper() or None})
     return offer, jws, None
 
 
@@ -641,6 +708,13 @@ def _decide(order_id, decision, approver, comment, client):
         return None, f"{approver or 'this person'} is not an approver in the buyer's mandate"
     if decision == "approve" and order["total"] > who["up_to_eur"]:
         return None, f"{approver} can approve up to €{who['up_to_eur']:,}; this order is €{order['total']:,.2f}"
+    gate = (order["policy"].get("ladder") or {}).get("decided_by")
+    unproven = [r["rule"] + ": " + str(r.get("detail", "")) for r in order["policy"].get("rules", [])
+                if not r["ok"] and gates.gate_of(r["rule"]) == "proven"]
+    if decision == "approve" and gate == "proven" and len((comment or "").strip()) < 8:
+        # Gate 4 is a fact check, not a sign-off: clicking Approve proves nothing about stock or allergens.
+        return None, ("this order waits for a fact check (" + "; ".join(unproven) + "). Write what you checked, "
+                      "for example “Valio confirmed 1,000 in stock by phone”, and approve again")
     offer = order["record"]["offer"]
     if decision == "approve" and offer["expires_at"] < store.now():
         client = client or ValioClient()
@@ -650,11 +724,8 @@ def _decide(order_id, decision, approver, comment, client):
                    if abs((fresh.get(l["productId"], {}).get("catalogPrice") or {}).get("value", -1) - l["unitPrice"]) > 0.005]
         # Stock and cut-off can change while an order waits too.
         now_s, avail = client.availability(mandate["customer"], offer["deliver_by"], ids)
-        for l in offer["lines"]:
-            a = avail.get(l["productId"]) or {}
-            sched = [x for x in a.get("scheduleLines", []) if not x.get("salesBlock") and x.get("availableDate")]
-            if _passed(a.get("closingTime"), now_s) or sum(x.get("availableAmount", 0) for x in sched) < l["units"]:
-                changed.append(l["productId"])
+        changed += [l["productId"] for l in offer["lines"]
+                    if _line_problem(l, avail.get(l["productId"]) or {}, now_s, offer["deliver_by"])]
         if changed:
             order["status"] = "expired"
             order["record"].setdefault("approvals", []).append(
@@ -670,7 +741,8 @@ def _decide(order_id, decision, approver, comment, client):
         {"approver": approver, "decision": decision, "comment": comment, "at": store.now(),
          # What the click means: a gate-4 approval confirms facts the data couldn't prove (the approver checks
          # the label or the supplier); a gate-5 approval uses the approver's authority. Gate 3 can't be approved.
-         "gate": (order["policy"].get("ladder") or {}).get("decided_by")})
+         "gate": gate,
+         **({"fact_check": {"unproven": unproven, "evidence": comment}} if gate == "proven" and decision == "approve" else {})})
     if not store.save_order(order, expect_status="pending_approval"):
         return None, "someone else decided this order first"
     store.log(order_id, f"human:{approver}", f"approval.{decision}", {"comment": comment})
@@ -698,7 +770,11 @@ def _run(text, mandate_id, overrides=None, simulate_price_change=False, inject=F
     client = ValioClient()
     steps = []
     run_id = "run_" + uuid.uuid4().hex[:10]
-    ai_intent = ai.parse(text)
+    raw = text
+    ai_intent = ai.parse(raw)
+    # The deterministic checks read a normalised copy: invisible characters and look-alike letters removed,
+    # "no lactose" read as "lactose-free", "12 dozen" as 144 (request_checks.normalise).
+    text = request_checks.normalise(raw)
     if ai_intent and "_error" not in ai_intent:
         intent, parser = ai_intent, f"Claude ({ai.MODEL})"
         # Guard, whatever the model: if Claude's product is just a shortened version of the buyer's own words
@@ -730,9 +806,10 @@ def _run(text, mandate_id, overrides=None, simulate_price_change=False, inject=F
         hard["forbidden_allergens"] = sorted(set(hard.get("forbidden_allergens", [])) | set(allergy_codes))
         ap = mandate.setdefault("allergen_policy", {})
         ap["may_contain"] = "block"
-        ap.setdefault("no_data", "needs_approval")
+        if ap.get("no_data", "allow") == "allow":  # a stated allergy: missing allergen data needs a person, at least
+            ap["no_data"] = "needs_approval"
         intent["allergies"] = [catalog.ALLERGENS.get(a, a) for a in allergy_codes]
-    store.log(run_id, f"agent:{mandate['agent']}", "request.received", {"text": text, "mandate_id": mandate_id, "parser": parser,
+    store.log(run_id, f"agent:{mandate['agent']}", "request.received", {"text": raw, "mandate_id": mandate_id, "parser": parser,
                                                                          "request_allergies": allergy_codes})
     steps.append({"step": "request", "title": "Understand the request", "intent": intent})
 
@@ -764,6 +841,17 @@ def _run(text, mandate_id, overrides=None, simulate_price_change=False, inject=F
                        "The request contains instructions aimed at the agent (" + "; ".join(sorted({f["why"] for f in findings}))
                        + "). The agent takes only what to buy from a request and never follows such text. "
                          "Nothing was ordered: send the purchase on its own.")
+    if problem := request_checks.allergy_unclear(text):
+        return exit_at("clear", "ask_back", "allergy_unclear", f"Nothing was ordered: {problem}.")
+    banned = set(mandate["hard_limits"].get("forbidden_allergens") or [])
+    if clash := request_checks.inherent_allergen(intent.get("product") or "", banned):
+        # "Butter" for a dairy-free menu: the product asked for IS the banned allergen. Searching on would only find
+        # look-alikes (butter beans, sesame butter), so stop and let the requester name an alternative.
+        word, code = clash
+        return exit_at("allowed", "stop", "allergen_conflict",
+                       f"Nothing was ordered: {word} contains {catalog.ALLERGENS.get(code, code).lower()}, which this "
+                       f"request or the mandate rules out. Name a {catalog.ALLERGENS.get(code, code).lower()}-free "
+                       "alternative (for example a plant-based spread or oat drink) if you want one.")
     problem, gate = request_checks.date_problem(text, intent.get("deliver_by"), date.today())
     if problem:
         return exit_at(gate, "ask_back", "invalid_date", f"Nothing was ordered: {problem}.")
@@ -814,7 +902,8 @@ def _run(text, mandate_id, overrides=None, simulate_price_change=False, inject=F
             trace.setdefault("excluded_by_request", []).append(" ".join(sorted(words | ex["ids"])))
     # Gate 1 again, now that we know what the words matched: nothing in the request may be silently dropped.
     intent["ignored_terms"] = sorted(set(intent.get("ignored_terms") or []) |
-                                     set(unmatched_terms(text, intent, [p["_text"] for p in candidates])))
+                                     set(unmatched_terms(text, intent, [p["_text"] for p in candidates],
+                                                         strict=intent["parser"].startswith("rules"))))
     if rtype == "buy" and intent["ignored_terms"]:
         return exit_at("clear", "ask_back", "unclear_request",
                        f"Understood: {intent.get('quantity') or ''} {intent.get('unit', '')} {intent['product']}. "
@@ -987,9 +1076,11 @@ def _run(text, mandate_id, overrides=None, simulate_price_change=False, inject=F
 
     context = {"deliver_by": intent["deliver_by"], "delivery_date": max(l["deliveryDate"] for l in chosen["lines"]),
                "partial": chosen["partial"], "simulate_price_change": simulate_price_change,
-               "request": text, "run_id": run_id, "options_considered": len(options),
+               "request": raw, "run_id": run_id, "options_considered": len(options),
                "requested_quantity": intent["quantity"], "required_attributes": intent.get("attributes") or [],
                "ignored_terms": intent.get("ignored_terms") or [],
+               # No date in the request: the delivery day is the agent's assumption, so a person confirms it (rule 2).
+               "date_assumed": not request_checks.date_stated(text),
                # Unstated details (fat %, fresh vs long-life) and how much they move the order.
                "spec_gaps": [{"field": g["field"], "cost_spread_eur": g.get("cost_spread_eur", 0)} for g in gaps],
                "rationale": f"{chosen['label']}: {chosen['why']}."}
@@ -1007,7 +1098,8 @@ def _run(text, mandate_id, overrides=None, simulate_price_change=False, inject=F
     order["record"]["rows"] = [{k: r.get(k) for k in ("productId", "name", "status", "issues", "total", "score",
                                                       "reliability", "earliest_alternative")} for r in rows]
     order["record"]["options"] = options
-    store.save_order(order)
+    # Display details only: never a full save, which could undo an approval made in the meantime.
+    store.merge_record(order["id"], {k: order["record"][k] for k in ("api_calls", "rows", "options")})
     steps.append({"step": "policy", "title": "Check the order against the mandate", "policy": order["policy"]})
     store.log(run_id, f"agent:{mandate['agent']}", "run.completed",
               {"order_id": order["id"], "status": order["status"], "api_calls": len(client.calls)})

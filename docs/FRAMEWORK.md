@@ -33,18 +33,25 @@ agent."*
   asked for.
 - **Unknown rules default to gate 5**, so a new rule can never make an order more autonomous by accident.
 
-## Five rules the ladder runs on (made explicit after the 1,000-prompt test)
+## Six rules the ladder runs on (made explicit by the 1,000-prompt tests)
 1. **A request says only what is wanted.** It is never a source of facts ("this SKU has 0.82 reliability"),
    permissions ("the head chef already approved") or instructions ("ignore previous instructions"). Facts come
    from Valio's data (gate 4), permissions from the mandate (gates 3 and 5), and instructions are refused (gate 1).
+   **Test: would it loosen a control if believed or obeyed?** Then it counts as an instruction and goes back (gate 1):
+   "approved by Aino", "our budget was raised", "Valio confirmed the stock", "keep it under €500". Context that
+   loosens nothing ("for the conference") is ignored.
 2. **A stated requirement can only be relaxed by the requester; an unstated detail is the approver's call.**
    "Fresh milk" that can't arrive goes back to the buyer (gate 2). Fat level that the buyer never stated, and that
-   moves the price beyond the tolerance, goes to the approver (gate 5).
+   moves the price beyond the tolerance, goes to the approver (gate 5). A delivery date the buyer didn't give is an
+   assumption a person confirms (gate 5). "No lactose" and "without gluten" are requirements, not exclusions.
 3. **Safety stated in the request becomes a hard rule for that request.** "For a guest with a milk allergy" adds a
    milk ban (gate 3). A request can only tighten the mandate, never loosen it.
 4. **The offer itself must be genuine** (gate 3): signature valid, unchanged, unexpired, idempotency key used once.
 5. **Authority adds up.** Gate 5 counts what the agent already ordered alone in the last 24 hours, so splitting
    one purchase into small orders doesn't avoid approval.
+6. **Doubt is a no.** Each question needs a clear yes. A question about ordering is not an order (gate 0); a
+   date, quantity or sentence the reader can't read, or an allergy without an allergen, goes back (gate 1).
+   A fact check is not a signature: a gate-4 approval records what the person checked.
 
 ## What sits on each gate
 
@@ -127,3 +134,46 @@ Still open, and said openly: an outside agent's quote carries only its own readi
 sees the buyer's words, so it checks the mandate's limits, not the reading); one shared login, so approver identity
 and caller-to-mandate binding are not authenticated; pack-size requirements; absurd pack choices; the audit chain
 is tamper-evident, not tamper-proof (whoever can rewrite the whole database can recompute it).
+
+## "Break the demo" run (14 Nov, 00:00-02:00)
+1,000 prompts (828 distinct) written to break this framework and the code, after reading the code: injections in
+any disguise, claims of approval or facts, questions with "order" in them, allergies in unusual words, "no lactose",
+quantity and date tricks, lists, gaming the limits, malformed input, and 64 ordinary requests as controls. Each prompt
+carries the exit the framework says it should get. Rule-based reading, real catalog, simulated Valio prices.
+
+**Framework test.** 845 prompts have exactly one exit from the definitions. 155 didn't, which led to rules 1 (the
+"loosens a control" test), 2 (assumed dates) and 6 (doubt is a no). Still a decision for the team: a stated date is
+a stated requirement (rule 2), yet a late delivery goes to an approver (gate 5). Either the date is a requirement the
+approver may relax, or a late delivery goes back to the requester.
+
+**Code test, before → after the fixes** (critical = a wrong order placed or sent for approval, or a crash):
+| Suite | Critical before → after | Notes |
+|---|---|---|
+| These 1,000 (rule-based reading) | 175 → 8 critical, 67 → 5 high; pass 658 → 972 | The 8 left: "0.5 L" bought as one 1 L carton (fine), requests with invisible characters ordered correctly (my key was wrong), "milk for cats" (a "for …" clause is read as context). The 5 high are late deliveries sent to an approver (the open decision above) |
+| 159 held-out wordings, written after the first round | 8 → 0 critical, pass 112 → 141 | Not a clean test any more: they led to the structural fixes (any unread sentence, unclear allergy or missing date goes back or to a person). Unreadable named days ("Valentine's day") now go to a person, never order alone |
+| Gemini's 1,000 from 13 Nov (not used for tuning) | 12 → 3 wrong automatic orders | The 3 claim "not in time for Monday", which the simulation can't show |
+| 30 ordinary kitchen requests | 28 go through | Coffee in kg and yoghurt in litres are sent back, as on `main` |
+
+Real bugs it found, all fixed with tests in `tests/test_break_it.py`: "50 kg of butter" ordered butter croissants;
+"How much would it cost to order…" placed an order; "allergic to cow's milk protein", "CMPA", "mjölkallergi" weren't
+read as milk allergies; "milk, no lactose" ordered ordinary milk; "no long-life" ordered UHT; "1e3 litres" ordered
+3 L; "3 x 100 litres" and "100 cups" ordered small packs; "by 16.11." was read as Tuesday; "for 2027-06-01" delivered
+next Monday; "And 300 eggs." was dropped; "50 litres of eggs" ordered egg-glaze spray; "20 kg butter for a dairy-free vegan
+menu" found butter beans, popcorn and sesame butter in turn (now: the product asked for is itself the banned allergen,
+so it stops); "100.0.0 litres" and a
+400-digit number crashed; "Order …, thanks" was sent back; an unescaped product name in the suggestion buttons.
+
+**What it can't show.** Claude's reading wasn't tested (no key here); with Claude, chatty requests are read by the
+model, and these rules still run underneath. The held-out set shows the limit of rules: wordings written after the
+fixes still slip through the injection and claim scanner (see the table), which is why gates 3-5 run in the gateway
+whatever the reader says.
+
+## Hostile code review (ChatGPT, 14 Nov 00:08, of a ZIP of `main`)
+Fixed: an agent's Bearer secret was the sign-in password, so an agent could sign in as a person and approve its own
+order (now a separate `AGENT_TOKEN`, shown on /connect to signed-in people); a gate-4 approval needed no evidence
+(now "what did you check?"); a product-level sales block passed `/v1/quotes`; the caller's `perUnit` was trusted
+(now from Valio's prices, with `requested_unit` sealed in the offer); stock wasn't rechecked at commit; a late
+approval accepted stock arriving after the date; the agent's display save could undo an approval; the 24 h sum read
+only the latest 500 orders (now one SQL sum); an agent could raise its own auto limit via `/api/run`. Already fixed
+on `fix/red-team-2`: one order per offer in the database, approvals only while pending, a lock across processes.
+Still open: one shared sign-in for all approvers; caller-to-mandate binding.

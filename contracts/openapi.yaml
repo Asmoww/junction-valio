@@ -212,6 +212,7 @@ components:
               units: {type: number, description: In sales units}
               substitution: {type: string}
         requested_quantity: {type: number, description: "What the buyer asked for, in the same unit as the lines (sales units for /v1/quotes; the agent seals the buyer's own unit, e.g. litres). Sealed into the signed offer; an order claiming a different requested_units is refused."}
+        requested_unit: {type: string, enum: [L, KG, PCS], description: "Unit of requested_quantity (sales units if omitted). Pack sizes come from Valio's prices, never from the caller: a perUnit that disagrees is refused. Sealed into the signed offer."}
     Offer:
       description: Signed payload. Fixed catalog price (not negotiated), valid until expires_at.
       type: object
@@ -229,6 +230,7 @@ components:
         expires_at: {type: string, format: date-time, description: "Earliest of: 15 min, order cut-off, price validity"}
         expiry_reason: {type: string}
         requested_quantity: {type: [number, "null"], description: What the buyer asked for, sealed into the signature}
+        requested_unit: {type: [string, "null"], description: Unit of requested_quantity, sealed into the signature}
     PolicyRule:
       type: object
       properties:

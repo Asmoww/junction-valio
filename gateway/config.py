@@ -18,7 +18,10 @@ _load_dotenv()
 
 VALIO_API_BASE_URL = os.environ.get("VALIO_API_BASE_URL") or "https://junction26.valioaimo.fi/api"
 VALIO_API_KEY = os.environ.get("VALIO_API_KEY", "")
-DEMO_PASSWORD = os.environ.get("DEMO_PASSWORD", "")
+DEMO_PASSWORD = os.environ.get("DEMO_PASSWORD", "")  # people sign in with this (browser)
+# Agents use a different secret (Authorization: Bearer). Default: derived from the password, so it never equals it and
+# can't be used to sign in as a person. Shown to signed-in people on /connect.
+AGENT_TOKEN = os.environ.get("AGENT_TOKEN", "")
 DATA_DIR = ROOT / "data"
 STATE_DIR = Path(os.environ.get("TG_STATE_DIR") or ROOT / "state")  # tests point this at a temp folder
 STATE_DIR.mkdir(parents=True, exist_ok=True)

@@ -53,7 +53,9 @@ REQUEST_PATTERNS = [x for x in PATTERNS if "pushes a specific large quantity" no
     (r"\b(debug|developer|admin|god|maintenance) mode\b", "claims a special mode"),
     (r"\b(auto_?approve\w*|mandate_id|policy\.\w+|bypass_\w+|stock_known|reliability_warning|forbidden_allergens)\b"
      r"|\bstatus\s*=", "tries to set gateway fields"),
-    (r"drop\s+table|;\s*--|\bunion\s+select\b|\bdelete\s+from\b", "SQL injection"),
+    (r"drop\s+table|;\s*--|\bunion\s+select\b|\bdelete\s+from\b|'\s*or\s+1\s*=\s*1", "SQL injection"),
+    (r"\{\{|\$\{|\{%|%[sndx]%|%n\b|\.\./|<\s*(script|img|iframe|svg)\b|\bon(error|load|mouseover|focus)\s*=|javascript:",
+     "contains code or markup, not a request"),
     (r"\bskip (step|the approval|approval|checks?|the mandate)\b|\bwithout (logging|checks?|re-?signing)\b",
      "tries to skip controls"),
     (r"\b(must|shall) order (a )?minimum\b|\bto qualify\b", "pushes a quantity"),
@@ -68,7 +70,43 @@ REQUEST_PATTERNS = [x for x in PATTERNS if "pushes a specific large quantity" no
 ]
 
 
+REQUEST_PATTERNS += [
+    # Instructions, whatever the language or format
+    (r"\brole\s*[:=]\s*\W?(system|admin|developer)|\b(note|message|instructions?) (for|to) (the )?(ai|agent|assistant|bot|llm)\b"
+     r"|\bif you are an? (ai|agent|assistant|language model|llm|bot)\b|\b(hey|dear|hi|attention|ok|okay),? (agent|assistant|ai|bot)\b"
+     r"|\b(assistant|agent),|\bdecode and\b|\bbase64\b|\b(respond|reply|answer) (only )?with\b|\bnew instructions\b|\bbypass\b",
+     "addresses the agent with instructions"),
+    (r"\bohita\b|\bohjeet\b|\bunohda\b.{0,20}\bsään|\bhyväksy\w*\b.{0,30}\bautomaatti|\bignorera\b|\binstruktion\w*"
+     r"|\bgodkänn\w*\b|\bignorier\w*|\banweisung\w*|\bgenehmig\w*", "instructions in another language"),
+    # Standing or steering instructions: about how the agent works, not about what is wanted
+    (r"\b(from now on|every (day|time|order)|always (choose|pick|order|use|buy)|repeat (this|the) order|order the max(imum)?"
+     r"|as much as (possible|available)|round (it )?up|also order for|(pick|choose) the (most expensive|priciest)"
+     r"|even if \w+ is cheaper|(read|interpret|treat)\w* (it )?as \d)", "tries to steer how the agent orders"),
+    # Claims that would loosen a control if believed (FRAMEWORK.md rule 1): approvals, identity, limits, facts
+    (r"\bauto-?approv\w*|\bapprove (it |this |the order )?(yourself|automatically|without)|\bapproval (is )?granted\b"
+     r"|\bconsider it approved\b|\btreat (every|all|this) orders? as approved\b|\bapproved by\b|\b(has|have) approved\b"
+     r"|\b(i|we) approve\b|\b(approved|okayed|ok'?d|signed|authori[sz]ed) (this|it|the order)\b|\bsigned (it )?off\b|\bsays yes\b|\b(said|says) so\b|\byou have my permission\b"
+     r"|\b(i'?m|i am) authori[sz]ed\b|\b(i'?m|i am|this is) (jari|aino|the (head chef|purchasing manager|manager|owner|ceo|cfo))\b"
+     r"|\bas (the )?(head chef|manager|owner|ceo|purchasing manager)\b", "claims an approval or authority"),
+    (r"\b(exempt|exception) from (the )?(mandate|limits?|rules?|approval)|\b(raise|increase|change|set|lift) the (\w+ )?limit\b"
+     r"|\b(budget|limit) (was |is |has been )?(raised|increased|lifted|extended)\b|\bour (budget|limit) is\b|\bthe (hard |auto )?limit is\b"
+     r"|\b(rules?|limits?) no longer apply\b|\bno longer apply\b|\bskip (the )?approval|\b(just|directly) place it\b|\bplace it directly\b"
+     r"|\bno need to check\b|\b(use|bill|charge)\b.{0,25}\b(budget|mandate)\b|\bmnd_\w+|\bapprover is (on holiday|away|out)",
+     "claims a limit or rule doesn't apply"),
+    (r"\b(valio )?(has |have )?confirmed (the )?(stock|availability|allergens?|price)|\bconfirmed (the )?stock\b|\bstock is confirmed\b"
+     r"|\ballergen (info|information|data) is (fine|ok|correct)|\breliability (for this product |of this product )?is\b"
+     r"|\b(agreed|contract|special) price\b|\bprice of €", "states a fact the gateway must take from Valio's data"),
+]
+_LEET = str.maketrans({"1": "i", "0": "o", "3": "e", "4": "a", "5": "s", "7": "t", "@": "a", "$": "s"})
+
+
 def scan_request(text):
-    """Scan a buyer's request text for instructions aimed at the agent (gate 1 of the decision ladder)."""
-    t = (text or "").lower()
-    return [{"pattern": p, "why": why} for p, why in REQUEST_PATTERNS if re.search(p, t)]
+    """Scan a buyer's request text for instructions aimed at the agent (gate 1 of the decision ladder).
+
+    Scanned as written, with look-alike letters and invisible characters normalised, with spaced-out letters
+    joined ("i g n o r e") and with digits read as letters ("1gn0re")."""
+    from . import catalog, request_checks
+    t = catalog.fold(request_checks.normalise(text or ""))
+    joined = re.sub(r"(?<=\b\w) (?=\w\b)", "", t)
+    variants = {t, joined, joined.translate(_LEET)}
+    return [{"pattern": p, "why": why} for p, why in REQUEST_PATTERNS if any(re.search(p, v) for v in variants)]
