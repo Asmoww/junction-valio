@@ -16,6 +16,11 @@ def text(values, lang):
     return next((v["value"] for v in values or [] if v.get("language") == lang), "")
 
 
+def nutrient(synkka, code):
+    """Value per 100 g/ml of a nutrient (e.g. LACS lactose, FAT), or None if not declared."""
+    return next((n["value"] for n in synkka.get("nutritionalContent") or [] if n.get("id") == code), None)
+
+
 def read_csv(name, col):
     out = {}
     with open(data / name, newline="", encoding="utf-8") as f:
@@ -49,6 +54,12 @@ for p in products:
         "units": {u["unitId"]: u.get("sizeInBaseUnits") for u in p.get("units") or []},
         "origin": p.get("countryOfOrigin"),
         "contains": sorted({v["id"] for v in groups.get("allergen", []) if v.get("unit") == "CONTAINS"}),
+        "mayContain": sorted({v["id"] for v in groups.get("allergen", []) if v.get("unit") == "MAY_CONTAIN"}),
+        "undeclared": sorted({v["id"] for v in groups.get("allergen", []) if v.get("unit") == "UNDECLARED"}),
+        # No allergen or free-from values at all means "unknown", never "allergen-free".
+        "allergenData": bool(groups.get("allergen") or groups.get("nonAllergen")),
+        "lactoseG": nutrient(s, "LACS"),
+        "fatPct": nutrient(s, "FAT"),
         "freeFrom": sorted({v["id"] for v in groups.get("nonAllergen", []) if v.get("unit") == "FREE_FROM"}),
         "claims": sorted({v["id"] for v in groups.get("nutritionalClaim", [])}),
         "labels": sorted({v["id"] for v in groups.get("packagingMarkedLabel", []) if v["id"].isupper()}),

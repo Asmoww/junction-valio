@@ -1,30 +1,29 @@
 {
-  "mandate_id": "mnd_hotel_helsinki_v1",
-  "buyer": "Hotel Example Helsinki",
+  "mandate_id": "mnd_school_espoo",
+  "buyer": "Espoo school kitchen (demo)",
+  "customer": "123",
+  "agent": "school-kitchen-agent",
   "valid_until": "2026-12-31",
-  "auto_approve": {
-    "max_order_total_eur": 500,
-    "max_line_price_increase_pct": 10,
-    "allowed_categories": ["dairy", "bakery", "produce"]
-  },
-  "require_human_approval_if": [
-    "order_total_eur > auto_approve.max_order_total_eur",
-    "substitution_level >= 2",
-    "category not in auto_approve.allowed_categories",
-    "delivery_date > requested_by"
-  ],
+  "auto_approve": {"max_order_total_eur": 300},
   "hard_limits": {
-    "max_order_total_eur": 5000,
-    "max_carbon_kg_co2e_per_order": null
+    "max_order_total_eur": 2000,
+    "forbidden_allergens": ["AN", "AP", "SA", "SH", "AS"],
+    "required_claims": []
   },
-  "substitutions": {
-    "level_1_same_product_other_pack": "allowed",
-    "level_2_same_spec_other_brand": "with_approval",
-    "level_3_different_spec": "forbidden"
-  },
+  "allergen_policy": {"may_contain": "block", "no_data": "needs_approval"},
+  "max_unconfirmed_units": 100,
+  "substitutions": {"official_substitute": "with_approval", "other_product": "with_approval"},
+  "min_delivery_reliability": 0.9,
   "approvers": [
-    {"role": "chef", "up_to_eur": 1500},
-    {"role": "purchasing_manager", "up_to_eur": 5000}
+    {"role": "Kitchen manager", "name": "Leena Koski", "up_to_eur": 1000},
+    {"role": "Municipal procurement", "name": "Timo Heikkinen", "up_to_eur": 2000}
   ],
-  "weights": {"price": 0.5, "delivery_reliability": 0.3, "carbon": 0.2}
+  "weights": {"price": 0.5, "reliability": 0.4, "carbon": 0.1},
+  "_notes": {
+    "forbidden_allergens": "GS1 allergen codes, e.g. AN tree nuts, AP peanuts, SA almond, SH hazelnut, AS sesame, AM milk, ML lactose, AW gluten",
+    "allergen_policy": "may_contain and no_data: block | needs_approval | allow. Missing data is unknown, never allergen-free.",
+    "max_unconfirmed_units": "Lines above this many sales units with stock Valio can't confirm (supplier warehouse) need a person",
+    "substitutions": "allowed | with_approval | forbidden. Official substitutes must also be the same product category (fit check).",
+    "weights": "Ranking only. Unknown delivery reliability is neutral (0.95) and shown as a flag instead."
+  }
 }

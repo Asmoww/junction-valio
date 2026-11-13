@@ -5,9 +5,9 @@ import sqlite3
 import threading
 from datetime import datetime, timezone
 
-from .config import STATE_DIR
+from .config import DB_PATH
 
-_db = sqlite3.connect(STATE_DIR / "gateway.db", check_same_thread=False)
+_db = sqlite3.connect(DB_PATH, check_same_thread=False)
 _db.row_factory = sqlite3.Row
 _lock = threading.Lock()
 _db.executescript("""

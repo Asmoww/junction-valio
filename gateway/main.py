@@ -105,6 +105,15 @@ def info():
     return {"ai_parser": ai.enabled(), "model": ai.MODEL if ai.enabled() else None}
 
 
+@app.get("/api/traps", tags=["demo"])
+def traps():
+    """Latest trap-suite results (scripts/run_traps.py): real-data cases where buying agents go wrong."""
+    import json
+    from .config import STATE_DIR
+    f = STATE_DIR / "trap_results.json"
+    return json.loads(f.read_text()) if f.exists() else {"results": []}
+
+
 @app.get("/connect", response_class=HTMLResponse, include_in_schema=False)
 def connect_page():
     return (TEMPLATES / "connect.html").read_text()

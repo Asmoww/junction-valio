@@ -22,5 +22,7 @@ DEMO_PASSWORD = os.environ.get("DEMO_PASSWORD", "")
 DATA_DIR = ROOT / "data"
 STATE_DIR = ROOT / "state"
 STATE_DIR.mkdir(exist_ok=True)
+# Separate database for test runs, so trap tests never show up as demo orders.
+DB_PATH = Path(os.environ.get("GATEWAY_DB") or STATE_DIR / "gateway.db")
 TIMEZONE = "Europe/Helsinki"
 OFFER_TTL_MINUTES = 15

@@ -56,7 +56,8 @@ data), then `python scripts/build_catalog.py` builds `data/catalog.json`.
 ```bash
 uv sync                                   # install
 uv run uvicorn gateway.main:app --reload  # run gateway + demo UI on :8000 (DEMO_PASSWORD in .env)
-uv run pytest                             # tests (keep an end-to-end demo-flow test green)
+uv run pytest tests/traps                  # trap suite on live data (state/traps.db, not the demo DB)
+python scripts/run_traps.py               # same, and publishes results to the Valio view
 ```
 
 ## Code map
@@ -66,5 +67,6 @@ uv run pytest                             # tests (keep an end-to-end demo-flow 
 - `gateway/signing.py` Ed25519 JWS offers · `gateway/store.py` SQLite + hash-chained audit log
 - `gateway/mcp_server.py` MCP tools (streamable HTTP at /mcp, `Authorization: Bearer <password>`)
 - `gateway/ai.py` optional Claude request reading (`ANTHROPIC_API_KEY`), `gateway/security.py` supplier-text injection scanner
+- `tests/traps/cases.py` trap suite (each case: a way buying agents go wrong + the safe outcome); `docs/ASSUMPTIONS.md` mock quirks
 - `gateway/main.py` FastAPI: password gate, `/v1` open API, `/api` demo endpoints · `gateway/templates/` pages (index = buyer agent, valio = dashboard, connect) + shared style.css
 - Deployed on Pyry's server: user service `valio-gateway` on port 5201 behind Cloudflare tunnel → valio.psavela.com

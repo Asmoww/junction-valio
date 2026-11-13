@@ -13,8 +13,13 @@ from .catalog import ALLERGENS, get
 MANDATE_DIR = Path(__file__).parent / "mandates"
 
 
+ORDER = ["mnd_hotel_helsinki", "mnd_school_espoo", "mnd_hospital_ward"]
+
+
 def mandates():
-    return {m["mandate_id"]: m for m in (json.loads(f.read_text()) for f in sorted(MANDATE_DIR.glob("*.json")))}
+    ms = [json.loads(f.read_text()) for f in MANDATE_DIR.glob("*.json")]
+    ms.sort(key=lambda m: ORDER.index(m["mandate_id"]) if m["mandate_id"] in ORDER else len(ORDER))
+    return {m["mandate_id"]: m for m in ms}
 
 
 def load(mandate_id, overrides=None):
@@ -26,6 +31,28 @@ def load(mandate_id, overrides=None):
             node = node[k]
         node[last] = value
     return m
+
+
+def allergen_problem(mandate, p):
+    """Why a product fails the mandate's allergen rules, as (reason, level), or None.
+
+    level "block": the product contains a banned allergen (or may contain one, if the mandate says so).
+    level "approve": safety can't be verified from data (no allergen data, or undeclared allergens),
+    so a person must check. Missing data never counts as "allergen-free"."""
+    banned = set(mandate["hard_limits"].get("forbidden_allergens", []))
+    if not banned:
+        return None
+    rules = mandate.get("allergen_policy", {})
+    if hits := sorted(set(p["contains"]) & banned):
+        return "contains " + ", ".join(ALLERGENS.get(a, a) for a in hits), "block"
+    if (hits := sorted(set(p.get("mayContain", [])) & banned)) and rules.get("may_contain", "block") != "allow":
+        level = "block" if rules.get("may_contain", "block") == "block" else "approve"
+        return "may contain " + ", ".join(ALLERGENS.get(a, a) for a in hits), level
+    if not p.get("allergenData") and rules.get("no_data", "needs_approval") != "allow":
+        return "no allergen data: safety can't be verified", "block" if rules.get("no_data") == "block" else "approve"
+    if hits := sorted(set(p.get("undeclared", [])) & banned):
+        return "undeclared: " + ", ".join(ALLERGENS.get(a, a) for a in hits), "approve"
+    return None
 
 
 def evaluate(mandate, offer, context):
@@ -44,14 +71,25 @@ def evaluate(mandate, offer, context):
     rule("Hard spend limit", total <= hard["max_order_total_eur"], "block",
          f"€{total:,.2f} vs hard limit €{hard['max_order_total_eur']:,}")
 
-    bad = []
+    blocked, unverified = [], []
     for line in offer["lines"]:
         p = get(line["productId"])
-        hits = sorted(set(p["contains"]) & set(hard.get("forbidden_allergens", [])))
-        if hits:
-            bad.append(f"{p['name']}: {', '.join(ALLERGENS.get(a, a) for a in hits)}")
-    rule("Forbidden allergens", not bad, "block",
-         "; ".join(bad) if bad else f"none of: {', '.join(ALLERGENS.get(a, a) for a in hard.get('forbidden_allergens', [])) or '-'}")
+        problem = allergen_problem(mandate, p)
+        if problem:
+            (blocked if problem[1] == "block" else unverified).append(f"{p['name']}: {problem[0]}")
+    names = ", ".join(ALLERGENS.get(a, a) for a in hard.get("forbidden_allergens", [])) or "-"
+    rule("Forbidden allergens", not blocked, "block", "; ".join(blocked) or f"none of: {names}")
+    if hard.get("forbidden_allergens"):
+        rule("Allergens verifiable from data", not unverified, "approve",
+             "; ".join(unverified) or "allergen data present for every line")
+
+    unknown = [f"{l['name']} ({l['units']:,} {l['salesUnit']})" for l in offer["lines"]
+               if l.get("trust") and not l["trust"].get("stock_known")
+               and l["units"] > mandate.get("max_unconfirmed_units", float("inf"))]
+    if "max_unconfirmed_units" in mandate:
+        rule("Stock confirmed by Valio", not unknown, "approve",
+             "unconfirmed stock above " + f"{mandate['max_unconfirmed_units']:,} units: " + ", ".join(unknown) if unknown
+             else f"confirmed, or under {mandate['max_unconfirmed_units']:,} units")
 
     missing = []
     for line in offer["lines"]:

@@ -1,80 +1,86 @@
 openapi: 3.1.0
 info:
-  title: Trade Gateway (DRAFT)
-  version: 0.1.0
+  title: Valio Aimo Trade Gateway
+  version: 0.3.0
   description: >
-    The API an outside purchasing agent uses to buy from Valio Aimo.
-    Request → Lookup → Quote (fixed price) → Order → Approval. Every write is
-    checked against the buyer's mandate; the response says whether a human must sign off.
+    The interface an outside purchasing agent uses to buy from Valio Aimo. Flow: lookup (static
+    catalog, no live calls) → signed fixed-price offer for a shortlist → order → mandate check →
+    placed, pending human approval, or blocked. Every claim in an offer carries trust flags that say
+    how far it can be believed. The same operations are exposed as MCP tools at /mcp.
+    Auth (demo): `Authorization: Bearer <demo password>`.
+    This file is the contract; the running service also serves generated docs at /docs.
 paths:
-  /products/search:
+  /v1/products/search:
     get:
-      summary: Targeted product lookup (never returns the whole catalogue)
+      summary: Structured lookup over the static catalog. Never returns the whole catalogue.
       parameters:
-        - {name: q, in: query, required: true, schema: {type: string}}
-        - {name: category, in: query, schema: {type: string}}
+        - {name: q, in: query, required: true, schema: {type: string}, description: "Product noun(s), e.g. milk, oat drink"}
+        - {name: attributes, in: query, schema: {type: string}, description: "Comma-separated: FREE_FROM_LACTOSE, FREE_FROM_GLUTEN, VEGAN, ORGANIC, FINNISH"}
         - {name: limit, in: query, schema: {type: integer, maximum: 20, default: 10}}
       responses:
         "200":
-          description: Matching products
+          description: Matching products with the trace of how they were filtered
           content:
             application/json:
-              schema: {type: array, items: {$ref: "#/components/schemas/Product"}}
-  /availability:
+              schema:
+                type: object
+                properties:
+                  trace: {$ref: "#/components/schemas/SearchTrace"}
+                  products: {type: array, items: {$ref: "#/components/schemas/Product"}}
+  /v1/products/{product_id}:
     get:
-      summary: Price and availability for specific products and a delivery date
-      parameters:
-        - {name: product_ids, in: query, required: true, schema: {type: array, items: {type: string}}}
-        - {name: quantity, in: query, schema: {type: number}}
-        - {name: deliver_by, in: query, schema: {type: string, format: date}}
+      summary: One product
+      parameters: [{name: product_id, in: path, required: true, schema: {type: string}}]
       responses:
-        "200":
-          description: Offers per product
-          content:
-            application/json:
-              schema: {type: array, items: {$ref: "#/components/schemas/Offer"}}
-  /quotes:
+        "200": {description: Product, content: {application/json: {schema: {$ref: "#/components/schemas/Product"}}}}
+  /v1/quotes:
     post:
-      summary: Lock prices for a set of lines (fixed until expires_at)
+      summary: Live price + availability for explicit lines, returned as a signed fixed-price offer
       requestBody:
         required: true
         content:
           application/json:
             schema: {$ref: "#/components/schemas/QuoteRequest"}
       responses:
-        "201":
-          description: Quote with policy verdict
+        "200":
+          description: Signed offer (compact JWS, EdDSA) and its decoded payload
           content:
             application/json:
-              schema: {$ref: "#/components/schemas/Quote"}
-  /orders:
+              schema:
+                type: object
+                properties:
+                  offer: {$ref: "#/components/schemas/Offer"}
+                  jws: {type: string}
+        "409": {description: "Not orderable as asked: no price, cut-off passed, or not available in that quantity by the date"}
+  /v1/orders:
     post:
-      summary: Commit a quote. Idempotent per Idempotency-Key.
+      summary: Commit a signed offer. Verifies the signature, re-checks live prices, applies the mandate.
       parameters:
-        - {name: Idempotency-Key, in: header, required: true, schema: {type: string}}
+        - {name: Idempotency-Key, in: header, required: true, schema: {type: string}, description: "Same key returns the original order"}
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [quote_id]
+              required: [jws]
               properties:
-                quote_id: {type: string}
-                rationale: {type: string, description: Agent's explanation, stored in the decision record}
+                jws: {type: string, description: Signed offer from /v1/quotes}
+                rationale: {type: string, description: "The agent's explanation, stored in the decision record"}
+                requested_units: {type: number, description: "What the buyer asked for, in the request unit; orders far above it are blocked"}
       responses:
-        "201":
-          description: Order placed (auto-approved) or pending human approval
-          content:
-            application/json:
-              schema: {$ref: "#/components/schemas/Order"}
-        "409": {description: Quote expired or prices changed}
-        "403": {description: Blocked by a hard limit in the mandate}
-  /approvals/{order_id}:
+        "200": {description: Order, content: {application/json: {schema: {$ref: "#/components/schemas/Order"}}}}
+        "409": {description: "Invalid signature, expired offer, or price changed since the offer"}
+  /v1/orders/{order_id}:
+    get:
+      summary: Order status
+      parameters: [{name: order_id, in: path, required: true, schema: {type: string}}]
+      responses:
+        "200": {description: Order, content: {application/json: {schema: {$ref: "#/components/schemas/Order"}}}}
+  /v1/approvals/{order_id}:
     post:
-      summary: Human approves, rejects or edits a pending order
-      parameters:
-        - {name: order_id, in: path, required: true, schema: {type: string}}
+      summary: A human approves or rejects a pending order
+      parameters: [{name: order_id, in: path, required: true, schema: {type: string}}]
       requestBody:
         required: true
         content:
@@ -87,112 +93,177 @@ paths:
                 approver: {type: string}
                 comment: {type: string}
       responses:
-        "200":
-          description: Updated order
-          content:
-            application/json:
-              schema: {$ref: "#/components/schemas/Order"}
-  /orders/{order_id}/decision:
+        "200": {description: Updated order, content: {application/json: {schema: {$ref: "#/components/schemas/Order"}}}}
+        "409": {description: Order is not waiting for approval}
+  /v1/orders/{order_id}/decision:
     get:
-      summary: Human-readable decision record (what the agent did and why)
-      parameters:
-        - {name: order_id, in: path, required: true, schema: {type: string}}
+      summary: Decision record plus the audit events for the order, and the audit chain status
+      parameters: [{name: order_id, in: path, required: true, schema: {type: string}}]
       responses:
-        "200":
-          description: Decision record
-          content:
-            application/json:
-              schema: {$ref: "#/components/schemas/DecisionRecord"}
+        "200": {description: Decision record, content: {application/json: {schema: {$ref: "#/components/schemas/DecisionResponse"}}}}
+  /v1/offers/verify:
+    post:
+      summary: Verify a signed offer
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [jws], properties: {jws: {type: string}}}}}}
+      responses:
+        "200": {description: "{valid, payload, error}"}
+  /.well-known/jwks.json:
+    get:
+      summary: Public key (Ed25519, JWK) for verifying offers. No auth.
+      responses:
+        "200": {description: JWKS}
 components:
   schemas:
+    Spec:
+      description: >
+        The buyer's request as a typed spec (from free text by Claude, or rules). Optional details are
+        null when the buyer didn't state them; the agent never guesses them and reports the gap instead.
+      type: object
+      required: [product, quantity, unit, attributes, deliver_by]
+      properties:
+        product: {type: string}
+        quantity: {type: [number, "null"]}
+        unit: {type: string, enum: [L, KG, PCS]}
+        attributes: {type: array, items: {type: string, enum: [FREE_FROM_LACTOSE, FREE_FROM_GLUTEN, VEGAN, ORGANIC, FINNISH]}}
+        deliver_by: {type: string, format: date}
+        fat_pct: {type: [number, "null"]}
+        shelf_life: {type: [string, "null"], enum: [fresh, long_life, null]}
+        parser: {type: string, description: "Who produced the spec, e.g. Claude (claude-opus-5-5) or rules"}
+    SpecGap:
+      type: object
+      properties:
+        field: {type: string, example: fat level}
+        values: {type: array, items: {type: string}}
+        cheapest_per_value: {type: object, additionalProperties: {type: number}, description: "€ per requested unit"}
+        cost_spread_eur: {type: number, description: How much this unstated choice moves the order total}
+    SearchTrace:
+      type: object
+      properties:
+        query: {type: string}
+        attributes: {type: array, items: {type: string}}
+        text_matches: {type: integer}
+        failed_checks: {type: object, additionalProperties: {type: integer}, description: "Rejected by verified data, e.g. lactose > 0 g/100 g"}
+        after_modifier_filter: {type: integer}
+        category: {type: string}
+        shortlisted: {type: integer}
     Product:
       type: object
       properties:
-        product_id: {type: string}
+        productId: {type: string}
         name: {type: string}
+        brand: {type: [string, "null"]}
+        vendor: {type: string}
         category: {type: string}
-        unit: {type: string, description: e.g. L, kg, pcs}
-        pack_size: {type: number}
-        attributes: {type: array, items: {type: string}, description: e.g. lactose-free, organic}
-        delivery_reliability: {type: number, description: 0..1}
-        carbon_kg_co2e_per_unit: {type: number}
-    Offer:
+        salesUnit: {type: string}
+        origin: {type: [string, "null"]}
+        allergens: {type: array, items: {type: string}, description: Declared CONTAINS}
+        mayContain: {type: array, items: {type: string}, description: Declared MAY_CONTAIN}
+        allergenDataComplete: {type: boolean, description: "false = no allergen data at all: unknown, never allergen-free"}
+        lactoseGPer100: {type: [number, "null"]}
+        fatPct: {type: [number, "null"]}
+        longLife: {type: boolean}
+        claims: {type: array, items: {type: string}}
+        labels: {type: array, items: {type: string}}
+        deliveryReliability: {type: [number, "null"]}
+        carbonKgCO2ePerKg: {type: [number, "null"], description: Product-group average, not a measurement}
+        substitutes: {type: array, items: {type: string}}
+    TrustFlags:
+      description: How far each claim in Valio's answer can be trusted. Part of every offer line (signed).
       type: object
       properties:
-        product_id: {type: string}
-        unit_price_eur: {type: number}
-        available_quantity: {type: number}
-        earliest_delivery: {type: string, format: date}
+        stock: {type: string, description: "confirmed: N units | in stock: placeholder value | unknown: supplier warehouse | no availability answer"}
+        stock_known: {type: boolean}
+        cutoff: {type: string, description: "order by <time> | passed at <time>"}
+        price: {type: string, description: "catalog or customer net price, valid until <date>"}
+        data_gaps: {type: array, items: {type: string}, description: "e.g. no allergen data, lactose value missing, no delivery history"}
+        reliability_warning: {type: boolean, description: Delivery reliability below 0.95}
+    OfferLine:
+      type: object
+      properties:
+        productId: {type: string}
+        name: {type: string}
+        units: {type: number}
+        salesUnit: {type: string}
+        perUnit: {type: number, description: "Requested units per sales unit, e.g. 20 (L per carton)"}
+        unitPrice: {type: number}
+        lineTotal: {type: number}
+        deliveryDate: {type: string, format: date}
+        reliability: {type: [number, "null"]}
+        substitution: {type: [string, "null"], enum: [official_substitute, null]}
+        trust: {$ref: "#/components/schemas/TrustFlags"}
+        evidence: {type: array, items: {type: string}, description: "Why it matches, from structured data, e.g. lactose 0 g/100 g"}
     QuoteRequest:
       type: object
-      required: [mandate_id, lines]
+      required: [mandate_id, deliver_by, lines]
       properties:
         mandate_id: {type: string}
-        need: {type: string, description: Original buyer request, verbatim}
         deliver_by: {type: string, format: date}
         lines:
           type: array
           items:
             type: object
-            required: [product_id, quantity]
+            required: [productId, units]
             properties:
-              product_id: {type: string}
-              quantity: {type: number}
-              substitution_level: {type: integer, enum: [0, 1, 2, 3], default: 0}
-    Quote:
+              productId: {type: string}
+              units: {type: number, description: In sales units}
+              substitution: {type: string}
+    Offer:
+      description: Signed payload. Fixed catalog price (not negotiated), valid until expires_at.
       type: object
       properties:
-        quote_id: {type: string}
-        expires_at: {type: string, format: date-time}
-        lines:
-          type: array
-          items:
-            allOf:
-              - $ref: "#/components/schemas/Offer"
-              - type: object
-                properties:
-                  quantity: {type: number}
-                  line_total_eur: {type: number}
+        offer_id: {type: string}
+        issuer: {type: string}
+        customer: {type: string}
+        mandate_id: {type: string}
+        currency: {type: string}
+        price_basis: {type: string}
+        lines: {type: array, items: {$ref: "#/components/schemas/OfferLine"}}
         total_eur: {type: number}
-        policy:
-          $ref: "#/components/schemas/PolicyVerdict"
+        deliver_by: {type: string, format: date}
+        issued_at: {type: string, format: date-time}
+        expires_at: {type: string, format: date-time, description: "Earliest of: 15 min, order cut-off, price validity"}
+        expiry_reason: {type: string}
+    PolicyRule:
+      type: object
+      properties:
+        rule: {type: string}
+        ok: {type: boolean}
+        level: {type: string, enum: [pass, approve, block]}
+        detail: {type: string}
     PolicyVerdict:
       type: object
       properties:
         outcome: {type: string, enum: [auto_approve, needs_approval, blocked]}
-        rules_triggered: {type: array, items: {type: string}}
-        approver_role: {type: string}
+        approver: {type: [object, "null"], properties: {role: {type: string}, name: {type: string}, up_to_eur: {type: number}}}
+        rules: {type: array, items: {$ref: "#/components/schemas/PolicyRule"}}
+        mandate_id: {type: string}
     Order:
       type: object
       properties:
-        order_id: {type: string}
-        quote_id: {type: string}
-        status: {type: string, enum: [placed, pending_approval, rejected]}
-        total_eur: {type: number}
+        id: {type: string}
+        offer_id: {type: string}
+        idempotency_key: {type: string}
+        status: {type: string, enum: [placed, pending_approval, rejected, blocked]}
+        total: {type: number}
+        mandate_id: {type: string}
         policy: {$ref: "#/components/schemas/PolicyVerdict"}
+        record: {$ref: "#/components/schemas/DecisionRecord"}
     DecisionRecord:
       type: object
       properties:
-        order_id: {type: string}
-        need: {type: string}
-        candidates_considered:
-          type: array
-          items:
-            type: object
-            properties:
-              product_id: {type: string}
-              score: {type: number}
-              reason: {type: string}
-        chosen: {type: array, items: {type: string}}
-        rationale: {type: string}
-        policy: {$ref: "#/components/schemas/PolicyVerdict"}
-        approvals:
-          type: array
-          items:
-            type: object
-            properties:
-              approver: {type: string}
-              decision: {type: string}
-              at: {type: string, format: date-time}
-        api_calls_made: {type: integer}
-        events_hash: {type: string, description: Hash chain over the audit log for this order}
+        offer: {$ref: "#/components/schemas/Offer"}
+        agent: {type: string}
+        context: {type: object, description: "request text, rationale, requested quantity, run id"}
+        rows: {type: array, description: Every candidate with status, issues and score}
+        options: {type: array, description: The good-better-best options considered}
+        api_calls: {type: array, description: Every live Valio API call with timing}
+        approvals: {type: array, items: {type: object, properties: {approver: {type: string}, decision: {type: string}, comment: {type: string}, at: {type: string}}}}
+    DecisionResponse:
+      type: object
+      properties:
+        order: {$ref: "#/components/schemas/Order"}
+        events: {type: array, description: "Hash-chained audit events: ts, actor, type, data, prev_hash, hash"}
+        chain: {type: object, properties: {valid: {type: boolean}, events: {type: integer}, head: {type: string}}}
+    Mandate:
+      description: See contracts/mandate.example.json
+      type: object

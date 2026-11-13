@@ -59,7 +59,7 @@
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const eur = n => '€' + Number(n).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
-const ALLERGEN = {AN:'tree nuts',AP:'peanuts',SA:'almond',SH:'hazelnut',AS:'sesame',AM:'milk',AW:'gluten',AE:'egg',AF:'fish'};
+const ALLERGEN = {AN:'tree nuts',AP:'peanuts',SA:'almond',SH:'hazelnut',AS:'sesame',AM:'milk',ML:'lactose',AW:'gluten',AE:'egg',AF:'fish',GO:'oats',UW:'wheat'};
 const PRESETS = {
   mnd_hotel_helsinki: [
     ['Milk for Monday', 'I need 1,000 litres of lactose-free milk by Monday. Find an option that meets our requirements based on price and availability.'],
@@ -70,6 +70,11 @@ const PRESETS = {
     ['Muesli, nut-free', 'We need 40 kg of muesli by Wednesday for the school breakfast.'],
     ['Gluten-free bread', 'Order 60 kg gluten-free bread by Tuesday.'],
     ['Lactose-free milk', 'We need 300 litres of lactose-free milk by Monday.'],
+    ['Potatoes', 'Order 200 kg of Finnish potatoes by Wednesday.'],
+  ],
+  mnd_hospital_ward: [
+    ['Lactose-free milk?', 'We need 100 litres of lactose-free milk by Monday.'],
+    ['Oat drink', 'Order 100 litres of oat drink by Monday.'],
   ],
 };
 let mandates = {};
@@ -98,6 +103,7 @@ function renderMandate() {
     <div>Agent</div><div>${esc(m.agent)}</div>
     <div>Hard limit</div><div>${eur(m.hard_limits.max_order_total_eur)} per order</div>
     <div>Never buy</div><div class="chips">${forb.length ? forb.map(a => `<span class="chip bad">${a}</span>`).join('') : '<span class="faint">no allergen bans</span>'}</div>
+    ${forb.length ? `<div>Unclear data</div><div>“may contain”: ${esc((m.allergen_policy?.may_contain || 'block').replace('_', ' '))} · no data: ${esc((m.allergen_policy?.no_data || 'needs_approval').replace('_', ' '))}</div>` : ''}
     <div>Substitutes</div><div>${esc(m.substitutions.official_substitute.replace('_', ' '))}</div>
     <div>Reliability</div><div>≥ ${(m.min_delivery_reliability * 100).toFixed(0)} % or a human checks</div>
     <div>Approvers</div><div>${m.approvers.map(a => `${esc(a.role)} <span class="faint">≤ ${eur(a.up_to_eur).replace('.00','')}</span>`).join('<br>')}</div>
@@ -159,9 +165,17 @@ function renderStep(s, n) {
     return step(n, 'Find candidates in the catalog', `<div class="funnel">
       <div><b>17,546</b>products</div><div><b>${t.text_matches}</b>match “${esc(t.query)}”</div>
       <div><b>${t.after_modifier_filter}</b>plain products</div><div><b>${t.shortlisted}</b>shortlisted</div></div>
-      ${s.excluded_by_mandate.length ? `<p class="small" style="margin:12px 0 0"><span class="chip bad">Excluded by mandate</span>
-        ${s.excluded_by_mandate.map(e => `${esc(e.name)} <span class="muted">(${esc(e.reason)})</span>`).join(' · ')}</p>` : ''}
-      ${s.official_substitutes_added.length ? `<p class="small" style="margin:8px 0 0"><span class="chip warn">Official substitutes added</span> ${s.official_substitutes_added.join(', ')}</p>` : ''}`,
+      ${s.excluded_by_mandate.length ? (() => {
+        const ex = s.excluded_by_mandate, counts = {};
+        ex.forEach(e => counts[e.reason] = (counts[e.reason] || 0) + 1);
+        const list = ex.map(e => `${esc(e.name)} <span class="muted">(${esc(e.reason)})</span>`).join(' · ');
+        return `<p class="small" style="margin:12px 0 0"><span class="chip bad">Excluded by mandate: ${ex.length}</span>
+          ${Object.entries(counts).map(([r, n]) => `${n} × ${esc(r)}`).join(' · ')}</p>
+          ${ex.length > 3 ? `<details style="margin-top:6px"><summary>Show products</summary><p class="small" style="margin:6px 0 0">${list}</p></details>`
+                         : `<p class="small" style="margin:6px 0 0">${list}</p>`}`; })() : ''}
+      ${Object.keys(t.failed_checks || {}).length ? `<p class="small muted" style="margin:12px 0 0">Checked against product data, not names: ${Object.entries(t.failed_checks).map(([k, v]) => `${v} ${esc(k === 'lactose' ? 'contain lactose (> 0 g/100 g)' : k)}`).join(' · ')}</p>` : ''}
+      ${s.official_substitutes_added.length ? `<p class="small" style="margin:8px 0 0"><span class="chip warn">Official substitutes added</span> ${s.official_substitutes_added.join(', ')}</p>` : ''}
+      ${(s.substitutes_rejected || []).length ? `<p class="small" style="margin:8px 0 0"><span class="chip bad">Substitutes rejected</span> ${s.substitutes_rejected.map(e => `${esc(e.name)} <span class="muted">(${esc(e.reason)})</span>`).join(' · ')}</p>` : ''}`,
       'done', '<span class="chip">local search · no API calls</span>');
   }
   if (s.step === 'injection_scan') {
@@ -185,20 +199,33 @@ function renderStep(s, n) {
   if (s.step === 'price_availability') {
     const rows = s.rows.map(r => {
       const usable = r.status === 'ok' || r.status === 'partial';
-      return `<tr class="${usable ? '' : 'dim'}"><td><div class="name">${esc(r.name)}</div><div class="faint small">${r.productId}${r.substitution ? ' · official substitute' : ''}</div></td>
-      <td>${chip(r.status)}${r.issues.map(i => `<div class="small muted" style="margin-top:3px">${esc(i)}</div>`).join('')}</td>
+      const tr = r.trust || {};
+      return `<tr class="${usable ? '' : 'dim'}"><td><div class="name">${esc(r.name)}</div><div class="faint small">${r.productId}${r.substitution ? ' · official substitute' : ''}${r.evidence ? ' · ' + esc(r.evidence.slice(0, 3).join(' · ')) : ''}</div></td>
+      <td>${chip(r.status)}${r.issues.filter(i => !i.startsWith('delivered from')).map(i => `<div class="small muted" style="margin-top:3px">${esc(i)}</div>`).join('')}
+        ${usable && tr.stock ? `<div class="small" style="margin-top:3px;color:${tr.stock_known ? 'var(--mute)' : 'var(--warn)'}">${esc(tr.stock.split(':')[0])}</div>` : ''}
+        ${usable && (tr.data_gaps || []).length ? `<div class="small" style="margin-top:2px;color:var(--warn)">${esc(tr.data_gaps.join(' · '))}</div>` : ''}</td>
       <td class="r">${r.price_per_req_unit != null ? eur(r.price_per_req_unit) : '—'}</td>
       <td class="r">${r.units != null ? r.units.toLocaleString('en-US') + ' ' + esc(r.sales_unit) : '—'}</td>
       <td class="r">${r.total != null ? eur(r.total) : '—'}</td>
       <td class="r">${r.reliability != null ? Math.round(r.reliability * 100) + ' %' : '<span class="faint">n/a</span>'}</td>
       <td class="r">${r.score != null ? r.score.toFixed(2) : ''}</td></tr>`; }).join('');
-    return step(n, 'Ask Valio for price and availability', `<div style="overflow-x:auto"><table>
-      <thead><tr><th>Product</th><th>Status</th><th class="r">€ per unit asked</th><th class="r">Order</th><th class="r">Total</th><th class="r">Reliability</th><th class="r">Score</th></tr></thead>
-      <tbody>${rows}</tbody></table></div>`, 'done', '<span class="chip">live API · shortlist only</span>');
+    const head = `<thead><tr><th>Product</th><th>Status</th><th class="r">€ per unit asked</th><th class="r">Order</th><th class="r">Total</th><th class="r">Reliability</th><th class="r">Score</th></tr></thead>`;
+    const nOk = s.rows.filter(r => r.status === 'ok' || r.status === 'partial').length, nBad = s.rows.length - nOk;
+    const why = {}; s.rows.slice(nOk).forEach(r => why[r.status] = (why[r.status] || 0) + 1);
+    const allRows = rows.split('</tr>').filter(x => x.trim());
+    return step(n, 'Ask Valio for price and availability', `<div style="overflow-x:auto"><table>${head}<tbody>${allRows.slice(0, nOk).join('</tr>')}</tr></tbody></table></div>
+      ${nBad ? `<details style="margin-top:10px"><summary>${nBad} more can't be delivered in time: ${Object.entries(why).map(([k, v]) => `${v} ${esc(k.replace('_', ' '))}`).join(', ')}</summary>
+        <div style="overflow-x:auto;margin-top:8px"><table>${head}<tbody>${allRows.slice(nOk).join('</tr>')}</tr></tbody></table></div></details>` : ''}`,
+      'done', `<span class="chip">live API · ${s.rows.length} products, not 17,546</span>`);
   }
   if (s.step === 'options') {
     if (!s.options.length) return step(n, 'Compare options', '<p>Nothing can be delivered in time.</p>', 'alert');
-    return step(n, 'Compare options', `<div class="options">${s.options.map((o, i) => `<div class="option ${i === 0 ? 'chosen' : ''}">
+    const gaps = (s.spec_gaps || []).filter(g => g.cheapest_per_value && Object.keys(g.cheapest_per_value).length > 1);
+    const gapHtml = gaps.length ? `<div class="banner warn" style="margin-bottom:12px;padding:12px 16px"><div class="small"><b>Not specified by the buyer, so the agent compared across it:</b>
+      ${gaps.map(g => `<div style="margin-top:4px">${esc(g.field)}: ${Object.entries(g.cheapest_per_value).map(([k, v]) => `${esc(k)} ${eur(v)}/unit`).join(' · ')}
+      ${g.cost_spread_eur ? ` <b>→ moves this order by ${eur(g.cost_spread_eur).replace('.00', '')}</b>` : ''}</div>`).join('')}
+      <div class="muted" style="margin-top:4px">Shown to the approver instead of asking a question first.</div></div></div>` : '';
+    return step(n, 'Compare options', gapHtml + `<div class="options">${s.options.map((o, i) => `<div class="option ${i === 0 ? 'chosen' : ''}">
       <div class="lbl">${esc(o.label)}${i === 0 ? ' · chosen' : ''}</div><div class="total">${eur(o.total_eur)}</div>
       ${o.lines.map(l => `<div class="small">${l.units.toLocaleString('en-US')} × ${esc(l.name)}</div>`).join('')}
       <div class="small faint" style="margin-top:6px">${esc(o.why)}${o.partial ? ' · partial' : ''}</div></div>`).join('')}</div>`);
@@ -207,7 +234,8 @@ function renderStep(s, n) {
     const o = s.offer;
     return step(n, 'Get a signed, fixed-price offer', `<div class="kv">
       <div>Offer</div><div>${o.offer_id}</div><div>Total</div><div class="name">${eur(o.total_eur)} <span class="muted">· catalog price, not negotiated</span></div>
-      <div>Valid until</div><div>${new Date(o.expires_at).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})}</div></div>
+      <div>Valid until</div><div>${new Date(o.expires_at).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})} <span class="muted">· ${esc(o.expiry_reason || '')}</span></div>
+      <div>Trust flags</div><div class="small">${o.lines.map(l => esc((l.trust?.stock || '') + (l.trust?.data_gaps?.length ? ' · ' + l.trust.data_gaps.join(' · ') : ''))).join('<br>')}</div></div>
       <details style="margin-top:12px"><summary>Signature (Ed25519) · anyone can verify it with Valio's public key</summary>
         <div class="mono" style="margin-top:10px">${esc(s.jws)}</div>
         <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
@@ -247,7 +275,8 @@ async function verify(btn, jws) {
 function renderOutcome(res) {
   const o = res.order;
   let body;
-  if (!o) body = `<div class="banner bad"><h3>No order</h3>${esc(res.result.error || res.result.status.replace('_', ' '))}</div>`;
+  if (!o && res.result.status === 'no_safe_product') body = `<div class="banner bad"><h3>No safe product: nothing ordered</h3>${esc(res.result.error)}</div>`;
+  else if (!o) body = `<div class="banner bad"><h3>No order</h3>${esc(res.result.error || res.result.status.replace('_', ' '))}</div>`;
   else if (o.status === 'placed') body = `<div class="banner ok"><h3>Order placed automatically</h3>Within the agent's own authority · ${o.id} · ${eur(o.total)}</div>`;
   else if (o.status === 'blocked') body = `<div class="banner bad"><h3>Blocked by the mandate</h3>The gateway refused the order.</div>`;
   else {

@@ -53,8 +53,12 @@ def parse_request(text, today=None):
     for pat in ATTRS:
         stripped = re.sub(pat, " ", stripped)
     words = [w for w in re.findall(r"[a-zåäö]+", stripped) if w not in STOP and w not in WEEKDAYS and w not in UNITS]
+    fat = re.search(r"(\d+(?:[.,]\d+)?)\s*%", t)
+    shelf = "long_life" if re.search(r"\buht\b|long[- ]life|pitkään säilyvä", t) else \
+        "fresh" if re.search(r"\bfresh\b|tuore", t) else None
     return {"product": " ".join(words[:3]) or "milk", "quantity": quantity, "unit": unit,
-            "attributes": attrs, "deliver_by": (deliver_by or today + timedelta(days=3)).isoformat(), "raw": text}
+            "attributes": attrs, "deliver_by": (deliver_by or today + timedelta(days=3)).isoformat(),
+            "fat_pct": float(fat.group(1).replace(",", ".")) if fat else None, "shelf_life": shelf, "raw": text}
 
 
 def _per_unit(p, price, unit):
@@ -108,11 +112,46 @@ def _assess(p, price, avail, intent, now_s):
         row["unconfirmed_stock"] = True
     row["available_units"] = available
     row["delivery_date"] = min((s["availableDate"] for s in lines), default=None)
+    row["trust"] = trust_flags(p, price, a, available, now_s)
+    row["evidence"] = catalog.evidence(p, intent["attributes"])
     if row["status"] in ("ok", "partial"):
         units = need if row["status"] == "ok" else int(available)
         row["units"] = units
         row["total"] = round(units * unit_price, 2)
     return row
+
+
+STOCK_PLACEHOLDERS = {999999.0, 9999999999.0, 666666666.0}
+
+
+def trust_flags(p, price, avail, available, now_s):
+    """How far each claim in Valio's answer can be trusted. Published with every offer line."""
+    model = avail.get("logisticModel")
+    if model == "Terminal":
+        stock = "unknown: supplier warehouse, Valio can't see the quantity"
+    elif available in STOCK_PLACEHOLDERS:
+        stock = "in stock: exact quantity not given (placeholder value)"
+    elif model == "Stock":
+        stock = f"confirmed: {available:g} {p['salesUnit']} in Valio stock"
+    else:
+        stock = "no availability answer"
+    cut = avail.get("closingTime")
+    cp = price.get("catalogPrice") or {}
+    gaps = list(p.get("_gaps", []))
+    if not p.get("allergenData"):
+        gaps.append("no allergen data: allergens unknown, not absent")
+    if p.get("undeclared"):
+        gaps.append("undeclared allergens: " + ", ".join(catalog.ALLERGENS.get(a, a) for a in p["undeclared"]))
+    if p.get("reliability") is None:
+        gaps.append("no delivery history")
+    return {
+        "stock": stock,
+        "stock_known": model == "Stock",
+        "cutoff": (f"passed at {cut[:16].replace('T', ' ')}" if cut < now_s else f"order by {cut[:16].replace('T', ' ')}") if cut else "no cut-off given",
+        "price": f"{'customer net price' if price.get('netPriceFound') else 'catalog price'}, valid until {cp.get('validTo', '')[:10]}",
+        "data_gaps": gaps,
+        "reliability_warning": p.get("reliability") is not None and p["reliability"] < 0.95,
+    }
 
 
 def _score(rows, weights):
@@ -123,7 +162,7 @@ def _score(rows, weights):
     cmin = min(cvals) if cvals else None
     for r in rows:
         price_s = pmin / r["price_per_req_unit"]
-        rel_s = r["reliability"] if r["reliability"] is not None else 0.85  # unknown history: mild penalty
+        rel_s = r["reliability"] if r["reliability"] is not None else 0.95  # unknown: neutral, shown as a flag instead
         carb_s = (cmin / r["carbon"]) if (cmin and r["carbon"]) else 0.8
         r["score"] = round(weights["price"] * price_s + weights["reliability"] * rel_s + weights["carbon"] * carb_s, 3)
         r["score_parts"] = {"price": round(price_s, 2), "reliability": round(rel_s, 2), "carbon": round(carb_s, 2)}
@@ -132,7 +171,9 @@ def _score(rows, weights):
 def _line(r, substitution=None):
     return {"productId": r["productId"], "name": r["name"], "units": r["units"], "salesUnit": r["sales_unit"],
             "unitPrice": r["unit_price"], "lineTotal": r["total"], "perUnit": r["per_unit"],
-            "deliveryDate": r["delivery_date"], "reliability": r["reliability"], "substitution": substitution}
+            "deliveryDate": r["delivery_date"], "reliability": r["reliability"], "substitution": substitution,
+            "trust": r.get("trust"), "evidence": r.get("evidence"), "closingTime": r.get("closing_time"),
+            "priceValidTo": r.get("price_valid_to")}
 
 
 def build_options(rows, intent):
@@ -179,14 +220,21 @@ def build_options(rows, intent):
 def create_offer(mandate, option, intent):
     """Lock list prices and availability for a short time and sign the offer."""
     offer_id = "ofr_" + uuid.uuid4().hex[:12]
-    exp = datetime.now(timezone.utc) + timedelta(minutes=OFFER_TTL_MINUTES)
+    exp, reason = datetime.now(timezone.utc) + timedelta(minutes=OFFER_TTL_MINUTES), f"{OFFER_TTL_MINUTES} min offer window"
+    for l in option["lines"]:
+        if l.get("closingTime"):
+            cut = datetime.fromisoformat(l["closingTime"].replace("+0200", "+02:00").replace("+0300", "+03:00"))
+            if cut > datetime.now(timezone.utc) and cut < exp:
+                exp, reason = cut, f"order cut-off for {l['productId']}"
     payload = {
         "offer_id": offer_id, "issuer": "valio-aimo-trade-gateway (demo)", "customer": mandate["customer"],
         "mandate_id": mandate["mandate_id"], "currency": "EUR", "price_basis": "catalog price, fixed (not negotiated)",
         "lines": [{k: l.get(k) for k in ("productId", "name", "units", "salesUnit", "perUnit", "unitPrice", "lineTotal",
-                                         "deliveryDate", "reliability", "substitution")} for l in option["lines"]],
+                                         "deliveryDate", "reliability", "substitution", "trust", "evidence")}
+                  for l in option["lines"]],
         "total_eur": option["total_eur"], "deliver_by": intent["deliver_by"],
-        "issued_at": store.now(), "expires_at": exp.isoformat(timespec="seconds"),
+        "issued_at": store.now(), "expires_at": exp.astimezone(timezone.utc).isoformat(timespec="seconds"),
+        "expiry_reason": reason,
     }
     jws = signing.sign(payload)
     store.save_offer(offer_id, mandate["mandate_id"], payload, jws)
@@ -249,9 +297,11 @@ def quote(mandate_id, deliver_by, lines, client=None):
             return None, None, f"{pid} not available in that quantity by {deliver_by}"
         up = pr["catalogPrice"]["value"]
         out.append({"productId": pid, "name": p["name"], "units": l["units"], "salesUnit": p["salesUnit"],
-                    "unitPrice": up, "lineTotal": round(up * l["units"], 2), "perUnit": 1,
+                    "unitPrice": up, "lineTotal": round(up * l["units"], 2), "perUnit": l.get("perUnit", 1),
                     "deliveryDate": min(x["availableDate"] for x in sched), "reliability": p["reliability"],
-                    "substitution": l.get("substitution")})
+                    "substitution": l.get("substitution"), "closingTime": av.get("closingTime"),
+                    "trust": trust_flags(p, pr, av, sum(x["availableAmount"] for x in sched), now_s),
+                    "evidence": catalog.evidence(p)})
     option = {"lines": out, "total_eur": round(sum(x["lineTotal"] for x in out), 2)}
     offer, jws = create_offer(mandate, option, {"deliver_by": deliver_by})
     return offer, jws, None
@@ -265,7 +315,7 @@ def order_from_jws(jws, idempotency_key, rationale="", requested_units=None):
         return None, payload
     mandate = policy.load(payload["mandate_id"])
     ctx = {"deliver_by": payload["deliver_by"], "delivery_date": max(l["deliveryDate"] for l in payload["lines"]),
-           "rationale": rationale, "requested_units": requested_units}
+           "rationale": rationale, "requested_quantity": requested_units}
     return place_order(jws, idempotency_key, mandate, ctx, actor=f"agent:{mandate['agent']}")
 
 
@@ -297,32 +347,58 @@ def run(text, mandate_id, overrides=None, simulate_price_change=False, inject=Fa
     store.log(run_id, f"agent:{mandate['agent']}", "request.received", {"text": text, "mandate_id": mandate_id, "parser": parser})
     steps.append({"step": "request", "title": "Understand the request", "intent": intent})
 
-    # The agent also filters out anything the mandate forbids before asking for prices.
-    candidates, trace = catalog.search(intent["product"], intent["attributes"])
-    forbidden = set(mandate["hard_limits"].get("forbidden_allergens", []))
-    excluded = [{"productId": p["id"], "name": p["name"], "reason": "contains " + ", ".join(
-        catalog.ALLERGENS.get(a, a) for a in sorted(set(p["contains"]) & forbidden))}
-        for p in candidates if set(p["contains"]) & forbidden]
-    candidates = [p for p in candidates if not set(p["contains"]) & forbidden]
-    # Add the official substitutes Valio lists for these products.
+    spec = {"fat_pct": intent.get("fat_pct"), "shelf_life": intent.get("shelf_life")}
+    candidates, trace = catalog.search(intent["product"], intent["attributes"], spec=spec)
+    # The agent drops what the mandate forbids, or can't be verified, before asking for prices.
+    excluded = []
+    kept = []
+    for p in candidates:
+        why = policy.allergen_problem(mandate, p)
+        if why and why[1] == "block":
+            excluded.append({"productId": p["id"], "name": p["name"], "reason": why[0]})
+        else:
+            kept.append(p)
+    verified = [p for p in kept if not policy.allergen_problem(mandate, p)]
+    if verified and len(verified) < len(kept):  # prefer products whose allergen data proves safety
+        for p in kept:
+            if p not in verified:
+                excluded.append({"productId": p["id"], "name": p["name"], "reason": policy.allergen_problem(mandate, p)[0]})
+        kept = verified
+    candidates = kept
+    # Add Valio's official substitutes, but only if they are the same kind of product (fit check).
     seen = {p["id"] for p in candidates}
-    subs = []
+    subs, misfits = [], []
     for p in list(candidates):
         for sid in p["substitutes"]:
             sp = catalog.get(sid)
-            if sp and sid not in seen and not set(sp["contains"]) & forbidden:
-                seen.add(sid)
+            if not sp or sid in seen:
+                continue
+            seen.add(sid)
+            if sp["category"] != p["category"]:
+                misfits.append({"productId": sid, "name": sp["name"], "reason": f"fit check: different product type than {p['name']}"})
+            elif policy.allergen_problem(mandate, sp):
+                misfits.append({"productId": sid, "name": sp["name"], "reason": policy.allergen_problem(mandate, sp)[0]})
+            else:
                 subs.append(sid)
+                sp["_gaps"] = []
                 candidates.append(sp)
+    gaps = spec_gaps(candidates, intent)
     steps.append({"step": "lookup", "title": "Find candidates in the catalog (local, no API calls)",
                   "search": trace, "excluded_by_mandate": excluded, "official_substitutes_added": subs,
-                  "candidates": [catalog.describe(p) for p in candidates]})
+                  "substitutes_rejected": misfits, "spec_gaps": gaps,
+                  "candidates": [dict(catalog.describe(p), evidence=catalog.evidence(p, intent["attributes"])) for p in candidates]})
     if not candidates:
-        return {"run_id": run_id, "steps": steps, "result": {"status": "no_match"}, "api_calls": client.calls}
-
-    if inject and len(candidates) > 1:
-        steps += _injection_attack(candidates[1], mandate, intent, client, run_id)
-        candidates = [p for p in candidates if p["id"] != candidates[1]["id"]]
+        if excluded:
+            reasons = sorted({e["reason"] for e in excluded})
+            msg = (f"All {len(excluded)} matching products fail this mandate's allergen rules ({'; '.join(reasons)}). "
+                   "Nothing was ordered. Lactose-free is not milk-free: ask for a plant-based alternative instead."
+                   if any("milk" in r for r in reasons) else
+                   f"All {len(excluded)} matching products fail this mandate's allergen rules ({'; '.join(reasons)}). Nothing was ordered.")
+            store.log(run_id, f"agent:{mandate['agent']}", "run.no_safe_product", {"excluded": len(excluded)})
+            return {"run_id": run_id, "steps": steps, "api_calls": client.calls, "mandate": mandate,
+                    "result": {"status": "no_safe_product", "error": msg}}
+        return {"run_id": run_id, "steps": steps, "result": {"status": "no_match", "error": "no product matches the request"},
+                "api_calls": client.calls}
 
     ids = [p["id"] for p in candidates]
     prices = client.prices(mandate["customer"], intent["deliver_by"], ids)
@@ -331,24 +407,35 @@ def run(text, mandate_id, overrides=None, simulate_price_change=False, inject=Fa
     for r in rows:
         if r["productId"] in subs:
             r["substitution"] = "official_substitute"
-    # Exception handling: for products we can't get in time, find the earliest date they could come.
-    late = [r for r in rows if r["status"] in ("deadline_passed", "unavailable")]
-    if late:
-        later = (date.fromisoformat(intent["deliver_by"]) + timedelta(days=1)).isoformat()
-        _, avail2 = client.availability(mandate["customer"], later, [r["productId"] for r in late])
-        for r in late:
-            a2 = avail2.get(r["productId"]) or {}
-            ok2 = [s for s in a2.get("scheduleLines", []) if not s.get("salesBlock") and s.get("availableDate")]
-            if ok2 and not (a2.get("closingTime") and a2["closingTime"] < now_s):
-                r["earliest_alternative"] = min(s["availableDate"] for s in ok2)
+    # Note: the mock answers the same for every requested date (see docs/ASSUMPTIONS.md), so asking
+    # for "the next possible date" would add API calls without information. We don't.
     usable = [r for r in rows if r["status"] in ("ok", "partial")]
+    if inject and len(usable) > 1:
+        # Red team: a deliverable product's supplier text is poisoned. The honest agent drops it.
+        target = catalog.get(sorted(usable, key=lambda r: r["price_per_req_unit"])[1]["productId"])
+        steps += _injection_attack(target, mandate, intent, client, run_id)
+        usable = [r for r in usable if r["productId"] != target["id"]]
+        rows = [r for r in rows if r["productId"] != target["id"]]
     _score(usable, mandate["weights"])
     rows.sort(key=lambda r: (r["status"] not in ("ok", "partial"), -(r.get("score") or 0)))
     steps.append({"step": "price_availability", "title": "Ask Valio for price and availability (shortlist only)",
                   "now": now_s, "rows": rows})
 
     options = build_options(usable, intent)
-    steps.append({"step": "options", "title": "Compare options (good-better-best)", "options": options})
+    priced = [r for r in usable if r["status"] == "ok"]
+    for g in gaps:
+        # Cheapest deliverable product for each value of the unspecified detail.
+        key = (lambda r: f"{r['product']['fatPct']:g} %" if r["product"]["fatPct"] is not None else None) \
+            if g["field"] == "fat level" else (lambda r: "long-life (UHT)" if r["product"]["longLife"] else "fresh")
+        best = {}
+        for r in priced:
+            k = key(r)
+            if k and (k not in best or r["price_per_req_unit"] < best[k]):
+                best[k] = r["price_per_req_unit"]
+        g["cheapest_per_value"] = dict(sorted(best.items(), key=lambda kv: kv[1]))
+        if len(best) > 1:
+            g["cost_spread_eur"] = round((max(best.values()) - min(best.values())) * (intent["quantity"] or 0), 2)
+    steps.append({"step": "options", "title": "Compare options (good-better-best)", "options": options, "spec_gaps": gaps})
     if not options:
         store.log(run_id, "agent", "no_option", {"reason": "nothing deliverable by the date"})
         return {"run_id": run_id, "steps": steps, "result": {"status": "no_option"}, "api_calls": client.calls,
@@ -414,3 +501,17 @@ def _injection_attack(target, mandate, intent, client, run_id):
                   "units": units, "product": target["name"], "total_eur": offer["total_eur"],
                   "order": order, "error": oerr})
     return steps
+
+
+def spec_gaps(candidates, intent):
+    """Details the buyer didn't specify but that split the candidates (e.g. fat %, fresh vs long-life).
+
+    No chat: the agent compares across the gap and shows it, so the approver sees what was assumed."""
+    gaps = []
+    fats = sorted({p["fatPct"] for p in candidates if p.get("fatPct") is not None})
+    if intent.get("fat_pct") is None and len(fats) > 1:
+        gaps.append({"field": "fat level", "values": [f"{f:g} %" for f in fats]})
+    shelves = {catalog.is_long_life(p) for p in candidates}
+    if intent.get("shelf_life") is None and len(shelves) > 1:
+        gaps.append({"field": "fresh or long-life", "values": ["fresh", "long-life (UHT)"]})
+    return gaps
