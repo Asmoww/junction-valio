@@ -225,3 +225,14 @@ def test_agent_does_not_ask_for_an_offer_above_the_hard_limit():
     res = agent.run("We need 6,000 litres of lactose-free milk by Monday.", HOTEL)  # €6,060 > €5,000 hard limit
     assert res["result"]["status"] == "over_hard_limit" and "order" not in res
     assert res["result"]["fix"]["quantity"] <= 5000 / 1.01
+
+
+def test_reader_cannot_simplify_the_product_into_a_familiar_one(monkeypatch):
+    from gateway import ai
+    fake = {"product": "milk", "quantity": 100, "unit": "L", "attributes": [], "deliver_by": "2026-11-16",
+            "fat_pct": None, "shelf_life": None}
+    monkeypatch.setattr(ai, "parse", lambda text, today=None: dict(fake, raw=text))
+    res = agent.run("We need 100 litres of chicken nugget milk by Monday.", HOTEL)
+    assert res["steps"][0]["intent"]["product"] == "chicken nugget milk"
+    assert "shortened" in res["steps"][0]["intent"]["product_note"]
+    assert res["result"]["status"] == "not_in_catalog" and res["api_calls"] == []

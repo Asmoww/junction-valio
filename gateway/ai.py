@@ -25,8 +25,10 @@ SCHEMA = {
     "additionalProperties": False,
 }
 SYSTEM = ("You convert a professional kitchen's purchasing request into a structured intent for a food "
-          "wholesaler's catalog search. Product: the generic product only, in English, without brand, size or "
-          "requirements (those go in attributes). Unit: L for liquids by volume, KG for weight, PCS otherwise. "
+          "wholesaler's catalog search. Product: what the product is, in English. Remove only brand, pack size and "
+          "the requirements that go in attributes. Keep every other word that says what the product is, even if "
+          "the combination sounds unusual or impossible (\"chicken nugget milk\" stays \"chicken nugget milk\"): "
+          "never change or simplify the product into a more familiar one. Unit: L for liquids by volume, KG for weight, PCS otherwise. "
           "Resolve weekday names to the next such date after today. If no date is given, use today + 3 days. "
           "Never guess fat level or shelf life: leave them null unless stated. "
           "If the request names no product, return an empty string as product: never invent one. "

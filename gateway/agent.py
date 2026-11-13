@@ -447,6 +447,13 @@ def run(text, mandate_id, overrides=None, simulate_price_change=False, inject=Fa
     ai_intent = ai.parse(text)
     if ai_intent and "_error" not in ai_intent:
         intent, parser = ai_intent, f"Claude ({ai.MODEL})"
+        # Guard, whatever the model: if Claude's product is just a shortened version of the buyer's own words
+        # ("milk" from "chicken nugget milk"), keep the buyer's words. Never let the reader invent a nicer product.
+        rules = parse_request(text)
+        said, got = rules["product"].split(), intent.get("product", "").lower().split()
+        if rules["quantity"] is not None and got and set(got) < set(said):
+            intent["product_note"] = f"Claude shortened “{rules['product']}” to “{intent['product']}”; kept the buyer's words."
+            intent["product"] = rules["product"]
     else:
         intent = parse_request(text)
         parser = "rules" + (f" (Claude unavailable: {ai_intent['_error']})" if ai_intent else " (no Claude key configured)")
