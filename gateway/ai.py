@@ -29,7 +29,9 @@ SYSTEM = ("You convert a professional kitchen's purchasing request into a struct
           "requirements (those go in attributes). Unit: L for liquids by volume, KG for weight, PCS otherwise. "
           "Resolve weekday names to the next such date after today. If no date is given, use today + 3 days. "
           "Never guess fat level or shelf life: leave them null unless stated. "
-          "If the request names no product, return an empty string as product: never invent one.")
+          "If the request names no product, return an empty string as product: never invent one. "
+          "Low-lactose (vähälaktoosinen) is not lactose-free: only add FREE_FROM_LACTOSE when the buyer says "
+          "lactose-free (laktoositon).")
 
 
 def enabled():
