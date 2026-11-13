@@ -109,6 +109,7 @@ function renderMandate() {
     ${forb.length ? `<div>Unclear data</div><div>“may contain”: ${esc((m.allergen_policy?.may_contain || 'block').replace('_', ' '))} · no data: ${esc((m.allergen_policy?.no_data || 'needs_approval').replace('_', ' '))}</div>` : ''}
     <div>Substitutes</div><div>${esc(m.substitutions.official_substitute.replace('_', ' '))}</div>
     <div>Reliability</div><div>≥ ${(m.min_delivery_reliability * 100).toFixed(0)} % or a person approves · no history: ${m.unknown_reliability === 'needs_approval' ? 'a person checks' : 'allowed'}</div>
+    ${m.profile ? `<div>Profile</div><div>${Object.entries(m.profile).map(([k, v]) => `${esc(k)}: ${[v.fat_pct != null ? v.fat_pct + ' %' : '', v.shelf_life === 'any' ? 'fresh or UHT' : (v.shelf_life || '').replace('_', '-')].filter(Boolean).join(', ')}`).join('<br>')}</div>` : ''}
     <div>Approvers</div><div>${m.approvers.map(a => `${esc(a.role)} <span class="faint">≤ ${eur(a.up_to_eur).replace('.00','')}</span>`).join('<br>')}</div>
   </div>`;
   $('#presets').innerHTML = (PRESETS[m.mandate_id] || []).map(([l, t]) =>
@@ -169,6 +170,7 @@ function renderStep(s, n) {
       ${i.ignored_terms?.length ? `<div>Not covered</div><div class="chips">${i.ignored_terms.map(w => `<span class="chip warn">${esc(w)}</span>`).join('')}</div>` : ''}
       ${s.injection?.length ? `<div>Instructions in the request</div><div class="chips">${[...new Set(s.injection)].map(w => `<span class="chip bad">${esc(w)}</span>`).join('')}<span class="faint small">not followed</span></div>` : ''}
       </div>
+      ${(i.from_profile || []).length ? `<p class="small" style="margin:10px 0 0"><span class="chip navy">From the buyer profile</span> ${esc(i.from_profile.join(' · '))} <span class="muted">(not stated in the request)</span></p>` : ''}
       ${i.product_note ? `<p class="small" style="margin:10px 0 0"><span class="chip warn">Kept the buyer's words</span> ${esc(i.product_note)}</p>` : ''}`, s.injection?.length || i.ignored_terms?.length ? 'alert' : 'done', `<span class="chip">${esc(i.parser.split(' (')[0] === 'rules' ? 'rule-based' : i.parser)}</span>`);
   }
   if (s.step === 'lookup') {

@@ -25,7 +25,7 @@ def action(text, mandate=HOTEL, **kw):
     ("I need a chili cheese chicken mc-nuggel 100 litre milk", "ask_back", "clear"),  # 1: words dropped
     ("We need 100 litres of goat milk by Monday", "ask_back", "possible"),      # 2: nothing matches
     ("We need 100 litres of fresh lactose-free milk by Monday", "order", None),  # all yes
-    ("We need 100 litres of lactose-free milk by Monday", "person_approves", "authority"),  # 5: fresh vs UHT moves it €63
+    ("We need 100 litres of lactose-free milk by Monday", "order", None),  # hotel profile: 1.5 %, fresh or UHT both fine
     ("We need 900 litres of lactose-free milk by Monday", "person_approves", "authority"),  # 5: €909 > €500
 ])
 def test_every_request_leaves_through_one_exit(text, expected_action, gate):
@@ -152,7 +152,7 @@ def test_split_orders_never_mix_different_kinds_of_milk():
     ("If and only if tomorrow is a holiday, order 100 L of lactose-free milk", "ask_back", "clear"),
     ("60 L fat-free milk + 60 L 1.5% milk + 60 L 3.5% whole milk for the buffet", "ask_back", "clear"),  # list → one line each
     ("Order 248 L of lactose-free milk now and queue another 248 L to stay under the limit", "ask_back", "clear"),
-    ("Order 100 units of lactose-free milk by Monday", "person_approves", "authority"),  # not an injection (was a false alarm)
+    ("Order 100 units of lactose-free milk by Monday", "order", None),  # not an injection (was a false alarm); profile settles details
     ("We need 100 litres of fresh lactose-free milk by Sunday 2026-11-15", "person_approves", "authority"),  # late = compromise
 ])
 def test_suite_findings(text, expected_action, gate):
@@ -181,3 +181,31 @@ def test_finnish_compound_is_the_product_when_the_request_asks_for_it():
     p = {"_text": "valio coffee milk 1 l lactose free uht valio kahvimaito 1 l laktoositon"}
     assert catalog._is_modifier("kahvimaito")                          # asked for "milk": coffee milk is a modifier
     assert not catalog._is_modifier("kahvimaito", {"coffee", "milk"})  # asked for "coffee milk": it's the product
+
+
+
+def test_without_a_buyer_profile_unstated_details_go_to_the_approver():
+    from gateway import policy
+    real = policy.load
+
+    def no_profile(mid, overrides=None):
+        m = real(mid, overrides)
+        m.pop("profile", None)
+        return m
+
+    import pytest as _p
+    mp = _p.MonkeyPatch()
+    mp.setattr(policy, "load", no_profile)
+    try:
+        res = agent.run("We need 100 litres of lactose-free milk by Monday", HOTEL)
+    finally:
+        mp.undo()
+    failed = [r["rule"] for r in res["order"]["policy"]["rules"] if not r["ok"]]
+    assert res["order"]["status"] == "pending_approval" and "Unstated details within tolerance" in failed
+
+
+def test_buyer_profile_is_shown_and_never_overrides_the_request():
+    res = agent.run("We need 100 litres of lactose-free milk by Monday", HOTEL)
+    assert "fresh or long-life both fine" in res["steps"][0]["intent"]["from_profile"]  # test products have no fat %
+    res = agent.run("We need 100 litres of 3.5% lactose-free milk by Monday", HOTEL)
+    assert res["steps"][0]["intent"]["fat_pct"] == 3.5 and "fat 1.5 %" not in (res["steps"][0]["intent"].get("from_profile") or [])

@@ -69,10 +69,15 @@ def milk_over_limit_goes_to_chef():
 
 
 def milk_reports_unstated_choices():
-    gaps = _steps(_run("milk", MILK, "mnd_hotel_helsinki"))["options"]["spec_gaps"]
+    # Without a buyer profile: the open details are priced and shown to the approver.
+    bare = _run("milk-noprofile", MILK, "mnd_hotel_helsinki", overrides={"profile": {}})
+    gaps = _steps(bare)["options"]["spec_gaps"]
     fields = {g["field"]: g.get("cost_spread_eur") for g in gaps}
-    return "fat level" in fields and "fresh or long-life" in fields and all(fields.values()), \
-        "unstated: " + ", ".join(f"{k} (moves the order by €{v:,.0f})" for k, v in fields.items())
+    # With the hotel's profile (milk 1.5 %, fresh or long-life both fine): settled by the profile, and shown as such.
+    used = _steps(_run("milk", MILK, "mnd_hotel_helsinki"))["request"]["intent"].get("from_profile") or []
+    ok = "fat level" in fields and "fresh or long-life" in fields and all(fields.values()) and len(used) == 2
+    return ok, ("no profile: " + ", ".join(f"{k} moves the order by €{v:,.0f}" for k, v in fields.items())
+                + f" · hotel profile: {', '.join(used)}")
 
 
 def terminal_cutoff_passed_refused():
@@ -205,13 +210,23 @@ def over_hard_limit_explained():
         f"{r['result']['status']}: {fix.get('label', '')}"
 
 
+def eggs_are_counted_as_eggs():
+    r = _run("eggs", "We need 200 eggs by Monday.", "mnd_hotel_helsinki")
+    o = r.get("order") or {}
+    lines = o.get("record", {}).get("offer", {}).get("lines", [])
+    eggs = sum(l["units"] * (l.get("perUnit") or 1) for l in lines)
+    biggest_pack = max((l.get("perUnit") or 1) for l in lines) if lines else 0
+    return bool(lines) and 200 <= eggs < 200 + biggest_pack + 1, \
+        f"{', '.join(str(l['units']) + ' x ' + l['name'][:28] for l in lines)} = {eggs:g} eggs, €{o.get('total')}"
+
+
 CASES = [
     ("lookup", "Keyword search for lactose-free milk returns only plain milk (no cocoa, coffee milk, powder)", lookup_plain_milk_only),
     ("lookup", "The cheapest milks reach the price check (no cut by name or file order)", lookup_keeps_cheapest),
     ("lookup", "Lactose-free is verified from nutrition data, not the name", lookup_verifies_lactose),
     ("lookup", "Product with no lactose value (2 cl portion cups) is not offered", lookup_skips_unverifiable_portion_cups),
     ("need", "1,000 L lactose-free milk: picks the cheapest deliverable plain milk", milk_picks_cheapest_deliverable),
-    ("need", "Unstated fat level and fresh vs long-life are priced and shown, not guessed", milk_reports_unstated_choices),
+    ("need", "Unstated fat level and fresh vs long-life: priced and shown, or settled by the buyer profile; never guessed", milk_reports_unstated_choices),
     ("controls", "Over the €500 auto-approve limit: goes to the head chef", milk_over_limit_goes_to_chef),
     ("exceptions", "Supplier-warehouse product past its order cut-off: no offer", terminal_cutoff_passed_refused),
     ("allergy", "Milk allergy: lactose-free milk is refused (lactose-free is not milk-free)", milk_allergy_gets_no_lactose_free_milk),
@@ -230,4 +245,5 @@ CASES = [
     ("reality", "Cream is not ice cream", cream_is_not_ice_cream),
     ("reality", "1,000 litres of chicken nuggets: unit doesn't fit, explained, no API calls", litres_of_nuggets_explained),
     ("controls", "Cheapest option above the hard limit: agent doesn't order, offers what fits", over_hard_limit_explained),
+    ("need", "200 eggs means 200 eggs, not 200 packs (was 2,000 eggs)", eggs_are_counted_as_eggs),
 ]

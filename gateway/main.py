@@ -128,6 +128,13 @@ def info():
             "ladder": gates.GATES}
 
 
+@app.get("/api/readiness", tags=["demo"])
+def readiness_report():
+    """How much of the catalog each buyer's agent may decide on alone, and which missing data blocks it."""
+    from . import readiness
+    return readiness.report()
+
+
 @app.get("/api/traps", tags=["demo"])
 def traps():
     """Latest trap-suite results (scripts/run_traps.py): real-data cases where buying agents go wrong."""

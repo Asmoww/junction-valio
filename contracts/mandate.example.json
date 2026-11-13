@@ -5,7 +5,9 @@
   "agent": "school-kitchen-agent",
   "valid_until": "2026-12-31",
   "auto_approve": {
-    "max_order_total_eur": 300
+    "max_order_total_eur": 300,
+    "max_unstated_detail_spread_eur": 25,
+    "max_auto_eur_per_24h": 900
   },
   "hard_limits": {
     "max_order_total_eur": 2000,
@@ -17,10 +19,6 @@
       "AS"
     ],
     "required_claims": []
-  },
-  "allergen_policy": {
-    "may_contain": "block",
-    "no_data": "needs_approval"
   },
   "substitutions": {
     "official_substitute": "with_approval",
@@ -44,10 +42,28 @@
     "reliability": 0.4,
     "carbon": 0.1
   },
+  "allergen_policy": {
+    "may_contain": "block",
+    "no_data": "needs_approval"
+  },
+  "unknown_reliability": "allow",
+  "profile": {
+    "milk": {
+      "fat_pct": 1.5,
+      "shelf_life": "fresh"
+    },
+    "cream": {
+      "shelf_life": "any"
+    }
+  },
   "_notes": {
     "forbidden_allergens": "GS1 allergen codes, e.g. AN tree nuts, AP peanuts, SA almond, SH hazelnut, AS sesame, AM milk, ML lactose, AW gluten",
     "allergen_policy": "may_contain and no_data: block | needs_approval | allow. Missing data is unknown, never allergen-free.",
     "substitutions": "allowed | with_approval | forbidden. Official substitutes must also be the same product category (fit check).",
-    "weights": "Ranking only. Unknown delivery reliability is neutral (0.95) and shown as a flag instead."
+    "weights": "Ranking only. Unknown delivery reliability is neutral (0.95) and shown as a flag instead.",
+    "auto_approve.max_unstated_detail_spread_eur": "An unstated detail (fat %, fresh vs long-life) that moves the order by more than this goes to the approver",
+    "auto_approve.max_auto_eur_per_24h": "What the agent may order alone in 24 h; unset = its per-order limit (fail closed)",
+    "unknown_reliability": "allow | needs_approval for products without delivery history; unset = needs_approval (fail closed)",
+    "profile": "Buyer defaults for details a request leaves open (e.g. milk: fat 1.5 %, shelf_life fresh | long_life | any). A preference: used only when matching products exist, never overrides the request, always shown"
   }
 }

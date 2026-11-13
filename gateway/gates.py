@@ -54,6 +54,7 @@ RULE_GATE = {
     "Claims verified in product data": "proven",
     "Stock confirmed by Valio": "proven",
     "Delivery history known": "proven",
+    "Pack contents known": "proven",
     # 5 Authority: allowed and proven, but a compromise or a size the agent may not decide alone.
     "Substitutions within preferences": "authority",
     "Delivery on time": "authority",

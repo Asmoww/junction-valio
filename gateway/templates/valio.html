@@ -25,6 +25,8 @@
 
   <div class="metrics" id="metrics"></div>
 
+  <div class="card" id="readyCard"><h2>Agent readiness · how much of the catalog an agent may decide on alone</h2><div id="ready"></div></div>
+
   <div class="card" id="trapCard"><h2>Trap suite · where buying agents go wrong <span id="trapSummary" style="float:right"></span></h2><div id="traps"></div></div>
 
   <div class="grid2">
@@ -84,6 +86,23 @@ async function load() {
     : '<p class="muted">No security events. Try the red-team switches on the Buyer agent tab.</p>';
   $('#updated').textContent = 'Updated ' + new Date().toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'});
 }
+async function loadReadiness() {
+  const r = await (await fetch('/api/readiness')).json();
+  const bar = (pct, color) => `<div class="track"><div class="fill" style="width:${pct}%;background:${color}"></div></div>`;
+  $('#ready').innerHTML = `<div class="grid2" style="gap:24px">
+    <div><div class="eyebrow">Per buyer, from the same rules the gateway applies</div>
+      <div class="bars">${r.mandates.map(m => `<div class="row" style="grid-template-columns:1fr 160px 48px"><span>${esc(m.buyer.replace(' (demo)', ''))}
+        <span class="faint small">${m.needs.length ? 'needs ' + esc(m.needs.join(' + ')) : 'no extra data needed'}</span></span>
+        ${bar(m.ready_pct, m.ready_pct >= 80 ? 'var(--ok)' : m.ready_pct >= 40 ? 'var(--accent)' : 'var(--bad)')}<b class="r">${Math.round(m.ready_pct)} %</b></div>`).join('')}</div>
+      <div class="eyebrow" style="margin-top:16px">Data coverage, ${r.products.toLocaleString('en-US')} food products</div>
+      <div class="bars">${r.fields.map(f => `<div class="row" style="grid-template-columns:1fr 160px 48px"><span>${esc(f.field)}</span>${bar(f.pct, 'var(--navy-2)')}<b class="r">${Math.round(f.pct)} %</b></div>`).join('')}</div>
+      <p class="small muted" style="margin:10px 0 0">${r.non_food_excluded.toLocaleString('en-US')} non-food products (tableware, packaging, office) left out.</p></div>
+    <div><div class="eyebrow">Fix these first: product data that blocks strict buyers' agents</div>
+      <table><tbody>${r.fix_first.map(x => `<tr><td><div class="name">${esc(x.examples[0])}</div><div class="small faint">category ${esc(x.category)}${x.examples[1] ? ' · ' + esc(x.examples[1]) : ''}</div></td>
+        <td class="r small">${x.blocked} of ${x.of}</td></tr>`).join('')}</tbody></table>
+      <p class="small" style="margin:10px 0 0"><b>Completing allergen data and delivery history in these ${r.fix_first.length} categories lets a hospital's agent decide alone on ${r.fix_first_unlocks.toLocaleString('en-US')} more products.</b></p></div></div>`;
+}
+
 async function loadTraps() {
   const t = await (await fetch('/api/traps')).json();
   if (!t.results.length) { $('#traps').innerHTML = '<p class="muted">Not run yet: <code>python scripts/run_traps.py</code></p>'; return; }
@@ -94,7 +113,7 @@ async function loadTraps() {
     <td class="r"><span class="chip ${r.result === 'pass' ? 'ok' : r.result === 'fail' ? 'bad' : ''}">${r.result === 'pass' ? '✓ safe' : r.result === 'fail' ? '✕ failed' : 'skipped'}</span></td></tr>`).join('')}</tbody></table>
     <p class="small muted" style="margin:12px 0 0">Live API and the real product file. Every case is a request where a buying agent can go wrong; the result is what our gateway did.</p>`;
 }
-load(); loadTraps();
+load(); loadReadiness(); loadTraps();
 setInterval(load, 10000);
 </script>
 </body>

@@ -159,7 +159,9 @@ def _order_quantities(text):
         # "300 eggs": a number followed by a product word is a count of pieces.
         t = catalog.fold(text)
         for m in re.finditer(r"(?<![\d.,-])(\d+)\s+([a-zåäö]+)", t):
-            if len(m.group(1)) < 6 and m.group(2) in catalog.vocabulary() and m.group(2) not in VOLUME | MASS:
+            w = m.group(2)
+            if len(m.group(1)) < 6 and (w in catalog.vocabulary() or catalog._stem(w) in catalog.vocabulary()) \
+                    and w not in VOLUME | MASS:
                 # "1000 milk liter": a unit word later in the request is the unit; otherwise it's a count of pieces.
                 later = re.search(r"\b(" + "|".join(sorted(set(VOLUME) | set(MASS), key=len, reverse=True)) + r")\b",
                                   t[m.end():])

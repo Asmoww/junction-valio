@@ -38,5 +38,10 @@
     "reliability": 0.4,
     "carbon": 0.1
   },
-  "unknown_reliability": "needs_approval"
+  "unknown_reliability": "needs_approval",
+  "profile": {
+    "oat": {
+      "shelf_life": "any"
+    }
+  }
 }

@@ -111,6 +111,11 @@ def evaluate(mandate, offer, context):
     rule("Claims verified in product data", not name_only, "approve",
          "; ".join(name_only) or "every required claim is backed by the manufacturer's data")
 
+    assumed = [l.get("name") or l["productId"] for l in offer["lines"] if l.get("piecesAssumed")]
+    if assumed:
+        rule("Pack contents known", False, "approve",
+             "pieces per pack not in the data, so the item count can't be checked: " + ", ".join(assumed))
+
     unconfirmed = [l.get("name") or l["productId"] for l in offer["lines"] if l.get("stockConfirmed") is False]
     rule("Stock confirmed by Valio", not unconfirmed, "approve",
          "ships from a supplier's warehouse, quantity not confirmed: " + ", ".join(unconfirmed) if unconfirmed

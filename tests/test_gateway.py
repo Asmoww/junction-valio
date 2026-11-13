@@ -252,3 +252,20 @@ def test_reader_cannot_simplify_the_product_into_a_familiar_one(monkeypatch):
     assert res["steps"][0]["intent"]["product"] == "chicken nugget milk"
     assert "shortened" in res["steps"][0]["intent"]["product_note"]
     assert res["result"]["status"] == "not_in_catalog" and res["api_calls"] == []
+
+
+def test_a_count_of_items_is_not_a_count_of_packs(monkeypatch):
+    from gateway import catalog
+    eggs = dict(catalog.get("464306"), id="463500", name="Kieku Barn egg M10 580g", salesUnit="RAS", category="10590",
+                _text=catalog.fold("Kieku Barn egg M10 580g"), lactose=None, contains=["AE"])
+    monkeypatch.setattr(catalog, "_catalog", catalog._catalog + [eggs])
+    monkeypatch.setattr(catalog, "_by_id", dict(catalog._by_id, **{"463500": eggs}))
+    monkeypatch.setattr(catalog, "_vocab", None)
+    valio = FakeValio(prices={"463500": 2.01})
+    monkeypatch.setattr(agent, "ValioClient", lambda: valio)
+    res = agent.run("We need 200 eggs by Monday.", HOTEL)
+    assert "order" in res, res["result"]
+    line = res["order"]["record"]["offer"]["lines"][0]
+    assert line["units"] == 20 and line["perUnit"] == 10  # 20 packs of 10 = 200 eggs, not 200 packs
+    res = agent.run("We need 200 packs of eggs by Monday.", HOTEL)
+    assert res["order"]["record"]["offer"]["lines"][0]["units"] == 200

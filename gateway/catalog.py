@@ -169,6 +169,20 @@ def measure(p):
     return None
 
 
+def pieces(p):
+    """How many pieces one sales unit holds, from the name: "egg M10" -> 10, "12 x Arla ..." -> 12,
+    "40x90g" -> 40, "100pcs" -> 100. None when the name doesn't say."""
+    t = fold(p["name"])
+    for pat in (r"\b(?:s|m|l|xl)(\d{1,3})\b",           # egg size and count: M10, L30
+                r"^\s*(\d{1,4})\s*x\s*(?=[a-zåäö\d])",    # leading multipack: "12 x Arla", "40x90g"
+                r"\b(\d{1,4})\s*x\s*\d",                 # "40x90g", "100x2 cl"
+                r"\b(\d{1,4})\s*(?:pcs|kpl|pieces|st)\b"):  # "100pcs", "30 kpl"
+        m = re.search(pat, t)
+        if m and int(m.group(1)) > 1:
+            return int(m.group(1))
+    return None
+
+
 def evidence(p, attrs=()):
     """Short, checkable reasons this product matches, from structured data."""
     ev = []

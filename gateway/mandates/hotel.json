@@ -40,5 +40,17 @@
     "may_contain": "allow",
     "no_data": "allow"
   },
-  "unknown_reliability": "allow"
+  "unknown_reliability": "allow",
+  "profile": {
+    "milk": {
+      "fat_pct": 1.5,
+      "shelf_life": "any"
+    },
+    "cream": {
+      "shelf_life": "any"
+    },
+    "oat": {
+      "shelf_life": "any"
+    }
+  }
 }

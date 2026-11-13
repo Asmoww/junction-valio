@@ -131,7 +131,7 @@ def parse_request(text, today=None):
     elif (t.rstrip().endswith("?") or re.match(r"\s*(what|how|which|is|are|do|does|can you tell)\b", t)) \
             and not re.search(r"\b(need|order|buy|deliver)\b", t):
         request_type = "question"
-    elif quantity or any(w in catalog.vocabulary() for w in words):
+    elif quantity or any(w in catalog.vocabulary() or catalog._stem(w) in catalog.vocabulary() for w in words):
         request_type = "buy"
     else:
         request_type = "other"  # no quantity and no product word Valio sells: not a purchasing request
@@ -223,9 +223,22 @@ def unmatched_terms(text, intent, covered_texts=()):
     return sorted(out)
 
 
-def _per_unit(p, price, unit):
-    """How much of the requested unit one sales unit holds (e.g. 20 L per carton)."""
+PACK_WORDS = {"cartons", "carton", "boxes", "box", "packs", "pack", "bottles", "bottle", "cups", "crates", "crate",
+              "bags", "bag", "cans", "trays", "tray", "units", "unit"}
+
+
+def count_kind(text):
+    """For a piece count: "200 cartons/packs/boxes" counts sales units; "200 eggs" or "200 pcs" counts items."""
+    oq = request_checks.order_quantity(text)
+    word = (oq or {}).get("raw", "").split()[-1:] or [""]
+    return "packs" if re.sub(r"^\d[\d,. ]*", "", word[0]) in PACK_WORDS else "items"
+
+
+def _per_unit(p, price, unit, kind="packs"):
+    """How much of the requested unit one sales unit holds (e.g. 20 L per carton, 10 eggs per pack)."""
     if unit == "PCS":
+        if kind == "items":
+            return float(catalog.pieces(p) or 1)  # unknown contents: 1, flagged below for a person to check
         return 1.0
     cp, comp = (price.get("catalogPrice") or {}).get("value"), (price.get("comparisonPrice") or {}).get("value")
     if cp and comp and (price.get("comparisonUnit") or "").upper() == unit:
@@ -242,7 +255,11 @@ def _assess(p, price, avail, intent, now_s):
         row["issues"].append("no price for this customer")
         return row
     unit_price = price["catalogPrice"]["value"]
-    per_unit = _per_unit(p, price, intent["unit"])
+    per_unit = _per_unit(p, price, intent["unit"], intent.get("count_kind", "packs"))
+    if intent["unit"] == "PCS" and intent.get("count_kind") == "items":
+        n = catalog.pieces(p)
+        row["pieces_assumed"] = n is None
+        row["issues"].append(f"{n} pieces per {p['salesUnit']}" if n else "pieces per pack not in the data: assumed 1")
     if not per_unit:
         row["status"] = "unit_mismatch"
         row["issues"].append(f"can't convert {p['salesUnit']} to {intent['unit']}")
@@ -349,7 +366,7 @@ def _line(r, substitution=None):
             "deliveryDate": r["delivery_date"], "reliability": r["reliability"], "substitution": substitution,
             "trust": r.get("trust"), "evidence": r.get("evidence"),
             "orderDeadline": r.get("closing_time"), "priceValidTo": r.get("price_valid_to"),
-            "stockConfirmed": r.get("stock_confirmed", True)}
+            "stockConfirmed": r.get("stock_confirmed", True), "piecesAssumed": r.get("pieces_assumed", False)}
 
 
 def _kind(r):
@@ -435,7 +452,7 @@ def create_offer(mandate, option, intent):
         "mandate_id": mandate["mandate_id"], "currency": "EUR", "price_basis": "catalog price, fixed (not negotiated)",
         "lines": [{k: l.get(k) for k in ("productId", "name", "units", "salesUnit", "perUnit", "unitPrice", "lineTotal",
                                          "deliveryDate", "reliability", "substitution", "orderDeadline",
-                                         "priceValidTo", "stockConfirmed", "trust", "evidence")}
+                                         "priceValidTo", "stockConfirmed", "piecesAssumed", "trust", "evidence")}
                   for l in option["lines"]],
         "total_eur": option["total_eur"], "deliver_by": intent["deliver_by"],
         # What the buyer asked for, sealed into the signature: the order is checked against this, not against
@@ -755,6 +772,8 @@ def _run(text, mandate_id, overrides=None, simulate_price_change=False, inject=F
     if rtype == "buy" and not intent.get("quantity"):
         return exit_at("clear", "ask_back", "unclear_request", f"How much {intent['product']}? The request gives no quantity.")
 
+    if intent.get("unit") == "PCS":
+        intent["count_kind"] = count_kind(text)
     spec = {"fat_pct": intent.get("fat_pct"), "shelf_life": intent.get("shelf_life")}
     candidates, trace = catalog.search(intent["product"], intent["attributes"], spec=spec,
                                        type_check=ai.type_check if ai.enabled() else None)
@@ -837,6 +856,7 @@ def _run(text, mandate_id, overrides=None, simulate_price_change=False, inject=F
             res = exit_at("clear", "ask_back", "unit_mismatch", msg)  # gate 1: the quantity can't mean anything
             res["result"]["fix"] = {"from": intent["unit"], "to": alt, "label": f"Use {intent['quantity']:,g} {UNIT_WORDS[alt]} instead"}
             return res
+    candidates = apply_profile(candidates, intent, mandate)
     gaps = spec_gaps(candidates, intent)
     steps.append({"step": "lookup", "title": "Find candidates in the catalog (local, no API calls)",
                   "search": trace, "excluded_by_mandate": excluded, "official_substitutes_added": subs,
@@ -1018,13 +1038,45 @@ def spec_gaps(candidates, intent):
 
     No chat: the agent compares across the gap and shows it, so the approver sees what was assumed."""
     gaps = []
-    fats = sorted({p["fatPct"] for p in candidates if p.get("fatPct") is not None})
+    # Fat level and fresh vs long-life are buying decisions for milk, cream and other dairy drinks (category
+    # 104xx). For muesli or butter a fat difference between products isn't a detail the buyer left open.
+    dairy = [p for p in candidates if str(p.get("category", "")).startswith("104")]
+    fats = sorted({p["fatPct"] for p in dairy if p.get("fatPct") is not None})
     if intent.get("fat_pct") is None and len(fats) > 1:
         gaps.append({"field": "fat level", "values": [f"{f:g} %" for f in fats]})
-    shelves = {catalog.is_long_life(p) for p in candidates}
-    if intent.get("shelf_life") is None and len(shelves) > 1:
+    shelves = {catalog.is_long_life(p) for p in dairy}
+    if intent.get("shelf_life") is None and not intent.get("shelf_life_any") and len(shelves) > 1:
         gaps.append({"field": "fresh or long-life", "values": ["fresh", "long-life (UHT)"]})
     return gaps
+
+
+def apply_profile(candidates, intent, mandate):
+    """Settle details the buyer left open from the mandate's buyer profile ("our milk is 1.5 %, fresh or
+    long-life both fine"), the way a purchasing manager would. A preference, not a filter: it only narrows
+    the candidates when some of them match, it never overrides what the request says, and every value used
+    is shown as coming from the profile."""
+    words = {catalog._stem(w) for w in re.findall(r"[a-zåäö]+", catalog.fold(intent.get("product") or ""))}
+    prof = next((v for k, v in (mandate.get("profile") or {}).items() if catalog._stem(k) in words), None)
+    if not prof:
+        return candidates
+    used = []
+    if intent.get("fat_pct") is None and prof.get("fat_pct") is not None:
+        match = [p for p in candidates if p.get("fatPct") is not None and abs(p["fatPct"] - prof["fat_pct"]) <= 0.3]
+        if match:
+            candidates, intent["fat_pct"] = match, prof["fat_pct"]
+            used.append(f"fat {prof['fat_pct']:g} %")
+    shelf = prof.get("shelf_life")
+    if intent.get("shelf_life") is None and shelf == "any":
+        intent["shelf_life_any"] = True
+        used.append("fresh or long-life both fine")
+    elif intent.get("shelf_life") is None and shelf:
+        match = [p for p in candidates if catalog.is_long_life(p) == (shelf == "long_life")]
+        if match:
+            candidates, intent["shelf_life"] = match, shelf
+            used.append(shelf.replace("_", "-"))
+    if used:
+        intent["from_profile"] = used
+    return candidates
 
 
 def explain_no_option(rows, intent):

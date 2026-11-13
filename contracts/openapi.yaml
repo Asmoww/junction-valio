@@ -195,6 +195,7 @@ components:
         orderDeadline: {type: [string, "null"], description: Valio's order cut-off for this line}
         priceValidTo: {type: [string, "null"], format: date}
         stockConfirmed: {type: boolean, description: "false = supplier warehouse or no answer: needs a person"}
+        piecesAssumed: {type: boolean, description: "true = item count requested but pieces per pack not in the data: needs a person"}
     QuoteRequest:
       type: object
       required: [mandate_id, deliver_by, lines]
@@ -210,7 +211,7 @@ components:
               productId: {type: string}
               units: {type: number, description: In sales units}
               substitution: {type: string}
-        requested_quantity: {type: number, description: "What the buyer asked for, in sales units. Sealed into the signed offer; an order claiming a different requested_units is refused."}
+        requested_quantity: {type: number, description: "What the buyer asked for, in the same unit as the lines (sales units for /v1/quotes; the agent seals the buyer's own unit, e.g. litres). Sealed into the signed offer; an order claiming a different requested_units is refused."}
     Offer:
       description: Signed payload. Fixed catalog price (not negotiated), valid until expires_at.
       type: object
@@ -227,12 +228,14 @@ components:
         issued_at: {type: string, format: date-time}
         expires_at: {type: string, format: date-time, description: "Earliest of: 15 min, order cut-off, price validity"}
         expiry_reason: {type: string}
+        requested_quantity: {type: [number, "null"], description: What the buyer asked for, sealed into the signature}
     PolicyRule:
       type: object
       properties:
         rule: {type: string}
         ok: {type: boolean}
         level: {type: string, enum: [pass, approve, block]}
+        gate: {type: string, enum: [allowed, proven, authority], description: "Decision-ladder gate the rule belongs to (docs/FRAMEWORK.md)"}
         detail: {type: string}
     PolicyVerdict:
       type: object
@@ -241,6 +244,16 @@ components:
         approver: {type: [object, "null"], properties: {role: {type: string}, name: {type: string}, up_to_eur: {type: number}}}
         rules: {type: array, items: {$ref: "#/components/schemas/PolicyRule"}}
         mandate_id: {type: string}
+        ladder: {$ref: "#/components/schemas/Ladder"}
+    Ladder:
+      description: "The decision ladder (docs/FRAMEWORK.md): Purchase? Clear? Possible? Allowed? Proven? Agent's call? The first 'no' decides who acts next."
+      type: object
+      properties:
+        gates: {type: array, items: {type: object, properties: {n: {type: integer}, key: {type: string}, question: {type: string}, state: {type: string, enum: [pass, fail, not_reached]}}}}
+        decided_by: {type: [string, "null"], enum: [purchase, clear, possible, allowed, proven, authority, null]}
+        action: {type: string, enum: [answer, decline, ask_back, stop, person_checks, person_approves, order]}
+        action_text: {type: string}
+        reason: {type: string}
     Order:
       type: object
       properties:
