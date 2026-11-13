@@ -294,14 +294,14 @@ function renderOutcome(res) {
   let body;
   if (!o && res.result.status === 'not_in_catalog') {
     const sg = res.result.suggestions || [];
-    body = `<div class="banner bad"><h3>Reality check: not in Valio's catalog</h3>${esc(res.result.error)}
+    body = `<div class="banner info"><h3>Reality check: not in Valio's catalog</h3>${esc(res.result.error)}
       ${sg.length ? `<div style="margin-top:10px" class="small">What does exist (nothing is ordered until you ask):</div>
         <div class="chips" style="margin-top:6px">${sg.map(x => `<button class="chip" onclick='useSuggestion(${JSON.stringify(res.steps[0].intent.product)}, ${JSON.stringify(x.phrase)})'>${esc(x.phrase)} · ${x.count} products</button>`).join('')}</div>` : ''}
       <div class="small muted" style="margin-top:8px">Stopped before any price or availability call.</div></div>`;
   }
   else if (!o && res.result.status === 'unit_mismatch') {
     const f = res.result.fix;
-    body = `<div class="banner bad"><h3>Unit doesn't fit the product</h3>${esc(res.result.error)}
+    body = `<div class="banner info"><h3>Unit doesn't fit the product</h3>${esc(res.result.error)}
       <div class="chips" style="margin-top:10px"><button class="chip" onclick='switchUnit(${JSON.stringify(f.to)})'>${esc(f.label)}</button></div>
       <div class="small muted" style="margin-top:8px">Stopped before any price or availability call. Nothing is ordered until you run it again.</div></div>`;
   }
@@ -311,9 +311,9 @@ function renderOutcome(res) {
       ${f ? `<div class="chips" style="margin-top:10px"><button class="chip" onclick='setQuantity(${JSON.stringify(f.quantity)})'>${esc(f.label)}</button></div>` : ''}
       <div class="small muted" style="margin-top:8px">Raising the limit is the purchasing manager's call, not the agent's.</div></div>`;
   }
-  else if (!o && res.result.status === 'no_option') body = `<div class="banner bad"><h3>Nothing can be ordered as asked</h3>${esc(res.result.error)}</div>`;
-  else if (res.result.status === 'answered') body = `<div class="banner ok"><h3>Answered: nothing ordered</h3>${esc(res.ladder.reason)}. It was a question, so the agent only looked up prices and availability.</div>`;
-  else if (!o && res.ladder?.action === 'ask_back') body = `<div class="banner warn"><h3>Back to the requester: nothing ordered</h3>${esc(res.result.error)}</div>`;
+  else if (!o && res.result.status === 'no_option') body = `<div class="banner info"><h3>Nothing can be ordered as asked</h3>${esc(res.result.error)}</div>`;
+  else if (res.result.status === 'answered') body = `<div class="banner info"><h3>Answered: nothing ordered</h3>${esc(res.ladder.reason)}. It was a question, so the agent only looked up prices and availability.</div>`;
+  else if (!o && res.ladder?.action === 'ask_back') body = `<div class="banner info"><h3>Back to the requester: nothing ordered</h3>${esc(res.result.error)}</div>`;
   else if (!o && res.ladder?.action === 'decline') body = `<div class="banner bad"><h3>Declined</h3>${esc(res.result.error)}</div>`;
   else if (!o && res.result.status === 'no_safe_product') body = `<div class="banner bad"><h3>No safe product: nothing ordered</h3>${esc(res.result.error)}</div>`;
   else if (!o) body = `<div class="banner bad"><h3>No order</h3>${esc(res.result.error || res.result.status.replace('_', ' '))}</div>`;
@@ -328,7 +328,8 @@ function renderOutcome(res) {
       <button class="btn btn-bad" onclick="decide('${o.id}','reject','${esc(ap.name)}')">Reject</button></div></div>`;
   }
   $('#tl').insertAdjacentHTML('beforeend', `<div class="step final" id="outcome"><div class="bullet">✓</div><div class="card">
-    <div class="step-head"><h3>Outcome</h3></div>${ladderHtml(res.ladder)}<div id="outcomeBody">${body}</div></div></div>`);
+    <div class="step-head"><h3>Decision</h3><span class="tag"><span class="chip">six questions · the first “no” decides who acts next</span></span></div>
+    ${railHtml(res, body)}</div></div>`);
   if (o) { $('#out').insertAdjacentHTML('beforeend', '<div id="record"></div>'); showRecord(o.id); }
   $('#outcome').scrollIntoView({behavior: 'smooth', block: 'center'});
 }
@@ -351,15 +352,66 @@ function useSuggestion(asked, phrase) {
   t.focus(); window.scrollTo({top: 0, behavior: 'smooth'});
 }
 
-// The decision ladder: the first "no" decides who acts next (gateway/gates.py, docs/FRAMEWORK.md).
-function ladderHtml(l) {
-  if (!l) return '';
-  const short = {purchase: 'Purchase?', clear: 'Clear?', possible: 'Possible?', allowed: 'Allowed?', proven: 'Proven?', authority: "Agent's call?"};
-  const cls = {pass: 'ok', fail: 'bad', not_reached: ''};
-  const icon = {pass: '✓', fail: '✕', not_reached: '·'};
-  return `<div class="chips" style="margin:0 0 12px;align-items:center">${l.gates.map(g =>
-    `<span class="chip ${cls[g.state]}" title="${esc(g.question)}">${g.n} ${icon[g.state]} ${esc(short[g.key])}</span>`).join('<span class="faint">›</span>')}
-    <span class="faint">→</span><span class="chip navy"><b>${esc(l.action_text)}</b></span></div>`;
+// The decision ladder as a rail (concept A): every gate with its evidence; the first "no" decides who acts next.
+function railHtml(res, body) {
+  const l = res.ladder;
+  if (!l) return `<div id="outcomeBody">${body}</div>`;
+  const st = Object.fromEntries(res.steps.map(s => [s.step, s]));
+  const intent = st.request?.intent || {}, lk = st.lookup, pa = st.price_availability;
+  const rules = res.order?.policy?.rules || [];
+  const yes = {purchase: 'a request to buy', clear: 'we know what is wanted', possible: 'Valio can supply it at a fixed price',
+               allowed: 'every hard rule kept', proven: 'every fact backed by data', authority: "within the agent's own authority"};
+  const els = {purchase: 'else: answer or decline', clear: 'else: ask the requester', possible: 'else: ask back, with what exists',
+               allowed: 'else: stop, nobody can approve', proven: 'else: a person checks the facts', authority: 'else: a person approves'};
+  const who = {person_approves: 'a-person', person_checks: 'a-person', stop: 'a-stop', decline: 'a-stop', ask_back: 'a-back', answer: 'a-back'};
+  const ok = pa ? pa.rows.filter(r => r.status === 'ok').length : null;
+  const chip = (t, c = '') => `<span class="chip ${c}">${esc(t)}</span>`;
+  const ruleChips = g => rules.filter(r => r.gate === g).map(r => chip((r.ok ? '✓ ' : r.level === 'block' ? '✕ ' : '! ') + r.rule,
+                                                                         r.ok ? 'ok' : r.level === 'block' ? 'bad' : 'warn')).join('');
+  function evidence(key) {
+    if (key === 'clear') {
+      const parts = [intent.product, intent.quantity != null ? `${Number(intent.quantity).toLocaleString('en-US')} ${({L: 'L', KG: 'kg', PCS: 'pcs'})[intent.unit] || intent.unit}` : null,
+                     ...(intent.attributes || []).map(a => a.replaceAll('_', ' ').toLowerCase().replace('free from ', '') + (a.startsWith('FREE_FROM') ? '-free' : '')),
+                     intent.deliver_by ? 'by ' + intent.deliver_by : null].filter(Boolean);
+      return parts.map(p => chip(p, 'navy')).join('') + (intent.from_profile || []).map(p => chip('profile: ' + p)).join('');
+    }
+    if (key === 'possible' && lk) {
+      const t = lk.search, rejected = Object.values(t.failed_checks || {}).reduce((a, b) => a + b, 0);
+      const seq = [['catalog', 17546], [`say “${t.query}”`, t.text_matches], ['pass the data checks', t.text_matches - rejected],
+                   ['plain', t.shortlisted],
+                   ...((intent.from_profile || []).length ? [['after the profile', lk.candidates.length - (lk.official_substitutes_added || []).length]] : []),
+                   ...((lk.official_substitutes_added || []).length ? [['+ Valio substitutes', (lk.official_substitutes_added || []).length]] : []),
+                   ...(ok != null ? [['can arrive in full', ok]] : [])];
+      return `<div class="rail-count">${seq.map(([k, v]) => `<b>${Number(v).toLocaleString('en-US')}</b> ${esc(k)}`).join(' → ')}</div>
+        ${res.api_calls.length ? `<div class="rail-ev">${chip(res.api_calls.length + ' live Valio API calls')}</div>` : ''}`;
+    }
+    if (['allowed', 'proven', 'authority'].includes(key)) return ruleChips(key);
+    return '';
+  }
+  function shortReason(t) {
+    t = t.replace(/^Nothing was ordered: /, '').replace(/ \([^)]*\)/g, '').split(/\. |; /)[0];
+    if (t.length <= 110) return t;
+    const cut = t.slice(0, 110); return cut.slice(0, cut.lastIndexOf(' ')) + '…';
+  }
+  const failKey = l.decided_by;
+  let html = '';
+  for (const g of l.gates) {
+    const state = g.state, fail = state === 'fail';
+    const ans = state === 'pass' ? 'yes · ' + yes[g.key]
+      : fail ? 'no · ' + (l.action === 'answer' ? 'it’s a question, so the agent answers it' : shortReason(l.reason || res.result.error || ''))
+      : 'not reached';
+    const ev = state === 'not_reached' ? '' : evidence(g.key);
+    html += `<div class="rail-g ${state === 'pass' ? '' : fail ? 'fail ' + (who[l.action] || '') : 'skip'}">
+      <div class="rail-n">${g.n}</div><div class="rail-b">
+        <div class="rail-t"><b>${esc(g.question)}</b><span class="ans">${esc(ans)}</span>${fail ? '' : `<span class="else">${els[g.key]}</span>`}</div>
+        ${ev && (ev.startsWith('<div') ? ev : `<div class="rail-ev">${ev}</div>`)}
+        ${fail ? `<div class="rail-who"><div class="k">No → ${esc(l.action_text)}</div><div id="outcomeBody">${body}</div></div>` : ''}</div></div>`;
+  }
+  const done = !failKey && l.action === 'order';
+  html += `<div class="rail-g ${done ? 'done' : 'skip'}"><div class="rail-n">✓</div><div class="rail-b">
+    <div class="rail-t"><b>Order placed by the agent</b><span class="ans">${done ? 'all six answered yes' : 'not reached'}</span></div>
+    ${done ? `<div class="rail-who"><div id="outcomeBody">${body}</div></div>` : ''}</div></div>`;
+  return html;
 }
 
 async function decide(id, decision, who) {

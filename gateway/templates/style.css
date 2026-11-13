@@ -153,3 +153,39 @@ details[open] summary::before { transform: rotate(90deg); }
 .quote { border-left: 3px solid var(--bad); background: #fffafa; padding: 10px 14px; border-radius: 0 10px 10px 0; font-size: 13px; color: #42261f; }
 .spinner { width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.5); border-top-color: #fff; border-radius: 50%; display: inline-block; animation: spin .7s linear infinite; vertical-align: -3px; margin-right: 8px; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* Decision rail (concept A): six gates, the first "no" decides who acts next */
+.rail-g { display: grid; grid-template-columns: 34px 1fr; gap: 12px; position: relative; padding-bottom: 10px; }
+.rail-g:not(:last-child)::after { content: ""; position: absolute; left: 16px; top: 34px; bottom: 0; width: 2px; background: var(--ok); }
+.rail-g.fail::after, .rail-g.skip::after { background: var(--line); }
+.rail-n { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 13px;
+  background: #fff; border: 2px solid var(--ok); color: var(--ok); z-index: 1; }
+.rail-g.fail .rail-n { color: #fff; }
+.rail-g.skip .rail-n { border-color: var(--line); color: var(--faint); }
+.rail-b { border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; background: #fff; }
+.rail-g.skip .rail-b { border-style: dashed; background: transparent; }
+.rail-t { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.rail-t b { font-size: 14px; }
+.rail-t .ans { font-size: 13px; color: var(--mute); }
+.rail-g.skip .rail-t b, .rail-g.skip .rail-t .ans { color: var(--faint); }
+.rail-t .else { margin-left: auto; font-size: 12px; color: var(--faint); white-space: nowrap; }
+.rail-ev { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.rail-count { font-size: 12.5px; color: var(--mute); margin-top: 8px; font-variant-numeric: tabular-nums; }
+.rail-count b { color: var(--ink); }
+.rail-who { margin-top: 12px; }
+.rail-who .k { font-size: 11.5px; font-weight: 650; letter-spacing: .07em; text-transform: uppercase; margin-bottom: 6px; }
+/* colour of the deciding gate by who acts next */
+.rail-g.fail.a-person .rail-n { background: var(--warn); border-color: var(--warn); } .rail-g.fail.a-person .rail-b { border-color: #f1c58c; }
+.rail-g.fail.a-person .ans, .rail-g.fail.a-person .k { color: var(--warn); }
+.rail-g.fail.a-stop .rail-n { background: var(--bad); border-color: var(--bad); } .rail-g.fail.a-stop .rail-b { border-color: #f3b8b2; }
+.rail-g.fail.a-stop .ans, .rail-g.fail.a-stop .k { color: var(--bad); }
+.rail-g.fail.a-back .rail-n { background: var(--navy-2); border-color: var(--navy-2); } .rail-g.fail.a-back .rail-b { border-color: #b9c7e2; }
+.rail-g.fail.a-back .ans, .rail-g.fail.a-back .k { color: var(--navy-2); }
+.rail-g.done .rail-n { background: var(--ok); color: #fff; } .rail-g.done .rail-b { border-color: #a9dcc0; }
+@media (max-width: 700px) { .rail-t .else { display: none; } }
+.banner.info { background: #eef2f9; } .banner.info h3 { color: var(--navy-2); }
+@media (max-width: 560px) {
+  .topbar .inner { gap: 10px; padding: 0 12px; }
+  .brand { font-size: 0; gap: 0; } .brand .dot { font-size: 13px; }
+  .tabs a { padding: 0 8px; font-size: 13px; white-space: nowrap; }
+}
