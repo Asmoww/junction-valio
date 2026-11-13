@@ -8,6 +8,7 @@ order goes through, needs a human, or is blocked.
 import contextvars
 import math
 import re
+import threading
 import uuid
 from collections import Counter
 from datetime import date, datetime, time, timedelta, timezone
@@ -450,8 +451,19 @@ def create_offer(mandate, option, intent):
     return payload, jws
 
 
+# One commit or approval at a time: the "offer used once", "24 h spend" and "still pending" checks read the store
+# and then write to it, so two simultaneous calls could otherwise both pass. Fine for one process; several
+# workers would need the same guarantee from the database (open gap in docs/FRAMEWORK.md).
+_commit = threading.RLock()
+
+
 def place_order(offer_jws, idempotency_key, mandate, context, client=None, actor="agent"):
     """Gateway side of an order: verify the signed offer, re-check prices, apply the mandate."""
+    with _commit:
+        return _place_order(offer_jws, idempotency_key, mandate, context, client, actor)
+
+
+def _place_order(offer_jws, idempotency_key, mandate, context, client, actor):
     ok, payload = signing.verify(offer_jws)
     if not ok:
         return None, payload
@@ -585,6 +597,11 @@ def decide(order_id, decision, approver, comment="", client=None):
     The approver must be named in the buyer's mandate with authority for this total. If the price lock
     ran out while the order waited, the price is checked again before the order is placed: a changed
     price means a new offer, never a silent placement at an old price."""
+    with _commit:
+        return _decide(order_id, decision, approver, comment, client)
+
+
+def _decide(order_id, decision, approver, comment, client):
     order = store.get_order(order_id)
     if not order or order["status"] != "pending_approval":
         return None, "order is not waiting for approval"

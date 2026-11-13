@@ -103,6 +103,7 @@ Its 11 tests are in `tests/test_red_team_regressions.py`, adapted only where its
 Fixed after it: a signed offer can be committed once, whatever the idempotency key; the buyer's requested quantity is
 sealed into the signed offer and an agent claiming a different one is refused; unknown substitution types are refused;
 a late approval rechecks stock and cut-off as well as price; mandates that don't set delivery-history or 24 h limits
-fail closed. Already fixed before it (on `main` or this branch): negative and half-pack quantities, approvals by agents
+fail closed. Commits and approvals run one at a time, so two calls arriving together can't both pass the
+"offer used once" or 24 h check (one process; several workers would need the database to enforce it). Already fixed before it (on `main` or this branch): negative and half-pack quantities, approvals by agents
 or by people outside the mandate, the external "matches the request" check, 10.5 L packs, missing quantities, unknown
 allergen data, Terminal stock, the 24 h limit.

@@ -234,3 +234,28 @@ def test_external_agent_cannot_change_the_sealed_request(valio):
     order, _ = agent.order_from_jws(jws, "k-intent-2")  # with no claim, the sealed 100 is used
     assert order["status"] == "blocked"
     assert any(r["rule"] == "Matches the buyer's request" and not r["ok"] for r in order["policy"]["rules"])
+
+
+def test_same_offer_sent_twice_at_the_same_moment_places_one_order(monkeypatch):
+    """Added after the review's concurrency question: both calls must not pass the 'offer used once' check
+    before either has saved its order."""
+    import threading, time
+    payload = {"offer_id": "ofr_test_race", "expires_at": "2099-12-31T23:59:59+00:00", "deliver_by": "2026-11-16",
+               "lines": [{"productId": "testmilk", "unitPrice": 1.01, "units": 5}], "total_eur": 5.05}
+    monkeypatch.setattr(agent.signing, "verify", lambda token: (True, deepcopy(payload)))
+    monkeypatch.setattr(agent.policy, "evaluate", lambda *args: {"outcome": "auto_approve", "approver": None, "rules": []})
+
+    class SlowClient(FakeClient):
+        def prices(self, *args):
+            time.sleep(0.05)  # widen the gap between the check and the save
+            return super().prices(*args)
+
+    results = []
+    threads = [threading.Thread(target=lambda k=k: results.append(
+        agent.place_order("signed", k, deepcopy(MANDATE), {}, client=SlowClient()))) for k in ("key-a", "key-b")]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    placed = [o for o, _ in results if o and o["status"] == "placed"]
+    assert len(placed) == 1, f"one signed offer placed {len(placed)} orders"
