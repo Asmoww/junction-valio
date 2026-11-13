@@ -13,7 +13,7 @@ from collections import Counter
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from . import ai, catalog, gates, policy, security, signing, store
+from . import ai, catalog, gates, policy, request_checks, security, signing, store
 from .config import DEMO_CLOCK, MAX_OFFER_LINES, OFFER_TTL_MINUTES, TIMEZONE, WEIGHT_SALES_UNITS
 from .valio import ValioClient
 
@@ -85,20 +85,26 @@ STOP = {"i", "need", "we", "want", "of", "by", "for", "a", "an", "the", "find", 
 def parse_request(text, today=None):
     """Rule-based intent parser: quantity, unit, product words, attributes, deadline."""
     today = today or date.today()
-    t = text.lower()
+    t = catalog.fold(text)
     q = re.search(r"(\d[\d,. ]*)\s*(litres?|liters?|l|kg|kilos|kilograms|pcs|pieces|units)\b", t)
     quantity = _number(q.group(1)) if q else None
     unit = UNITS.get(q.group(2), "PCS") if q else "PCS"
-    if not q and (n := re.search(r"\b(\d[\d,.]*)\b", t)) and (u := re.search(r"\b(litres?|liters?|kg|kilos|kilograms|pcs|pieces|units)\b", t)):
+    oq = request_checks.order_quantity(text)
+    if oq:  # the deterministic reading knows dl/cl/ml, packs and pack sizes ("0.01 cartons of 1 L")
+        quantity, unit, t_after, q = oq["quantity"], oq["unit"], t[oq["end"]:], None
+    elif not q and (n := re.search(r"\b(\d[\d,.]*)\b", t)) and (u := re.search(r"\b(litres?|liters?|kg|kilos|kilograms|pcs|pieces|units)\b", t)):
         quantity, unit = _number(n.group(1)), UNITS.get(u.group(1), "PCS")  # "1000 ... milk liter": unit at the end
         t_after = t[n.end():]
         q = None
-    else:
+    elif not oq:
         t_after = None
     attrs = [code for pat, code in ATTRS.items() if re.search(pat, t)]
     deliver_by = None
     if m := re.search(r"\d{4}-\d{2}-\d{2}", t):
-        deliver_by = date.fromisoformat(m.group())
+        try:
+            deliver_by = date.fromisoformat(m.group())
+        except ValueError:
+            deliver_by = None  # not a real date: request_checks.date_problem reports it
     elif "tomorrow" in t:
         deliver_by = today + timedelta(days=1)
     else:
@@ -107,10 +113,10 @@ def parse_request(text, today=None):
                 deliver_by = today + timedelta(days=(i - today.weekday()) % 7 or 7)
     stripped = t
     if t_after is not None:
-        stripped = re.split(r"\b(?:by|for|to|before|until|from|delivered|so|and|that|which)\b|[,.;!?(]", t_after)[0]
+        stripped = re.split(r"\b(?:by|for|to|before|until|from|delivered|so|and|that|which)\b|[,;!?(]|(?<!\d)\.(?!\d)", t_after)[0]
     elif q:
         # The product is what follows the quantity, up to a clause like "by Monday" or "for the school".
-        stripped = re.split(r"\b(?:by|for|to|before|until|from|delivered|so|and|that|which)\b|[,.;!?]", t[q.end():])[0]
+        stripped = re.split(r"\b(?:by|for|to|before|until|from|delivered|so|and|that|which)\b|[,;!?]|(?<!\d)\.(?!\d)", t[q.end():])[0]
     for pat in ATTRS:
         stripped = re.sub(pat, " ", stripped)
     words = [w for w in re.findall(r"[a-zåäö]+", stripped)
@@ -150,29 +156,70 @@ SPEC_WORDS = {"fresh", "chilled", "uht", "long", "life", "whole", "light", "skim
               "tuore", "kevyt", "rasvaton", "taysmaito", "täysmaito"}
 
 
-def unmatched_terms(text, intent):
-    """Product words in the request that the reading dropped.
+FUNCTION_WORDS = {"please", "kindly", "would", "could", "should", "like", "want", "wants", "need", "needs", "needed",
+                  "order", "ordering", "buy", "send", "deliver", "delivered", "delivery", "deliveries", "bring", "make",
+                  "with", "from", "into", "onto", "this", "that", "these", "those", "them", "they", "their", "there",
+                  "here", "have", "has", "had", "will", "shall", "just", "only", "also", "very", "much", "many", "each",
+                  "every", "plain", "regular", "normal", "standard", "basic", "ordinary", "usual", "same", "again",
+                  "start", "starting", "next", "week", "weekly", "today", "tomorrow", "tonight", "morning", "afternoon",
+                  "evening", "night", "date", "time", "later", "soon", "quickly", "fast", "liter", "litra", "litraa"}
+# Finnish and Swedish words that frame a request (weekdays, "order", "deliver"); matched as prefixes for inflection.
+FRAME_PREFIXES = ("maanantai", "tiistai", "keskiviiko", "torstai", "perjantai", "lauantai", "sunnuntai", "huomen",
+                  "toimitu", "tilaa", "tarvit", "mennessä", "måndag", "tisdag", "onsdag", "torsdag", "fredag", "lördag",
+                  "söndag", "imorgon", "beställ", "behöver", "leverans", "kiitos", "please")
 
-    A request like "chili cheese chicken nuggets and 100 litres of milk" must not quietly become an
-    order for milk alone. We only flag words that occur in Valio's own product names (so they really are
-    product words), outside a "for ..." purpose clause, and not covered by the product or requirements."""
+
+def _known(w, vocab):
+    """In Valio's product vocabulary, allowing Finnish inflection ("maitoa" -> "maito")."""
+    if w in vocab or catalog._stem(w) in vocab:
+        return True
+    return any(w.startswith(v) and len(w) - len(v) <= 4 for v in (w[:k] for k in range(5, len(w))) if v in vocab)
+
+
+def unmatched_terms(text, intent, covered_texts=()):
+    """Words in the request that the reading dropped.
+
+    A request like "chili cheese chicken nuggets and 100 litres of milk" must not quietly become an order for
+    milk alone, and "dehydrated astronaut plutonium 50 kg butter" must not become a butter order. Flagged:
+    (1) Valio product words that aren't covered by the products found, and (2) words in the order itself
+    (before "by Monday", "for the school ...") that are neither product words nor ordinary request words.
+    Words in exclusions ("do NOT send ...") and a "for ..." purpose clause are ignored."""
     t = catalog.fold(text)
+    for e in request_checks.EXCLUDE.finditer(t):
+        t = t.replace(e.group(0), " ")
     parts = re.split(r"\bfor\b", t, maxsplit=1)
     if len(parts) == 2 and re.search(r"\d", parts[0]):
         t = parts[0]  # "... by Wednesday for the school breakfast": the purpose clause isn't the product
+    clause = re.split(r"\b(?:by|until|before|on)\b|[(\[.;!?—–]", t, maxsplit=1)[0]
     for pat in ATTRS:
         t = re.sub(pat, " ", t)
+        clause = re.sub(pat, " ", clause)
     covered = {catalog._stem(w) for w in re.findall(r"[a-zåäö]+", catalog.fold(intent.get("product") or ""))}
     covered |= SPEC_WORDS  # fat level and fresh/long-life are captured as fat_pct and shelf_life
+    cover_words = set()
+    for ct in covered_texts:
+        cover_words |= set(re.findall(r"[a-zåäö]+", catalog.fold(ct)))
     vocab = catalog.vocabulary()
-    out = []
-    for w in re.findall(r"[a-zåäö]+", t):
-        if (len(w) < 3 or w in STOP or w in WEEKDAYS or w in UNITS or w in CONTEXT_WORDS
-                or catalog._stem(w) in covered or any(c and catalog._stem(w).startswith(c) for c in covered)):
+    ignore = STOP | set(WEEKDAYS) | set(UNITS) | CONTEXT_WORDS | QUESTION_WORDS | FUNCTION_WORDS \
+        | set(request_checks.VOLUME) | set(request_checks.MASS) | request_checks.COUNT | {"lactose", "free"}
+
+    def is_covered(w):
+        s_ = catalog._stem(w)
+        return (s_ in covered or any(c and s_.startswith(c) for c in covered) or w in cover_words
+                or any(w.startswith(c) and len(w) - len(c) <= 4 for c in cover_words if len(c) >= 4))
+
+    out = set()
+    for w in re.findall(r"[a-zåäö]+", t):  # (1) product words dropped anywhere in the request
+        if len(w) < 3 or w in ignore or w.startswith(FRAME_PREFIXES) or is_covered(w):
             continue
         if w in vocab or catalog._stem(w) in vocab:
-            out.append(w)
-    return sorted(set(out))
+            out.add(w)
+    for w in re.findall(r"[a-zåäö]+", clause):  # (2) unknown words inside the order itself
+        if len(w) < 4 or w in ignore or w in request_checks.GENERIC or w.startswith(FRAME_PREFIXES) or is_covered(w):
+            continue
+        if not _known(w, vocab):
+            out.add(w)
+    return sorted(out)
 
 
 def _per_unit(p, price, unit):
@@ -221,6 +268,11 @@ def _assess(p, price, avail, intent, now_s):
     elif not lines:
         row["status"] = "unavailable"
         row["issues"].append("not available by the requested date")
+        # A later delivery is a compromise only a person may accept (gate 5), so remember the earliest one.
+        later = [s for s in a.get("scheduleLines", []) if not s.get("salesBlock") and s.get("availableDate")
+                 and s["availableDate"] > intent["deliver_by"]]
+        if later and sum(s["availableAmount"] for s in later) >= need:
+            row["late_date"] = min(s["availableDate"] for s in later)
     elif available < need:
         row["status"] = "partial"
         row["issues"].append(f"only {available:g} {p['salesUnit']} available, need {need}")
@@ -410,6 +462,11 @@ def place_order(offer_jws, idempotency_key, mandate, context, client=None, actor
     if drift:
         store.log(payload["offer_id"], "gateway", "order.rejected", {"reason": "price changed", "products": drift})
         return None, f"price changed since the offer for {', '.join(drift)}: request a new offer"
+    # How much the agent already ordered on its own under this mandate in the last 24 h (anti-smurfing).
+    since = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat(timespec="seconds")
+    context["auto_spend_24h"] = round(sum(o["total"] for o in store.list_orders(500)
+                                          if o["mandate_id"] == mandate["mandate_id"] and o["status"] == "placed"
+                                          and o["policy"]["outcome"] == "auto_approve" and o["created"] >= since), 2)
     verdict = policy.evaluate(mandate, payload, context)
     status = {"auto_approve": "placed", "needs_approval": "pending_approval", "blocked": "blocked"}[verdict["outcome"]]
     order = {"id": "ord_" + uuid.uuid4().hex[:10], "offer_id": payload["offer_id"], "idempotency_key": idempotency_key,
@@ -581,9 +638,28 @@ def _run(text, mandate_id, overrides=None, simulate_price_change=False, inject=F
         intent = parse_request(text)
         parser = "rules" + (f" (Claude unavailable: {ai_intent['_error']})" if ai_intent else " (no Claude key configured)")
     intent["parser"] = parser
-    # What the reading left out. Claude reports what it dropped; the word check catches it if Claude doesn't.
-    intent["ignored_terms"] = sorted(set(intent.get("ignored_terms") or []) | set(unmatched_terms(text, intent)))
-    store.log(run_id, f"agent:{mandate['agent']}", "request.received", {"text": text, "mandate_id": mandate_id, "parser": parser})
+    # Deterministic reading of the same text (request_checks.py). It only ever makes the agent more careful.
+    forced, forced_why = request_checks.request_type(text)
+    if forced:
+        intent["request_type"], intent["request_type_reason"] = forced, forced_why
+    oq = request_checks.order_quantity(text)
+    quantity_mismatch = ""
+    if oq and parser.startswith("rules"):
+        intent["quantity"], intent["unit"] = oq["quantity"], oq["unit"]
+    elif oq and intent.get("quantity") is not None and (abs(oq["quantity"] - intent["quantity"]) > 1e-6 or oq["unit"] != intent["unit"]):
+        quantity_mismatch = (f"the quantity reads two ways: “{oq['raw']}” is {oq['quantity']:g} {oq['unit']}, "
+                             f"but it was read as {intent['quantity']:g} {intent['unit']}")
+    allergy_codes = request_checks.allergies(text)
+    if allergy_codes:
+        # An allergy in the request tightens this run's mandate. It can only add bans, never remove one.
+        hard = mandate["hard_limits"]
+        hard["forbidden_allergens"] = sorted(set(hard.get("forbidden_allergens", [])) | set(allergy_codes))
+        ap = mandate.setdefault("allergen_policy", {})
+        ap["may_contain"] = "block"
+        ap.setdefault("no_data", "needs_approval")
+        intent["allergies"] = [catalog.ALLERGENS.get(a, a) for a in allergy_codes]
+    store.log(run_id, f"agent:{mandate['agent']}", "request.received", {"text": text, "mandate_id": mandate_id, "parser": parser,
+                                                                         "request_allergies": allergy_codes})
     steps.append({"step": "request", "title": "Understand the request", "intent": intent})
 
     def exit_at(gate, action, status, reason):
@@ -596,12 +672,15 @@ def _run(text, mandate_id, overrides=None, simulate_price_change=False, inject=F
     rtype = intent.get("request_type") or "buy"
     if rtype == "other":
         return exit_at("purchase", "decline", "not_a_purchase",
-                       "This isn't a purchasing request, so the agent does nothing with it.")
+                       f"Nothing was ordered: {intent.get('request_type_reason') or 'this is not a purchasing request'}.")
     if rtype == "change":
         return exit_at("purchase", "decline", "change_not_supported",
-                       "Changing or cancelling a placed order goes to a person in this demo; the agent only places new orders.")
+                       "Changing, cancelling or returning a placed order goes to a person; the agent only places new orders.")
     # Gate 1: do we know exactly what is wanted?
-    if findings := security.scan(text):
+    findings = security.scan_request(text)
+    if gaming := request_checks.policy_gaming(text):
+        findings.append({"pattern": "policy_gaming", "why": gaming})
+    if findings:
         # A request says what to buy, never how the agent should behave. The agent doesn't follow such text,
         # doesn't half-follow it, and doesn't order the rest of the request without the requester confirming.
         store.log(run_id, f"agent:{mandate['agent']}", "security.injection_in_request",
@@ -611,19 +690,60 @@ def _run(text, mandate_id, overrides=None, simulate_price_change=False, inject=F
                        "The request contains instructions aimed at the agent (" + "; ".join(sorted({f["why"] for f in findings}))
                        + "). The agent takes only what to buy from a request and never follows such text. "
                          "Nothing was ordered: send the purchase on its own.")
+    problem, gate = request_checks.date_problem(text, intent.get("deliver_by"), date.today())
+    if problem:
+        return exit_at(gate, "ask_back", "invalid_date", f"Nothing was ordered: {problem}.")
+    if problem := request_checks.quantity_problem(text):
+        return exit_at("clear", "ask_back", "invalid_quantity", f"Nothing was ordered: {problem}.")
+    if rtype == "buy" and request_checks.multi_line(text):
+        return exit_at("clear", "ask_back", "several_lines",
+                       "The request names several quantities. Send each product as its own line, so each one is "
+                       "checked on its own; nothing was ordered.")
+    if problem := request_checks.conditional(text):
+        return exit_at("clear", "ask_back", "conditional", f"Nothing was ordered: {problem}.")
+    if quantity_mismatch:
+        return exit_at("clear", "ask_back", "quantity_unclear", f"Nothing was ordered: {quantity_mismatch}.")
     if not (intent.get("product") or "").strip():
         return exit_at("clear", "ask_back", "unclear_request", "Which product? The request doesn't name one.")
+    if problem := request_checks.too_broad(intent["product"]):
+        return exit_at("clear", "ask_back", "too_broad", f"Nothing was ordered: {problem}.")
     if rtype == "buy" and not intent.get("quantity"):
         return exit_at("clear", "ask_back", "unclear_request", f"How much {intent['product']}? The request gives no quantity.")
-    if rtype == "buy" and intent.get("ignored_terms"):
-        return exit_at("clear", "ask_back", "unclear_request",
-                       f"Understood: {intent.get('quantity') or ''} {intent.get('unit', '')} {intent['product']}. "
-                       f"Not understood or not covered: {', '.join(intent['ignored_terms'])}. "
-                       "Send them as separate lines, or confirm the order without them.")
 
     spec = {"fat_pct": intent.get("fat_pct"), "shelf_life": intent.get("shelf_life")}
     candidates, trace = catalog.search(intent["product"], intent["attributes"], spec=spec,
                                        type_check=ai.type_check if ai.enabled() else None)
+    # Products the buyer named by id are the candidates (still checked against the requirements).
+    if named := request_checks.named_products(text):
+        named_ok = []
+        for pid in named:
+            p = catalog.get(pid)
+            ok, why, gaps = catalog.matches_attributes(p, intent["attributes"])
+            if not ok:
+                return exit_at("possible", "ask_back", "named_product_fails",
+                               f"Product {pid} ({p['name']}) doesn't meet the request: {why}. Nothing was ordered.")
+            p["_gaps"] = gaps
+            named_ok.append(p)
+        candidates, trace["named_products"] = named_ok, named
+    # Products the buyer excluded ("do NOT send Arla Cafè milk 463380", "ei kahvimaitoa").
+    asked_words = set(re.findall(r"[a-zåäö]+", catalog.fold(intent["product"])))
+    for ex in request_checks.exclusions(text):
+        words = {w for w in ex["words"] - asked_words if w in catalog.vocabulary()}
+        if not words and not ex["ids"]:
+            continue
+        before = len(candidates)
+        candidates = [p for p in candidates if p["id"] not in ex["ids"]
+                      and not (words and words <= set(re.findall(r"[a-zåäö]+", p["_text"])))]
+        if len(candidates) < before:
+            trace.setdefault("excluded_by_request", []).append(" ".join(sorted(words | ex["ids"])))
+    # Gate 1 again, now that we know what the words matched: nothing in the request may be silently dropped.
+    intent["ignored_terms"] = sorted(set(intent.get("ignored_terms") or []) |
+                                     set(unmatched_terms(text, intent, [p["_text"] for p in candidates])))
+    if rtype == "buy" and intent["ignored_terms"]:
+        return exit_at("clear", "ask_back", "unclear_request",
+                       f"Understood: {intent.get('quantity') or ''} {intent.get('unit', '')} {intent['product']}. "
+                       f"Not understood or not covered: {', '.join(intent['ignored_terms'])}. "
+                       "Send them as separate lines, or confirm the order without them.")
     # The agent drops what the mandate forbids, or can't be verified, before asking for prices.
     excluded = []
     kept = []
@@ -744,6 +864,23 @@ def _run(text, mandate_id, overrides=None, simulate_price_change=False, inject=F
         return {"run_id": run_id, "steps": steps, "api_calls": client.calls, "mandate": mandate,
                 "result": {"status": "answered"},
                 "ladder": gates.ladder("purchase", "answer", f"{len(usable)} products can be delivered by {intent['deliver_by']}")}
+    if not options:
+        # Nothing in time. A later delivery is still "possible" (gate 2) but it is a compromise, so the order goes
+        # on and gate 5 ("Delivery on time") sends it to a person. Stated requirements are never relaxed here.
+        late = []
+        for r in rows:
+            if r.get("late_date"):
+                rr = dict(r, status="ok", delivery_date=r["late_date"], units=r["units_needed"],
+                          total=round(r["units_needed"] * r["unit_price"], 2))
+                rr["issues"] = r["issues"] + [f"earliest delivery {r['late_date']}"]
+                late.append(rr)
+        if late:
+            _score(late, mandate["weights"])
+            options = build_options(late, intent)
+            for o in options:
+                o["label"], o["why"] = f"Later delivery ({o['lines'][0]['deliveryDate']})", "nothing can arrive by the date asked"
+            steps[-1]["options"] = options
+            steps[-1]["note"] = f"Nothing arrives by {intent['deliver_by']}; the earliest option goes to a person to accept."
     if not options:  # Gate 2: Valio can't supply it as asked; say exactly why, per reason
         return exit_at("possible", "ask_back", "no_option", explain_no_option(rows, intent))
 

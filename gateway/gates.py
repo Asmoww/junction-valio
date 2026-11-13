@@ -61,6 +61,7 @@ RULE_GATE = {
     "Delivery reliability": "authority",
     "Unstated details within tolerance": "authority",
     "Auto-approve spend limit": "authority",
+    "Agent's own spend in 24 h": "authority",
 }
 
 

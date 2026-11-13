@@ -165,6 +165,11 @@ def evaluate(mandate, offer, context):
 
     rule("Auto-approve spend limit", total <= auto["max_order_total_eur"], "approve",
          f"€{total:,.2f} vs auto-approve limit €{auto['max_order_total_eur']:,}")
+    if auto.get("max_auto_eur_per_24h") is not None:
+        before = context.get("auto_spend_24h") or 0
+        rule("Agent's own spend in 24 h", before + total <= auto["max_auto_eur_per_24h"], "approve",
+             f"€{before:,.2f} already ordered alone in 24 h + €{total:,.2f} vs €{auto['max_auto_eur_per_24h']:,} "
+             "(splitting an order into small ones doesn't avoid approval)")
 
     verdict = gates.from_rules(rules)
     if verdict["action"] == "stop":

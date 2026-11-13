@@ -42,6 +42,8 @@ MODIFIERS = {  # noqa: E501
 }
 MODIFIERS.discard("drink")  # Finnish lactose-free milk is sold as "milk drink"
 MODIFIERS |= {"cafe", "barista", "kahvi", "kaakao", "piima", "kerma", "jogurtti", "rahka", "annos"}
+# "butter" must not return nut or seed butters, "milk" must not return coconut or almond milk.
+MODIFIERS |= {"nut", "nuts", "cashew", "peanut", "almond", "hazelnut", "seed", "seeds", "shea", "coconut", "apple", "soy", "soya"}
 # Finnish compounds: "kahvimaito" (coffee milk), "annosmaito" (portion cups), "suklaamaito" ...
 MODIFIER_PREFIXES = ("kahvi", "kaakao", "suklaa", "annos", "piimä", "kerma", "jogurt", "rahka", "vanilja", "mansikka")
 

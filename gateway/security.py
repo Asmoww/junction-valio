@@ -42,3 +42,33 @@ def safe_next(target):
         return "/"
     parts = urlsplit(t)
     return "/" if parts.scheme or parts.netloc else t
+
+
+# Requests from the buyer get the same scan minus the supplier-only rule ("order 100 units" is a normal request),
+# plus patterns for attacks that only make sense in a request.
+REQUEST_PATTERNS = [x for x in PATTERNS if "pushes a specific large quantity" not in x[1]] + [
+    (r"\[\s*system\b|\bsystem\s*:|<\s*/?\s*(system|user|assistant)\w*\s*>", "pretends to be a system message"),
+    (r"\b(already|pre)[- ]?(signed off|approved)\b|\bsigned off on\b|\bapprover_id\b|\bapproval_token\b",
+     "claims approval is already given"),
+    (r"\b(debug|developer|admin|god|maintenance) mode\b", "claims a special mode"),
+    (r"\b(auto_?approve\w*|mandate_id|policy\.\w+|bypass_\w+|stock_known|reliability_warning|forbidden_allergens)\b"
+     r"|\bstatus\s*=", "tries to set gateway fields"),
+    (r"drop\s+table|;\s*--|\bunion\s+select\b|\bdelete\s+from\b", "SQL injection"),
+    (r"\bskip (step|the approval|approval|checks?|the mandate)\b|\bwithout (logging|checks?|re-?signing)\b",
+     "tries to skip controls"),
+    (r"\b(must|shall) order (a )?minimum\b|\bto qualify\b", "pushes a quantity"),
+    (r"\b(is|are) (suspended|lifted|disabled|waived)\b|\b(suspend|lift|disable|waive) (the )?(rule|limit|ban|mandate)",
+     "claims rules are switched off"),
+    (r"\b(translate|interpret|treat|map|rewrite)\b[^.]{0,40}\bas\b[^.]{0,40}\b(in|for) the (spec|mandate|policy|system|order)\b",
+     "tries to change what a requirement means"),
+    (r"\b(ceo|cfo|owner|manager|head chef|director)\b[^.]{0,30}\b(override|overrides|authori[sz]es|approves)\b",
+     "claims authority from someone else"),
+    (r"\b(private|signing) key\b|\bexfiltrat\w*|\bjwks\b|\bhash (chain )?forg\w*|\bforge\b",
+     "targets the gateway's keys or audit trail"),
+]
+
+
+def scan_request(text):
+    """Scan a buyer's request text for instructions aimed at the agent (gate 1 of the decision ladder)."""
+    t = (text or "").lower()
+    return [{"pattern": p, "why": why} for p, why in REQUEST_PATTERNS if re.search(p, t)]
