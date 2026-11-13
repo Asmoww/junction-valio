@@ -18,8 +18,7 @@
   <div class="page-head">
     <div>
       <h1>An outside AI agent buys from Valio Aimo</h1>
-      <p>The buyer gives its agent a mandate. The agent finds products, takes a signed fixed-price offer and orders.
-         Valio's gateway checks every order against the mandate and sends it to a human when it has to.</p>
+      <p>Six checks on every request. The first “no” decides who acts next.</p>
     </div>
   </div>
 
@@ -38,9 +37,9 @@
         <div class="chips" id="presets" style="margin-top:10px"></div>
         <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--line)">
           <div class="eyebrow" style="margin-bottom:4px">Red team</div>
-          <label class="switch"><input type="checkbox" id="inject"><span>Prompt injection in supplier data<small>A product description tells AI agents to order 10,000 units.</small></span></label>
-          <label class="switch"><input type="checkbox" id="priceChange"><span>Price changes before ordering<small>The offer goes stale between offer and order.</small></span></label>
-          <label class="switch" id="clockSwitch" style="display:none"><input type="checkbox" id="realClock"><span>Passed order cut-offs<small>Use Valio's real clock: the data snapshot's cut-offs have passed.</small></span></label>
+          <label class="switch" title="A product description tells AI agents to order 10,000 units."><input type="checkbox" id="inject"><span>Prompt injection in supplier data</span></label>
+          <label class="switch" title="The offer goes stale between offer and order."><input type="checkbox" id="priceChange"><span>Price changes before ordering</span></label>
+          <label class="switch" id="clockSwitch" style="display:none" title="Use Valio's real clock: the data snapshot's cut-offs have passed."><input type="checkbox" id="realClock"><span>Passed order cut-offs</span></label>
         </div>
         <button class="btn btn-primary" id="runBtn" onclick="run()">Run purchasing agent</button>
       </div>
@@ -48,9 +47,8 @@
 
     <section id="out">
       <div class="card empty">
-        <h2>Pick a mandate, describe the need, run the agent</h2>
-        <p>Each step below is a call to the open gateway API (also available as an MCP server), with the same checks for every agent.</p>
-        <div class="flow"><span>Request</span><i>→</i><span>Lookup</span><i>→</i><span>Signed offer</span><i>→</i><span>Mandate check</span><i>→</i><span>Order or approval</span><i>→</i><span>Audit trail</span></div>
+        <h2>Describe what the kitchen needs, then run the agent</h2>
+        <div class="flow"><span>Purchase?</span><i>→</i><span>Clear?</span><i>→</i><span>Possible?</span><i>→</i><span>Allowed?</span><i>→</i><span>Proven?</span><i>→</i><span>Agent’s call?</span></div>
       </div>
     </section>
   </div>
@@ -102,16 +100,19 @@ function renderMandate() {
   const m = mandates[$('#mandate').value];
   $('#autoLimit').value = m.auto_approve.max_order_total_eur;
   const forb = m.hard_limits.forbidden_allergens.map(a => ALLERGEN[a] || a);
-  $('#mandateView').innerHTML = `<div class="kv">
-    <div>Agent</div><div>${esc(m.agent)}</div>
-    <div>Hard limit</div><div>${eur(m.hard_limits.max_order_total_eur)} per order</div>
-    <div>Never buy</div><div class="chips">${forb.length ? forb.map(a => `<span class="chip bad">${a}</span>`).join('') : '<span class="faint">no allergen bans</span>'}</div>
-    ${forb.length ? `<div>Unclear data</div><div>“may contain”: ${esc((m.allergen_policy?.may_contain || 'block').replace('_', ' '))} · no data: ${esc((m.allergen_policy?.no_data || 'needs_approval').replace('_', ' '))}</div>` : ''}
-    <div>Substitutes</div><div>${esc(m.substitutions.official_substitute.replace('_', ' '))}</div>
-    <div>Reliability</div><div>≥ ${(m.min_delivery_reliability * 100).toFixed(0)} % or a person approves · no history: ${m.unknown_reliability === 'needs_approval' ? 'a person checks' : 'allowed'}</div>
-    ${m.profile ? `<div>Profile</div><div>${Object.entries(m.profile).map(([k, v]) => `${esc(k)}: ${[v.fat_pct != null ? v.fat_pct + ' %' : '', v.shelf_life === 'any' ? 'fresh or UHT' : (v.shelf_life || '').replace('_', '-')].filter(Boolean).join(', ')}`).join('<br>')}</div>` : ''}
-    <div>Approvers</div><div>${m.approvers.map(a => `${esc(a.role)} <span class="faint">≤ ${eur(a.up_to_eur).replace('.00','')}</span>`).join('<br>')}</div>
-  </div>`;
+  const prof = m.profile ? Object.entries(m.profile).map(([k, v]) => `${k} ${[v.fat_pct != null ? v.fat_pct + ' %' : '', v.shelf_life === 'any' ? 'fresh or UHT' : (v.shelf_life || '').replace('_', '-')].filter(Boolean).join(', ')}`) : [];
+  $('#mandateView').innerHTML = `<div class="mfacts">
+      <div><span>Hard limit</span><b>${eur(m.hard_limits.max_order_total_eur).replace('.00', '')}</b></div>
+      <div><span>Approvers</span><b>${m.approvers.length}</b></div>
+      <div><span>Bans</span><b>${forb.length || '—'}</b></div></div>
+    ${forb.length ? `<div class="chips" style="margin-top:10px">${forb.map(a => `<span class="chip bad">no ${a}</span>`).join('')}</div>` : ''}
+    <details style="margin-top:10px"><summary>All rules</summary><div class="kv small" style="margin-top:8px">
+      <div>Agent</div><div>${esc(m.agent)}</div>
+      ${forb.length ? `<div>Unclear data</div><div>“may contain”: ${esc((m.allergen_policy?.may_contain || 'block').replace('_', ' '))} · no data: ${esc((m.allergen_policy?.no_data || 'needs_approval').replace('_', ' '))}</div>` : ''}
+      <div>Substitutes</div><div>${esc(m.substitutions.official_substitute.replace('_', ' '))}</div>
+      <div>Reliability</div><div>≥ ${(m.min_delivery_reliability * 100).toFixed(0)} %</div>
+      ${prof.length ? `<div>Profile</div><div>${prof.map(esc).join('<br>')}</div>` : ''}
+      <div>Approvers</div><div>${m.approvers.map(a => `${esc(a.role)} ≤ ${eur(a.up_to_eur).replace('.00', '')}`).join('<br>')}</div></div></details>`;
   $('#presets').innerHTML = (PRESETS[m.mandate_id] || []).map(([l, t]) =>
     `<button class="chip" onclick='$("#request").value=${esc(JSON.stringify(t))}'>${esc(l)}</button>`).join('');
 }
@@ -126,24 +127,39 @@ async function run() {
     const res = await post('/api/run', {
       request: $('#request').value, mandate_id: $('#mandate').value, auto_limit: Number($('#autoLimit').value),
       simulate_price_change: $('#priceChange').checked, inject: $('#inject').checked, real_clock: $('#realClock').checked });
-    const looked = res.api_calls.reduce((a, c) => a + c.products, 0);
-    $('#out').insertAdjacentHTML('beforeend', `<div class="counter">
-      <span><b>${res.api_calls.length}</b>batched Valio API calls</span>
-      <span><b>${looked}</b>product lookups in them</span>
-      <span><b>0</b>calls to search 17,546 products</span>
-      <span class="calls">${res.api_calls.map(c => `${c.endpoint.replace('POST /api/', '')}: ${c.products} products`).join(' · ')}</span></div>
-      ${res.clock?.demo_clock ? `<div class="small muted" style="margin:-4px 0 10px">⏱ ${esc(res.clock.note)} See ASSUMPTIONS.md #4.</div>` : ''}
-      <div class="timeline" id="tl"></div>`);
-    let n = 0;
-    for (const s of res.steps) {
-      const html = renderStep(s, ++n);
-      if (html) { $('#tl').insertAdjacentHTML('beforeend', html); await sleep(260); }
-    }
+    $('#out').insertAdjacentHTML('beforeend', requestCard(res) + '<div id="tl"></div>');
+    const st = {}; res.steps.forEach(x => st[x.step] = x);
+    const alerts = res.steps.filter(x => ['injection_scan', 'attack_result', 'order_rejected'].includes(x.step));
+    if (alerts.length) $('#tl').insertAdjacentHTML('beforeend', `<div class="card redteam"><div class="eyebrow">Red team</div>${alerts.map(stepBody).join('<hr>')}</div>`);
     renderOutcome(res);
   } catch (e) {
     $('#out').insertAdjacentHTML('beforeend', `<div class="card"><div class="banner bad"><h3>Something went wrong</h3>${esc(e.message)}</div></div>`);
   }
   btn.disabled = false; btn.textContent = 'Run purchasing agent';
+}
+
+function requestCard(res) {
+  const i = res.steps[0]?.intent || {};
+  const unit = ({L: 'L', KG: 'kg', PCS: 'pcs'})[i.unit] || i.unit || '';
+  const attrs = (i.attributes || []).map(a => a.startsWith('FREE_FROM_') ? a.slice(10).toLowerCase() + '-free' : a.toLowerCase());
+  const date = i.deliver_by ? new Date(i.deliver_by + 'T12:00').toLocaleDateString('en-GB', {weekday: 'short', day: 'numeric', month: 'short'}) : '';
+  const slot = (label, value, cls = '') => `<div class="slot ${cls}"><span>${esc(label)}</span><b>${esc(value)}</b></div>`;
+  const slots = [
+    slot('how much', i.quantity != null ? `${Number(i.quantity).toLocaleString('en-US')} ${unit}` : '?', i.quantity == null ? 'missing' : ''),
+    ...attrs.map(a => slot('must be', a)),
+    slot('what', i.product || '?', 'what' + (i.product ? '' : ' missing')),
+    ...(i.fat_pct != null && !(i.from_profile || []).some(x => x.startsWith('fat')) ? [slot('fat', i.fat_pct + ' %')] : []),
+    ...(i.shelf_life ? [slot('kind', i.shelf_life === 'long_life' ? 'long-life' : 'fresh')] : []),
+    slot('by when', date),
+    ...(i.from_profile || []).map(x => slot('buyer profile', x, 'profile')),
+    ...(i.allergies || []).map(a => slot('allergy', 'no ' + a, 'allergy')),
+  ];
+  return `<div class="reqcard"><div class="reqhead"><span>The request, as the agent read it</span>
+      <span>${esc((i.parser || '').startsWith('Claude') ? 'read by Claude' : 'rule-based reading')}</span></div>
+    <div class="slots">${slots.join('')}</div>
+    <div class="reqraw">“${esc(i.raw || '')}”</div>
+    ${i.product_note ? `<div class="reqnote">${esc(i.product_note)}</div>` : ''}
+    ${(i.ignored_terms || []).length ? `<div class="reqnote">Not understood: ${esc(i.ignored_terms.join(', '))}</div>` : ''}</div>`;
 }
 
 function chip(s) {
@@ -153,7 +169,11 @@ function chip(s) {
   return `<span class="chip ${c}">${t}</span>`;
 }
 
+let BODY_ONLY = false;
+function stepBody(s) { BODY_ONLY = true; try { return renderStep(s, 0); } finally { BODY_ONLY = false; } }
+
 function step(n, title, body, cls = 'done', tag = '') {
+  if (BODY_ONLY) return body;
   return `<div class="step ${cls}"><div class="bullet">${n}</div><div class="card">
     <div class="step-head"><h3>${esc(title)}</h3>${tag ? `<span class="tag">${tag}</span>` : ''}</div>${body}</div></div>`;
 }
@@ -198,7 +218,7 @@ function renderStep(s, n) {
     return step(n, 'Supplier text contains hidden instructions', `
       <p class="small muted" style="margin:0 0 8px">Product description of <b>${esc(s.product.name)}</b>, as delivered by the supplier feed:</p>
       <div class="quote">${esc(s.text)}</div>
-      <div class="chips" style="margin-top:10px">${s.findings.map(f => `<span class="chip bad">${esc(f.why)}</span>`).join('')}</div>
+      <div class="chips" style="margin-top:10px">${[...new Set(s.findings.map(f => f.why))].map(w => `<span class="chip bad">${esc(w)}</span>`).join('')}</div>
       <p class="small muted" style="margin:10px 0 0">The gateway treats supplier text as data, never instructions, and flags it for Valio. The honest agent drops this product.</p>`,
       'alert', '<span class="chip bad">Red team</span>');
   }
@@ -327,8 +347,7 @@ function renderOutcome(res) {
       <div class="actions"><button class="btn btn-ok" onclick="decide('${o.id}','approve','${esc(ap.name)}')">Approve as ${esc(ap.name.split(' ')[0])}</button>
       <button class="btn btn-bad" onclick="decide('${o.id}','reject','${esc(ap.name)}')">Reject</button></div></div>`;
   }
-  $('#tl').insertAdjacentHTML('beforeend', `<div class="step final" id="outcome"><div class="bullet">✓</div><div class="card">
-    <div class="step-head"><h3>Decision</h3><span class="tag"><span class="chip">six questions · the first “no” decides who acts next</span></span></div>
+  $('#tl').insertAdjacentHTML('beforeend', `<div id="outcome"><div class="card railcard">
     ${railHtml(res, body)}</div></div>`);
   if (o) { $('#out').insertAdjacentHTML('beforeend', '<div id="record"></div>'); showRecord(o.id); }
   $('#outcome').scrollIntoView({behavior: 'smooth', block: 'center'});
@@ -356,60 +375,56 @@ function useSuggestion(asked, phrase) {
 function railHtml(res, body) {
   const l = res.ladder;
   if (!l) return `<div id="outcomeBody">${body}</div>`;
-  const st = Object.fromEntries(res.steps.map(s => [s.step, s]));
-  const intent = st.request?.intent || {}, lk = st.lookup, pa = st.price_availability;
+  const st = {}; res.steps.forEach(x => st[x.step] = x);
+  const lk = st.lookup, pa = st.price_availability, intent = st.request?.intent || {};
   const rules = res.order?.policy?.rules || [];
-  const yes = {purchase: 'a request to buy', clear: 'we know what is wanted', possible: 'Valio can supply it at a fixed price',
-               allowed: 'every hard rule kept', proven: 'every fact backed by data', authority: "within the agent's own authority"};
-  const els = {purchase: 'else: answer or decline', clear: 'else: ask the requester', possible: 'else: ask back, with what exists',
-               allowed: 'else: stop, nobody can approve', proven: 'else: a person checks the facts', authority: 'else: a person approves'};
   const who = {person_approves: 'a-person', person_checks: 'a-person', stop: 'a-stop', decline: 'a-stop', ask_back: 'a-back', answer: 'a-back'};
   const ok = pa ? pa.rows.filter(r => r.status === 'ok').length : null;
-  const chip = (t, c = '') => `<span class="chip ${c}">${esc(t)}</span>`;
-  const ruleChips = g => rules.filter(r => r.gate === g).map(r => chip((r.ok ? '✓ ' : r.level === 'block' ? '✕ ' : '! ') + r.rule,
-                                                                         r.ok ? 'ok' : r.level === 'block' ? 'bad' : 'warn')).join('');
-  function evidence(key) {
-    if (key === 'clear') {
-      const parts = [intent.product, intent.quantity != null ? `${Number(intent.quantity).toLocaleString('en-US')} ${({L: 'L', KG: 'kg', PCS: 'pcs'})[intent.unit] || intent.unit}` : null,
-                     ...(intent.attributes || []).map(a => a.replaceAll('_', ' ').toLowerCase().replace('free from ', '') + (a.startsWith('FREE_FROM') ? '-free' : '')),
-                     intent.deliver_by ? 'by ' + intent.deliver_by : null].filter(Boolean);
-      return parts.map(p => chip(p, 'navy')).join('') + (intent.from_profile || []).map(p => chip('profile: ' + p)).join('');
-    }
-    if (key === 'possible' && lk) {
-      const t = lk.search, rejected = Object.values(t.failed_checks || {}).reduce((a, b) => a + b, 0);
-      const seq = [['catalog', 17546], [`say “${t.query}”`, t.text_matches], ['pass the data checks', t.text_matches - rejected],
-                   ['plain', t.shortlisted],
-                   ...((intent.from_profile || []).length ? [['after the profile', lk.candidates.length - (lk.official_substitutes_added || []).length]] : []),
-                   ...((lk.official_substitutes_added || []).length ? [['+ Valio substitutes', (lk.official_substitutes_added || []).length]] : []),
-                   ...(ok != null ? [['can arrive in full', ok]] : [])];
-      return `<div class="rail-count">${seq.map(([k, v]) => `<b>${Number(v).toLocaleString('en-US')}</b> ${esc(k)}`).join(' → ')}</div>
-        ${res.api_calls.length ? `<div class="rail-ev">${chip(res.api_calls.length + ' live Valio API calls')}</div>` : ''}`;
-    }
-    if (['allowed', 'proven', 'authority'].includes(key)) return ruleChips(key);
-    return '';
-  }
+  const fold = (label, html) => html ? `<details class="fold"><summary>${esc(label)}</summary><div class="foldbody">${html}</div></details>` : '';
   function shortReason(t) {
     t = t.replace(/^Nothing was ordered: /, '').replace(/ \([^)]*\)/g, '').split(/\. |; /)[0];
-    if (t.length <= 110) return t;
-    const cut = t.slice(0, 110); return cut.slice(0, cut.lastIndexOf(' ')) + '…';
+    if (t.length <= 90) return t;
+    const cut = t.slice(0, 90); return cut.slice(0, cut.lastIndexOf(' ')) + '…';
   }
-  const failKey = l.decided_by;
-  let html = '';
+  function ruleSummary(g) {
+    const rs = rules.filter(r => r.gate === g); if (!rs.length) return '';
+    const bad = rs.filter(r => !r.ok), good = rs.filter(r => r.ok);
+    return `<div class="rail-ev">${bad.map(r => `<span class="chip ${r.level === 'block' ? 'bad' : 'warn'}" title="${esc(r.detail)}">${r.level === 'block' ? '✕' : '!'} ${esc(r.rule)}</span>`).join('')}
+      ${good.length ? `<span class="chip pass" title="${esc(good.map(r => r.rule).join(' · '))}">✓ ${good.length} ${good.length === 1 ? 'check' : 'checks'} passed</span>` : ''}</div>`;
+  }
+  function evidence(key) {
+    if (key === 'possible' && lk) {
+      const t = lk.search, rejected = Object.values(t.failed_checks || {}).reduce((a, b) => a + b, 0);
+      const subs = (lk.official_substitutes_added || []).length;
+      const seq = [['catalog', 17546], [`say “${t.query}”`, t.text_matches], ['pass data checks', t.text_matches - rejected],
+                   ['plain', t.shortlisted], ...((intent.from_profile || []).length ? [['profile', lk.candidates.length - subs]] : []),
+                   ...(subs ? [['with Valio substitutes', lk.candidates.length]] : []),
+                   ...(ok != null ? [['arrive in full', ok]] : [])];
+      return `<div class="countline">${seq.map(([k, v], n) => `<span class="${n === seq.length - 1 ? 'last' : ''}"><b>${Number(v).toLocaleString('en-US')}</b>${esc(k)}</span>`).join('<i>→</i>')}</div>
+        <div class="rail-ev"><span class="chip pass">${res.api_calls.length} live Valio API calls</span></div>
+        ${pa ? fold(`Price and availability · ${pa.rows.length} products`, stepBody(pa)) : ''}
+        ${st.options ? fold(`Options compared · ${st.options.options.length}`, stepBody(st.options)) : ''}`;
+    }
+    if (key === 'allowed') return ruleSummary('allowed') + res.steps.filter(x => x.step === 'offer').map(o => fold(`Signed offer · ${eur(o.offer.total_eur)}`, stepBody(o))).join('');
+    if (key === 'proven' || key === 'authority') return ruleSummary(key);
+    return '';
+  }
+  let html = '', k = 0;
   for (const g of l.gates) {
     const state = g.state, fail = state === 'fail';
-    const ans = state === 'pass' ? 'yes · ' + yes[g.key]
-      : fail ? 'no · ' + (l.action === 'answer' ? 'it’s a question, so the agent answers it' : shortReason(l.reason || res.result.error || ''))
-      : 'not reached';
+    const ans = state === 'pass' ? '<span class="yes">Yes</span>'
+      : fail ? `<span class="no">No</span>${['person_approves', 'person_checks', 'answer'].includes(l.action)
+          ? `<span class="why">${esc(l.action === 'answer' ? 'it’s a question, so the agent answers it' : shortReason(l.reason || res.result.error || ''))}</span>` : ''}`
+      : '';
     const ev = state === 'not_reached' ? '' : evidence(g.key);
-    html += `<div class="rail-g ${state === 'pass' ? '' : fail ? 'fail ' + (who[l.action] || '') : 'skip'}">
-      <div class="rail-n">${g.n}</div><div class="rail-b">
-        <div class="rail-t"><b>${esc(g.question)}</b><span class="ans">${esc(ans)}</span>${fail ? '' : `<span class="else">${els[g.key]}</span>`}</div>
-        ${ev && (ev.startsWith('<div') ? ev : `<div class="rail-ev">${ev}</div>`)}
-        ${fail ? `<div class="rail-who"><div class="k">No → ${esc(l.action_text)}</div><div id="outcomeBody">${body}</div></div>` : ''}</div></div>`;
+    html += `<div class="rail-g ${state === 'pass' ? '' : fail ? 'fail ' + (who[l.action] || '') : 'skip'}" style="animation-delay:${k++ * 110}ms">
+      <div class="rail-n">${state === 'pass' ? '✓' : g.n}</div><div class="rail-b">
+        <div class="rail-t"><b>${esc(g.question)}</b>${ans}</div>${ev}
+        ${fail ? `<div class="rail-who"><div class="k">Next: ${esc(l.action_text)}</div><div id="outcomeBody">${body}</div></div>` : ''}</div></div>`;
   }
-  const done = !failKey && l.action === 'order';
-  html += `<div class="rail-g ${done ? 'done' : 'skip'}"><div class="rail-n">✓</div><div class="rail-b">
-    <div class="rail-t"><b>Order placed by the agent</b><span class="ans">${done ? 'all six answered yes' : 'not reached'}</span></div>
+  const done = !l.decided_by && l.action === 'order';
+  html += `<div class="rail-g ${done ? 'done' : 'skip'}" style="animation-delay:${k * 110}ms"><div class="rail-n">€</div><div class="rail-b">
+    <div class="rail-t"><b>Order placed by the agent</b>${done ? '<span class="yes">Done</span>' : ''}</div>
     ${done ? `<div class="rail-who"><div id="outcomeBody">${body}</div></div>` : ''}</div></div>`;
   return html;
 }
@@ -432,12 +447,12 @@ async function showRecord(id) {
     for <b>${eur(off.total_eur)}</b> (${esc((o.record.context.rationale || '').replace(/\.$/, ''))}).
     ${failed.length ? `It needed sign-off because of: ${failed.map(r => esc(r.rule.toLowerCase())).join(', ')}.` : 'It was within the agent\'s own authority.'}
     ${(o.record.approvals || []).map(a => `${esc(a.approver)} ${a.decision === 'approve' ? 'approved' : 'rejected'} it.`).join(' ')}`;
-  $('#record').innerHTML = `<div class="card" style="margin-left:40px"><h2>Decision record · ${o.id}</h2>
+  $('#record').innerHTML = `<details class="card recordcard"><summary><b>Decision record</b> · ${o.id} · audit trail</summary>
     <p style="margin:0 0 14px">${story}</p>
     <table><thead><tr><th>Time (UTC)</th><th>Who</th><th>What</th><th class="r">Hash</th></tr></thead><tbody>
     ${d.events.sort((a, b) => a.seq - b.seq).map(e => `<tr><td>${e.ts.slice(11, 19)}</td><td>${esc(e.actor)}</td><td>${esc(e.type)}</td><td class="r faint mono" style="background:none;border:0;padding:10px">${e.hash.slice(0, 10)}…</td></tr>`).join('')}</tbody></table>
     <p class="small muted" style="margin:12px 0 0">${d.chain.valid ? `<span class="chip ok">Audit chain intact · ${d.chain.events} events</span>` : '<span class="chip bad">Audit chain broken</span>'}
-    &nbsp;Each event's hash covers the one before, so edits to history show. Buyer and Valio see the same record.</p></div>`;
+    &nbsp;Each event's hash covers the one before, so edits to history show. Buyer and Valio see the same record.</p></details>`;
 }
 
 init();
