@@ -155,7 +155,7 @@ def concepts_page():
 def concept_image(name: str):
     from fastapi.responses import FileResponse
     from .config import ROOT
-    if name not in {f"concept_{k}.png" for k in "ABCDEFGHIJ"}:
+    if name not in {f"concept_{k}.png" for k in "ABCDEFGHIJKLM"}:
         raise HTTPException(404, "not found")
     return FileResponse(ROOT / "docs" / "visuals" / name, media_type="image/png")
 
