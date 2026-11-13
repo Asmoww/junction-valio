@@ -89,6 +89,12 @@ def parse_request(text, today=None):
     q = re.search(r"(\d[\d,. ]*)\s*(litres?|liters?|l|kg|kilos|kilograms|pcs|pieces|units)\b", t)
     quantity = _number(q.group(1)) if q else None
     unit = UNITS.get(q.group(2), "PCS") if q else "PCS"
+    if not q and (n := re.search(r"\b(\d[\d,.]*)\b", t)) and (u := re.search(r"\b(litres?|liters?|kg|kilos|kilograms|pcs|pieces|units)\b", t)):
+        quantity, unit = _number(n.group(1)), UNITS.get(u.group(1), "PCS")  # "1000 ... milk liter": unit at the end
+        t_after = t[n.end():]
+        q = None
+    else:
+        t_after = None
     attrs = [code for pat, code in ATTRS.items() if re.search(pat, t)]
     deliver_by = None
     if m := re.search(r"\d{4}-\d{2}-\d{2}", t):
@@ -100,7 +106,9 @@ def parse_request(text, today=None):
             if re.search(rf"\b{d}\b", t):
                 deliver_by = today + timedelta(days=(i - today.weekday()) % 7 or 7)
     stripped = t
-    if q:
+    if t_after is not None:
+        stripped = re.split(r"\b(?:by|for|to|before|until|from|delivered|so|and|that|which)\b|[,.;!?(]", t_after)[0]
+    elif q:
         # The product is what follows the quantity, up to a clause like "by Monday" or "for the school".
         stripped = re.split(r"\b(?:by|for|to|before|until|from|delivered|so|and|that|which)\b|[,.;!?]", t[q.end():])[0]
     for pat in ATTRS:
@@ -132,6 +140,7 @@ QUESTION_WORDS = {"what", "how", "much", "many", "which", "is", "are", "do", "do
 # Words that describe the situation, not the product ("for the school breakfast", "hotel", "guests").
 CONTEXT_WORDS = {"school", "breakfast", "lunch", "dinner", "hotel", "kitchen", "guests", "guest", "people", "event",
                  "weekend", "morning", "evening", "asap", "urgent", "urgently", "about", "around", "approximately",
+                 "product", "products", "item", "items", "stuff", "things", "give", "get", "send", "bring",
                  "some", "more", "extra", "small", "top", "up", "also", "us", "me", "my", "is", "are", "be", "can",
                  "you", "it", "this", "with", "in", "at", "per", "day", "days", "total", "litre", "kilo", "piece",
                  "pack", "packs", "box", "boxes", "carton", "cartons", "bottle", "bottles"}
@@ -285,6 +294,21 @@ def _line(r, substitution=None):
             "stockConfirmed": r.get("stock_confirmed", True)}
 
 
+def _kind(r):
+    """What makes two products interchangeable in one order line: fat %, shelf life, lactose-free or not."""
+    p = r["product"]
+    lactose = p.get("lactosePer100")
+    return (p.get("fatPct"), p.get("longLife"), None if lactose is None else lactose == 0)
+
+
+def _kind_text(k):
+    fat, long_life, lactose_free = k
+    parts = [f"fat {fat:g} %" if fat is not None else "fat not given", "long-life" if long_life else "fresh"]
+    if lactose_free is not None:
+        parts.append("lactose-free" if lactose_free else "contains lactose")
+    return ", ".join(parts)
+
+
 def build_options(rows, intent):
     """Good-better-best: recommended, cheapest, most reliable; or a split order if no single product covers it."""
     full = sorted([r for r in rows if r["status"] == "ok"], key=lambda r: -r["score"])
@@ -306,9 +330,19 @@ def build_options(rows, intent):
             options.append({"label": label, "why": why, "lines": [_line(r, r.get("substitution"))],
                             "total_eur": r["total"], "covers": r["units"] * r["per_unit"], "partial": False})
     else:
-        # Split across products, best score first, until the quantity is covered.
-        usable = sorted([r for r in rows if r["status"] in ("ok", "partial")], key=lambda r: -r["score"])
-        remaining, lines = intent["quantity"] or 0, []
+        # Split across products of the SAME kind (fat %, fresh/long-life, lactose-free or not), best score first.
+        # Mixing 3.5 % low-lactose milk with fat-free and coffee milk to reach 1,000 L is not what anyone asked for.
+        usable = [r for r in rows if r["status"] in ("ok", "partial")]
+        groups = {}
+        for r in usable:
+            groups.setdefault(_kind(r), []).append(r)
+        def cover(g):
+            return sum(r.get("units", 0) * r["per_unit"] for r in g)
+        need = intent["quantity"] or 0
+        best = max(groups.values(), key=lambda g: (cover(g) >= need, -min(r["price_per_req_unit"] for r in g), cover(g)),
+                   default=[])
+        usable = sorted(best, key=lambda r: -r["score"])
+        remaining, lines = need, []
         for r in usable:
             if remaining <= 0:
                 break
@@ -320,7 +354,9 @@ def build_options(rows, intent):
             remaining -= units * r["per_unit"]
         if lines:
             covers = sum(l["units"] * l["perUnit"] for l in lines)
-            options.append({"label": "Split order", "why": "no single product covers the full quantity in time",
+            kind = _kind(usable[0])
+            options.append({"label": "Split order", "why": "no single product covers the full quantity in time; "
+                            f"split across products of the same kind ({_kind_text(kind)})",
                             "lines": lines, "total_eur": round(sum(l["lineTotal"] for l in lines), 2),
                             "covers": covers, "partial": covers < (intent["quantity"] or 0)})
     return options
@@ -565,6 +601,16 @@ def _run(text, mandate_id, overrides=None, simulate_price_change=False, inject=F
         return exit_at("purchase", "decline", "change_not_supported",
                        "Changing or cancelling a placed order goes to a person in this demo; the agent only places new orders.")
     # Gate 1: do we know exactly what is wanted?
+    if findings := security.scan(text):
+        # A request says what to buy, never how the agent should behave. The agent doesn't follow such text,
+        # doesn't half-follow it, and doesn't order the rest of the request without the requester confirming.
+        store.log(run_id, f"agent:{mandate['agent']}", "security.injection_in_request",
+                  {"findings": [f["why"] for f in findings], "text": text[:300]})
+        steps[-1]["injection"] = [f["why"] for f in findings]
+        return exit_at("clear", "ask_back", "instruction_in_request",
+                       "The request contains instructions aimed at the agent (" + "; ".join(sorted({f["why"] for f in findings}))
+                       + "). The agent takes only what to buy from a request and never follows such text. "
+                         "Nothing was ordered: send the purchase on its own.")
     if not (intent.get("product") or "").strip():
         return exit_at("clear", "ask_back", "unclear_request", "Which product? The request doesn't name one.")
     if rtype == "buy" and not intent.get("quantity"):

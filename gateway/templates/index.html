@@ -164,8 +164,12 @@ function renderStep(s, n) {
       <div>Product</div><div class="name">${esc(i.product)}</div>
       <div>Quantity</div><div>${i.quantity ?? '—'} ${esc(i.unit)}</div>
       <div>Requirements</div><div class="chips">${i.attributes.map(a => `<span class="chip navy">${esc(a.replaceAll('_', ' ').toLowerCase())}</span>`).join('') || '<span class="faint">none</span>'}</div>
-      <div>Deliver by</div><div>${esc(i.deliver_by)}</div></div>
-      ${i.product_note ? `<p class="small" style="margin:10px 0 0"><span class="chip warn">Kept the buyer's words</span> ${esc(i.product_note)}</p>` : ''}`, 'done', `<span class="chip">${esc(i.parser.split(' (')[0] === 'rules' ? 'rule-based' : i.parser)}</span>`);
+      <div>Deliver by</div><div>${esc(i.deliver_by)}</div>
+      ${i.request_type && i.request_type !== 'buy' ? `<div>Request type</div><div><span class="chip">${esc(i.request_type)}</span></div>` : ''}
+      ${i.ignored_terms?.length ? `<div>Not covered</div><div class="chips">${i.ignored_terms.map(w => `<span class="chip warn">${esc(w)}</span>`).join('')}</div>` : ''}
+      ${s.injection?.length ? `<div>Instructions in the request</div><div class="chips">${[...new Set(s.injection)].map(w => `<span class="chip bad">${esc(w)}</span>`).join('')}<span class="faint small">not followed</span></div>` : ''}
+      </div>
+      ${i.product_note ? `<p class="small" style="margin:10px 0 0"><span class="chip warn">Kept the buyer's words</span> ${esc(i.product_note)}</p>` : ''}`, s.injection?.length || i.ignored_terms?.length ? 'alert' : 'done', `<span class="chip">${esc(i.parser.split(' (')[0] === 'rules' ? 'rule-based' : i.parser)}</span>`);
   }
   if (s.step === 'lookup') {
     const t = s.search;

@@ -9,6 +9,11 @@ from urllib.parse import urlsplit
 
 PATTERNS = [
     (r"ignore (all |any |your )?(previous|prior|earlier|above) (instructions|rules|limits)", "tries to override the agent's instructions"),
+    (r"\b(ignore|disregard|forget|override)\b.{0,40}\b(instructions|rules|limits|mandate|policy|prompt)\b",
+     "tries to override the agent's instructions"),
+    (r"\b(you are now|pretend (to be|you are)|act as (an? |the )?(ai|agent|assistant|buyer|purchasing))\b",
+     "tries to change the agent's role"),
+    (r"\b(make|set|change|switch) the (product )?(search|filter|query|mandate|limit)", "tries to steer the agent's search or limits"),
     (r"\b(system|admin|developer) (notice|prompt|message|override)\b", "pretends to be a system message"),
     (r"\b(ai|purchasing|buyer|llm) agents?\b.{0,40}\b(must|should|are instructed)", "addresses AI agents directly"),
     (r"pre-?approved|already approved|no approval (is )?(needed|required)", "claims approval is not needed"),
