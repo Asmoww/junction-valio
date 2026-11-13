@@ -70,7 +70,7 @@ paths:
                 requested_units: {type: number, description: "What the buyer asked for, in the request unit; orders far above it are blocked"}
       responses:
         "200": {description: Order, content: {application/json: {schema: {$ref: "#/components/schemas/Order"}}}}
-        "409": {description: "Invalid signature, expired offer, or price changed since the offer"}
+        "409": {description: "Invalid signature, expired offer, offer already used for an order, requested_units differs from the signed offer, or price changed since the offer"}
   /v1/orders/{order_id}:
     get:
       summary: Order status
@@ -210,6 +210,7 @@ components:
               productId: {type: string}
               units: {type: number, description: In sales units}
               substitution: {type: string}
+        requested_quantity: {type: number, description: "What the buyer asked for, in sales units. Sealed into the signed offer; an order claiming a different requested_units is refused."}
     Offer:
       description: Signed payload. Fixed catalog price (not negotiated), valid until expires_at.
       type: object

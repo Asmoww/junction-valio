@@ -1,6 +1,6 @@
 """Write the gateway's real OpenAPI spec to contracts/openapi.generated.json.
 
-contracts/openapi.yaml is the first draft agreed before the build; the running gateway's /v1 API has moved on.
+contracts/openapi.yaml is the hand-written contract; this dumps what FastAPI actually serves, so the two can be diffed.
 Run after API changes:  uv run python scripts/export_openapi.py
 """
 import json
