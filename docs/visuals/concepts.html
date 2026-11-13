@@ -1,0 +1,159 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="/static/style.css">
+<style>
+body{background:#eef0f4}
+.concept{width:1180px;margin:24px auto;background:var(--bg);padding:28px;border-radius:18px}
+.concept>.tag{font-size:12px;font-weight:650;letter-spacing:.07em;text-transform:uppercase;color:var(--accent)}
+.concept>h1{font-size:22px;margin:4px 0 4px;letter-spacing:-.02em}.concept>p.lead{color:var(--mute);margin:0 0 20px;max-width:820px}
+/* A: ladder rail */
+.rail{display:grid;grid-template-columns:1fr 330px;gap:28px}.rail>div:first-child{grid-column:1}
+.gate{display:grid;grid-template-columns:44px 1fr;gap:14px;position:relative;padding-bottom:14px}
+.gate:not(:last-child)::after{content:"";position:absolute;left:21px;top:44px;bottom:0;width:2px;background:var(--ok)}
+.gate.fail::after,.gate.skip::after{background:var(--line)}
+.gnum{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;font-weight:700;background:#fff;border:2px solid var(--ok);color:var(--ok);z-index:1}
+.gate.fail .gnum{border-color:var(--warn);background:var(--warn);color:#fff}.gate.skip .gnum{border-color:var(--line);color:var(--faint)}
+.gbody{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 16px}
+.gate.fail .gbody{border-color:#f5c98f;box-shadow:0 0 0 3px var(--warn-soft)}.gate.skip .gbody{background:transparent;border-style:dashed;color:var(--faint)}
+.gq{font-weight:650}.gq small{font-weight:500;color:var(--mute);margin-left:8px}.gev{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.exit{position:absolute;right:-310px;top:10px;width:290px;font-size:12.5px;color:var(--faint);display:flex;align-items:center;gap:8px}
+.exit::before{content:"";width:22px;border-top:2px dashed var(--line)}
+.gate.fail .exit{color:var(--warn);font-weight:650}.gate.fail .exit::before{border-top:2px solid var(--warn)}
+.who{background:var(--navy);color:#fff;border-radius:14px;padding:16px 18px;font-size:13px;font-weight:400}.who-exit{top:-30px !important;color:#fff !important}.who-exit::before{border-top:2px solid var(--warn) !important;align-self:center}
+.who .k{opacity:.65;font-size:12px;text-transform:uppercase;letter-spacing:.07em}.who .v{font-size:26px;font-weight:700;color:var(--accent);margin:4px 0 10px}
+/* B: funnel */
+.funnelc{display:grid;grid-template-columns:1fr 300px;gap:28px}
+.frow{display:grid;grid-template-columns:230px 1fr 70px;gap:12px;align-items:center;padding:7px 0;border-bottom:1px solid var(--line)}
+.frow:last-child{border:0}.flabel{font-size:13px}.flabel small{display:block;color:var(--mute);font-size:12px}
+.ftrack{height:22px;position:relative}.fbar{height:100%;border-radius:0 4px 4px 0;background:#2f5fa7}
+.fval{text-align:right;font-weight:700;font-variant-numeric:tabular-nums}
+.boundary{display:grid;grid-template-columns:230px 1fr 70px;gap:12px;margin:4px 0}.boundary div:nth-child(2){border-top:2px dashed var(--accent);position:relative}
+.boundary span{position:absolute;right:0;top:-10px;background:var(--bg);padding:0 6px;font-size:12px;color:var(--accent);font-weight:650}
+.axisnote{font-size:12px;color:var(--faint);margin-top:8px}
+/* C: swimlanes */
+.lanes{display:grid;grid-template-columns:150px repeat(9,1fr);border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff}
+.lh{padding:14px 12px;font-weight:650;font-size:13px;background:#f7f8fa;border-bottom:1px solid var(--line);display:flex;flex-direction:column;justify-content:center}
+.lh small{font-weight:400;color:var(--mute)}.cell{border-bottom:1px solid var(--line);border-left:1px solid #f2f3f6;position:relative;min-height:96px}
+.lanes .boundaryrow{grid-column:1/-1;height:0;border-top:3px solid var(--accent);position:relative}
+.lanes .boundaryrow span{position:absolute;left:160px;top:-12px;background:var(--accent);color:#fff;font-size:11px;font-weight:650;padding:2px 8px;border-radius:99px}
+.ev{position:absolute;inset:10px 6px;border-radius:9px;padding:6px 8px;font-size:11.5px;line-height:1.3;background:#e9eef8;color:var(--navy-2)}
+.ev b{display:block;font-size:12px}.ev.api{background:#f2f4f7;color:#344054}.ev.warnev{background:var(--warn-soft);color:var(--warn)}.ev.ok{background:var(--ok-soft);color:var(--ok)}
+.ev.ai{background:#f3edfb;color:#5b3a99}
+.timeaxis{display:grid;grid-template-columns:150px repeat(9,1fr);font-size:11px;color:var(--faint);margin-top:6px}
+/* D: phone */
+.dwrap{display:grid;grid-template-columns:380px 1fr;gap:40px;align-items:start}
+.phone{width:360px;border-radius:38px;background:#111;padding:12px;box-shadow:0 20px 50px #0003}
+.screen{background:var(--bg);border-radius:28px;overflow:hidden;font-size:13.5px}
+.sbar{display:flex;justify-content:space-between;padding:10px 22px 4px;font-size:12px;font-weight:600}
+.apphead{background:var(--navy);color:#fff;padding:14px 18px}.apphead small{opacity:.7;display:block}
+.receipt{margin:14px;background:#fff;border-radius:14px;box-shadow:var(--shadow);overflow:hidden}
+.receipt .top{padding:16px}.amount{font-size:30px;font-weight:750;letter-spacing:-.02em}
+.perf{border-top:2px dashed var(--line);margin:0 12px}
+.stamps{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:14px 16px}
+.stamp{border:1.5px solid;border-radius:10px;padding:7px 9px;font-size:11.5px;line-height:1.25}
+.stamp b{display:block;font-size:12px}.stamp.ok{border-color:#9fd9bb;color:var(--ok)}.stamp.warn{border-color:#f5c98f;color:var(--warn);background:var(--warn-soft)}
+.sig{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:var(--faint);padding:0 16px 14px}
+.btns{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:0 14px 18px}.btns button{padding:13px;border-radius:12px;font-weight:650;font-size:15px;border:0}
+.notes li{margin-bottom:10px}
+</style></head><body>
+
+<!-- A ---------------------------------------------------------------------------------------- -->
+<section class="concept" id="A">
+  <div class="tag">Concept A · Decision ladder rail</div>
+  <h1>Six questions. The first “no” decides who acts next.</h1>
+  <p class="lead">“I need 1,000 litres of lactose-free milk by Monday” · Hotel Aurora. Each gate shows the evidence it used; the exits on the right show where a request would have left.</p>
+  <div class="rail"><div>
+    <div class="gate"><div class="gnum">0</div><div class="gbody"><div class="gq">Purchase? <small>yes · a request to buy</small></div></div><div class="exit">else: answer or decline</div></div>
+    <div class="gate"><div class="gnum">1</div><div class="gbody"><div class="gq">Clear? <small>yes · we know what is wanted</small></div>
+      <div class="gev"><span class="chip navy">milk</span><span class="chip navy">1,000 L</span><span class="chip navy">lactose-free</span><span class="chip navy">by Mon 16 Nov</span><span class="chip">profile: fat 1.5 %, fresh or UHT</span></div></div><div class="exit">else: ask the requester</div></div>
+    <div class="gate"><div class="gnum">2</div><div class="gbody"><div class="gq">Possible? <small>yes · Valio can supply it at a fixed price</small></div>
+      <div class="gev"><span class="chip">276 word matches</span><span class="chip">25 plain milks</span><span class="chip ok">14 deliverable</span><span class="chip">3 live API calls</span></div></div><div class="exit">else: ask back, with what exists</div></div>
+    <div class="gate"><div class="gnum">3</div><div class="gbody"><div class="gq">Allowed? <small>yes · every hard rule kept</small></div>
+      <div class="gev"><span class="chip ok">✓ signed offer genuine</span><span class="chip ok">✓ €1,010 ≤ €5,000 hard limit</span><span class="chip ok">✓ matches the request</span></div></div><div class="exit">else: stop · nobody can approve</div></div>
+    <div class="gate"><div class="gnum">4</div><div class="gbody"><div class="gq">Proven? <small>yes · every fact backed by data</small></div>
+      <div class="gev"><span class="chip ok">✓ lactose 0 g/100 g</span><span class="chip ok">✓ Valio stock</span><span class="chip ok">✓ 100 % on time</span></div></div><div class="exit">else: a person checks the facts</div></div>
+    <div class="gate fail"><div class="gnum">5</div><div class="gbody"><div class="gq">Agent’s call? <small style="color:var(--warn)">no · €1,010 is over the €500 the agent may spend alone</small></div>
+      <div class="gev"><span class="chip warn">! auto-approve limit €500</span><span class="chip ok">✓ 24 h spend</span><span class="chip ok">✓ on time</span></div></div><div class="exit who-exit"><div class="who"><div class="k">No → who acts next</div><div class="v">Head chef</div>Aino Virtanen can approve up to €1,500.<div style="opacity:.7;margin-top:8px;font-size:12px">Gates 3–5 run in Valio’s gateway on every order, whichever agent sent it.</div></div></div></div>
+    <div class="gate skip"><div class="gnum">✓</div><div class="gbody"><div class="gq">Order placed by the agent</div></div></div>
+  </div>
+  </div>
+</section>
+
+<!-- B ---------------------------------------------------------------------------------------- -->
+<section class="concept" id="B">
+  <div class="tag">Concept B · Narrowing funnel</div>
+  <h1>From 17,546 products to one, with 3 live API calls</h1>
+  <p class="lead">Every step is a check with a reason. Most of the narrowing happens on Valio’s static data; the live price and stock APIs are only asked about the last 16.</p>
+  <div class="funnelc"><div id="fun"></div>
+    <div class="card" style="margin:0"><h2>Why it matters</h2>
+      <p class="small" style="margin:0 0 10px">A keyword agent would have stopped at step 2 and ordered the first hit: in file order, a <b>chocolate milk drink</b>.</p>
+      <p class="small" style="margin:0 0 10px">Lactose-free is checked against nutrition data, not the name: <b>195</b> products failed.</p>
+      <p class="small" style="margin:0">Valio’s guidance: “query the APIs only when you have narrowed down the products”. <b>3 calls, 589 ms.</b></p></div></div>
+</section>
+
+<!-- C ---------------------------------------------------------------------------------------- -->
+<section class="concept" id="C">
+  <div class="tag">Concept C · Swimlanes and the trust boundary</div>
+  <h1>Who does what, and where the rules live</h1>
+  <p class="lead">The buyer’s agent can be anyone’s: Claude, GPT, a custom bot. Everything below the orange line runs on Valio’s side, so a fooled agent can’t skip it.</p>
+  <div class="lanes">
+    <div class="lh">Buyer<small>hotel kitchen</small></div>
+    <div class="cell"><div class="ev"><b>Request</b>1,000 L lactose-free milk by Mon</div></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div>
+    <div class="lh">Buyer’s agent<small>any MCP / REST client</small></div>
+    <div class="cell"></div><div class="cell"><div class="ev ai"><b>Read</b>typed spec (Claude)</div></div><div class="cell"><div class="ev"><b>Search</b>17,546 → 25, local</div></div><div class="cell"></div><div class="cell"><div class="ev"><b>Compare</b>3 options</div></div><div class="cell"></div><div class="cell"><div class="ev"><b>Order</b>with the signed offer</div></div><div class="cell"></div><div class="cell"></div>
+    <div class="boundaryrow"><span>Valio’s side · trust boundary</span></div>
+    <div class="lh">Valio gateway<small>rules + audit</small></div>
+    <div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"><div class="ev"><b>Signed offer</b>€1,010 fixed, 15 min</div></div><div class="cell"></div><div class="cell"><div class="ev warnev"><b>Gate 5: no</b>over €500, to a person</div></div><div class="cell"><div class="ev ok"><b>Placed</b>logged, hash-chained</div></div>
+    <div class="lh">Valio APIs<small>price · availability</small></div>
+    <div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"><div class="ev api"><b>2 calls</b>16 products, 443 ms</div></div><div class="cell"></div><div class="cell"></div><div class="cell"><div class="ev api"><b>Re-check</b>price unchanged</div></div><div class="cell"></div><div class="cell"></div>
+    <div class="lh">Approver<small>head chef</small></div>
+    <div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"><div class="ev ok"><b>Approves</b>on phone</div></div>
+  </div>
+  <div class="timeaxis"><span></span><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9 · when the chef taps</span></div><p class="small muted" style="margin:8px 0 0">Steps 1–8 take about 5–8 s in the live demo; the two live API calls take 443 ms.</p>
+</section>
+
+<!-- D ---------------------------------------------------------------------------------------- -->
+<section class="concept" id="D">
+  <div class="tag">Concept D · The approver’s card</div>
+  <h1>What the head chef sees: one decision, with the proof attached</h1>
+  <p class="lead">No dashboard to read. A receipt: what, how much, why it’s here, and the trust stamps the gateway checked. Signed by Valio, so it can’t be edited on the way.</p>
+  <div class="dwrap"><div class="phone"><div class="screen">
+    <div class="sbar"><span>9:41</span><span>●●● 5G</span></div>
+    <div class="apphead"><small>Hotel Aurora · purchasing</small><b>1 order needs you</b></div>
+    <div class="receipt"><div class="top">
+      <div class="small muted">Valio Aimo · deliver Mon 16 Nov</div>
+      <div class="amount">€1,010.00</div>
+      <div>1,000 × Valio Eila semi-skimmed milk drink 1 l, lactose-free</div>
+      <div class="banner warn" style="margin-top:12px;padding:10px 12px"><b>Why you:</b> over the €500 the agent may spend alone. You can approve up to €1,500.</div></div>
+      <div class="perf"></div>
+      <div class="stamps">
+        <div class="stamp ok"><b>✓ Cheapest of 14</b>that arrive Monday</div>
+        <div class="stamp ok"><b>✓ Lactose 0 g</b>checked in product data</div>
+        <div class="stamp ok"><b>✓ In Valio stock</b>100 % on time</div>
+        <div class="stamp ok"><b>✓ Fixed price</b>locked 15 min</div>
+        <div class="stamp warn" style="grid-column:1/-1"><b>From your profile, not the request</b>fat 1.5 % · fresh or long-life</div></div>
+      <div class="sig">signed by Valio · ofr_1b3f34680698 · Ed25519 ✓</div>
+      <div class="btns"><button style="background:#fff;color:var(--bad);border:1px solid #f3c3be">Reject</button><button style="background:var(--ok);color:#fff">Approve</button></div>
+    </div></div></div>
+  <ul class="notes small">
+    <li><b>Mobile first:</b> approval happens in the kitchen, not at a desk. Pairs with the QR “approve on your own phone” idea for the stage.</li>
+    <li><b>Stamps = gates 3–4:</b> only the facts the gateway verified, never the agent’s claims.</li>
+    <li><b>Orange stamp = assumptions:</b> anything the request didn’t say is visible before money moves.</li>
+    <li><b>Signature line:</b> the trust protocol made tangible in one line.</li></ul></div>
+</section>
+
+<script>
+// Concept B: one series, single hue, log scale (17,546 → 1 spans four orders of magnitude). Labels carry the values.
+const steps = [
+  ["Valio catalog", "all products", 17546], ["Word match “milk”", "search, local", 276],
+  ["Lactose-free in the data", "lactose 0 g/100 g, not the name", 81], ["Plain milk, one kind", "no cocoa, coffee milk, powder", 25],
+  ["Buyer profile", "fat 1.5 %, fresh or UHT", 16],
+  null,
+  ["Deliverable in full by Mon", "live price + availability", 14], ["Good-better-best", "options compared", 3], ["Chosen", "best score in the mandate", 1]];
+const max = Math.log10(17546);
+document.getElementById('fun').innerHTML = steps.map(s => s === null
+  ? `<div class="boundary"><div></div><div><span>live Valio API from here · 3 calls</span></div><div></div></div>`
+  : `<div class="frow" title="${s[0]}: ${s[2].toLocaleString('en-US')}"><div class="flabel">${s[0]}<small>${s[1]}</small></div>
+     <div class="ftrack"><div class="fbar" style="width:${Math.max(2, Math.log10(s[2] + 1) / max * 100)}%"></div></div>
+     <div class="fval">${s[2].toLocaleString('en-US')}</div></div>`).join('') +
+  `<div class="axisnote">Bar length on a log scale; the numbers are exact.</div>`;
+</script>
+</body></html>

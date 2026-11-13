@@ -144,6 +144,22 @@ def traps():
     return json.loads(f.read_text()) if f.exists() else {"results": []}
 
 
+@app.get("/concepts", response_class=HTMLResponse, include_in_schema=False)
+def concepts_page():
+    """Design mockups of the process visualisation (docs/visuals), for the team."""
+    from .config import ROOT
+    return (ROOT / "docs" / "visuals" / "concepts.html").read_text()
+
+
+@app.get("/concepts/{name}", include_in_schema=False)
+def concept_image(name: str):
+    from fastapi.responses import FileResponse
+    from .config import ROOT
+    if name not in {f"concept_{k}.png" for k in "ABCD"}:
+        raise HTTPException(404, "not found")
+    return FileResponse(ROOT / "docs" / "visuals" / name, media_type="image/png")
+
+
 @app.get("/connect", response_class=HTMLResponse, include_in_schema=False)
 def connect_page():
     return (TEMPLATES / "connect.html").read_text()
