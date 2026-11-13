@@ -40,4 +40,15 @@ change only by agreement; record the change in `docs/DECISIONS.md`.
 7. Everything in English: code, comments, docs, commit messages, UI text.
 
 ## Stack and how to run
-TBD: decide in the first hour and fill in here (language, framework, run and test commands).
+- Python 3.12+, dependencies in `pyproject.toml`, managed with `uv` (`pip install uv` if missing).
+- Gateway: FastAPI + Pydantic. Pydantic models mirror `contracts/openapi.yaml`; FastAPI serves its own
+  OpenAPI docs at `/docs`.
+- Buyer agent: Anthropic Python SDK. Gateway also exposed as MCP tools via the `mcp` Python SDK.
+- Approval UI: served by the gateway (Jinja templates + htmx), so the whole demo is one Python process.
+- Storage: SQLite (audit log, quotes, orders). Tests: pytest.
+
+```bash
+uv sync                                   # install
+uv run uvicorn gateway.main:app --reload  # run gateway + approval UI on :8000
+uv run pytest                             # tests (keep an end-to-end demo-flow test green)
+```
