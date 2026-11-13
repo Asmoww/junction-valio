@@ -15,8 +15,8 @@ Valio's catalog wasn't built for agents. Of 13,546 food products, **30 % have no
 a hospital ward's on **17 %**. Keyword search also misleads: "cream" finds ice cream, "200 eggs" can become
 200 packs of eggs. The gateway turns these gaps into rules, and the Valio view turns them into a to-do list.
 
-## How it works: one decision ladder
-Every request ends at exactly one gate. The first "no" decides who acts next ([docs/FRAMEWORK.md](docs/FRAMEWORK.md)).
+## One decision ladder framework
+Meant to funnel the queries through the ladder, every request ends at exactly one gate. The first "no" decides who acts next ([docs/FRAMEWORK.md](docs/FRAMEWORK.md)).
 
 | # | Question | If no |
 |---|---|---|
