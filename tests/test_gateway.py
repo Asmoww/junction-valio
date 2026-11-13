@@ -186,3 +186,28 @@ def test_demo_flow_with_injection_is_still_contained():
 def test_unclear_request_stops_before_any_api_call():
     res = agent.run("We need 300 litres by Monday", HOTEL)
     assert res["result"]["status"] == "unclear_request" and res["api_calls"] == []
+
+
+# ---- Reality check -------------------------------------------------------------------------------
+
+def test_nonsense_product_stops_before_any_api_call():
+    res = agent.run("We need 100 litres of chicken nugget milk by Monday.", HOTEL)
+    assert res["result"]["status"] == "not_in_catalog" and res["api_calls"] == []
+    assert "Nothing was ordered" in res["result"]["error"]
+    assert "milk" in [s["phrase"] for s in res["result"]["suggestions"]]
+
+
+def test_reality_check_can_only_narrow_never_add():
+    from gateway import catalog
+    seen = {}
+
+    def judge(query, groups):
+        seen.update(groups)
+        return {"categories": ["10400", "99999"], "reason": "test"}  # 99999 isn't among the matches
+
+    found, trace = catalog.search("milk", [], type_check=judge)
+    assert seen and all(p["category"] == "10400" for p in found)
+    assert trace["reality_check"]["kept_categories"] == ["10400", "99999"]
+
+    found, trace = catalog.search("milk", [], type_check=lambda q, g: {"categories": [], "reason": "not milk"})
+    assert found == [] and trace["reality_check"]["kept_categories"] == []

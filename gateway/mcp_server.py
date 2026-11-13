@@ -7,7 +7,7 @@ agents exactly as to everyone else.
 from mcp.server.mcpserver import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
 
-from . import agent, catalog, policy, store
+from . import agent, ai, catalog, policy, store
 
 mcp = MCPServer(
     name="valio-aimo-trade-gateway",
@@ -32,7 +32,8 @@ def get_mandate(mandate_id: str = "mnd_hotel_helsinki") -> dict:
 def search_products(query: str, attributes: list[str] | None = None, limit: int = 10) -> dict:
     """Search the static catalog (no live API calls). attributes: FREE_FROM_LACTOSE, FREE_FROM_GLUTEN,
     VEGAN, ORGANIC, FINNISH. Returns allergens, labels, delivery reliability and carbon per product."""
-    found, trace = catalog.search(query, attributes or [], min(limit, 20))
+    found, trace = catalog.search(query, attributes or [], min(limit, 20),
+                                  type_check=ai.type_check if ai.enabled() else None)
     return {"trace": trace, "products": [catalog.describe(p) for p in found]}
 
 

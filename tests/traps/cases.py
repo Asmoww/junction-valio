@@ -6,6 +6,7 @@ Set GATEWAY_DB before importing the gateway so test orders never mix with demo o
 """
 import base64
 import json
+import re
 
 from gateway import agent, catalog, policy, security, signing
 
@@ -164,6 +165,28 @@ def claude_reads_finnish_without_guessing():
     return ok, f"fi: {a.get('quantity')} {a.get('unit')}, fat {a.get('fat_pct')}, {a.get('shelf_life')}; en unstated: fat {b.get('fat_pct')}, shelf {b.get('shelf_life')}"
 
 
+def nonsense_product_not_ordered():
+    r = _run("nugget", "We need 100 litres of chicken nugget milk by Monday.", "mnd_hotel_helsinki")
+    return r["result"]["status"] == "not_in_catalog" and r["api_calls"] == [], \
+        f"{r['result']['status']}, {len(r['api_calls'])} API calls: {r['result'].get('error', '')[:80]}"
+
+
+def contains_is_not_is_beer():
+    r = _run("beer", "Order 40 litres of lactose-free beer by Monday.", "mnd_hotel_helsinki")
+    lines = (r.get("order") or {}).get("record", {}).get("offer", {}).get("lines", [])
+    return not lines and "beer" in r["result"].get("error", ""), \
+        (r["result"].get("error") or "")[:110] if not lines else f"ordered {[l['name'] for l in lines]}"
+
+
+def cream_is_not_ice_cream():
+    from gateway import ai
+    if not ai.enabled():
+        return None, "skipped: reality check needs Claude"
+    found, trace = catalog.search("cream", [], type_check=ai.type_check)
+    ice = [p["name"] for p in found if re.search(r"\bice\b|jäätelö", p["name"].lower())]
+    return bool(found) and not ice, f"{len(found)} cream products, e.g. {found[0]['name'][:40]}" if found and not ice else f"ice cream: {ice[:3]}"
+
+
 CASES = [
     ("lookup", "Keyword search for lactose-free milk returns only plain milk (no cocoa, coffee milk, powder)", lookup_plain_milk_only),
     ("lookup", "The cheapest milks reach the price check (no cut by name or file order)", lookup_keeps_cheapest),
@@ -184,4 +207,7 @@ CASES = [
     ("attack", "Replayed order (same idempotency key): no double order", replay_returns_same_order),
     ("attack", "Order 10x the request: blocked", over_order_blocked),
     ("need", "Claude reads a Finnish request and never guesses unstated details", claude_reads_finnish_without_guessing),
+    ("reality", "Nonsense product (chicken nugget milk): nothing ordered, no API calls", nonsense_product_not_ordered),
+    ("reality", "Lactose-free beer: beer-batter onion rings are not beer, nothing ordered", contains_is_not_is_beer),
+    ("reality", "Cream is not ice cream", cream_is_not_ice_cream),
 ]

@@ -457,7 +457,8 @@ def run(text, mandate_id, overrides=None, simulate_price_change=False, inject=Fa
                 "result": {"status": "unclear_request", "error": "couldn't tell which product to buy: name it"}}
 
     spec = {"fat_pct": intent.get("fat_pct"), "shelf_life": intent.get("shelf_life")}
-    candidates, trace = catalog.search(intent["product"], intent["attributes"], spec=spec)
+    candidates, trace = catalog.search(intent["product"], intent["attributes"], spec=spec,
+                                       type_check=ai.type_check if ai.enabled() else None)
     # The agent drops what the mandate forbids, or can't be verified, before asking for prices.
     excluded = []
     kept = []
@@ -506,8 +507,24 @@ def run(text, mandate_id, overrides=None, simulate_price_change=False, inject=Fa
             store.log(run_id, f"agent:{mandate['agent']}", "run.no_safe_product", {"excluded": len(excluded)})
             return {"run_id": run_id, "steps": steps, "api_calls": client.calls, "mandate": mandate,
                     "result": {"status": "no_safe_product", "error": msg}}
-        return {"run_id": run_id, "steps": steps, "result": {"status": "no_match", "error": "no product matches the request"},
-                "api_calls": client.calls}
+        # Reality check failed: say what doesn't exist and what does, but order nothing.
+        what = intent["product"]
+        attrs = " and ".join(a.lower().replace("_", " ").replace("free from ", "") + "-free" if a.startswith("FREE_FROM_")
+                             else a.lower() for a in intent["attributes"])
+        rc = trace.get("reality_check")
+        bare = []
+        if intent["attributes"]:  # does the product itself exist, without the requirements?
+            bare, btrace = catalog.search(what, [], type_check=ai.type_check if ai.enabled() else None)
+        if bare:
+            msg = f"Valio has {what} products, but none is verifiably {attrs}. Nothing was ordered."
+            sugg = []
+        else:
+            msg = (f"“{what}” is not a product in Valio's catalog" + (f" ({rc['reason']})" if rc and rc.get("reason") else "")
+                   + ". Nothing was ordered.")
+            sugg = catalog.suggest(what, intent["attributes"])
+        store.log(run_id, f"agent:{mandate['agent']}", "run.not_in_catalog", {"product": what, "suggestions": [x["phrase"] for x in sugg]})
+        return {"run_id": run_id, "steps": steps, "api_calls": client.calls, "mandate": mandate,
+                "result": {"status": "not_in_catalog", "error": msg, "suggestions": sugg}}
 
     ids = [p["id"] for p in candidates]
     prices = client.prices(mandate["customer"], intent["deliver_by"], ids)

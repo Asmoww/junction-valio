@@ -132,7 +132,7 @@ def evidence(p, attrs=()):
     return ev
 
 
-def search(query, attrs=(), limit=30, spec=None):
+def search(query, attrs=(), limit=30, spec=None, type_check=None):
     """Return (candidates, trace). Candidates are plain products in the dominant category that pass
     verified attribute checks. No arbitrary cut by name or file order: the shortlist is every
     qualifying product up to `limit`, so the cheapest one is never dropped before pricing."""
@@ -156,7 +156,23 @@ def search(query, attrs=(), limit=30, spec=None):
         penalty = len({w for w in words if w in MODIFIERS} - q - {m for m in MODIFIERS if any(m.startswith(t) for t in stems)})
         scored.append((penalty, bool(gaps), p, gaps))
     plain = [x for x in scored if x[0] == 0] or scored
-    cat = Counter(x[2]["category"] for x in plain).most_common(1)
+    reality = None
+    if type_check and plain:
+        # Reality check: which categories ARE the requested product (cream, not ice cream)?
+        counts = Counter(x[2]["category"] for x in plain)
+        groups = {c: {"count": n, "samples": [x[2]["name"][:60] for x in plain if x[2]["category"] == c][:4]}
+                  for c, n in counts.most_common(25)}
+        verdict = type_check(query, groups)
+        if verdict is not None:
+            removed = {c: groups[c]["samples"][:2] for c in groups if c not in verdict["categories"]}
+            reality = {"checked_by": "Claude", "kept_categories": verdict["categories"],
+                       "removed": [{"category": c, "count": counts[c], "examples": ex} for c, ex in removed.items()],
+                       "reason": verdict["reason"]}
+            plain = [x for x in plain if x[2]["category"] in verdict["categories"]]
+    if reality and plain:
+        cat = [(verdict["categories"][0], 0)]  # plainest form of the product, as ranked by the reality check
+    else:
+        cat = Counter(x[2]["category"] for x in plain).most_common(1)
     in_cat = [x for x in plain if not cat or x[2]["category"] == cat[0][0]]
     in_cat.sort(key=lambda x: (x[1], x[2]["name"]))  # verified first, then alphabetical (not by length)
     picked = []
@@ -173,8 +189,29 @@ def search(query, attrs=(), limit=30, spec=None):
         "category": cat[0][0] if cat else None,
         "in_category": len(in_cat),
         "shortlisted": len(picked),
+        "reality_check": reality,
     }
     return picked, trace
+
+
+def suggest(query, attrs=(), limit=3):
+    """For a request with no real match: which parts of it do exist (e.g. "chicken nuggets", "milk").
+
+    Only for explaining the miss. Nothing suggested here is ever ordered automatically."""
+    words = [w for w in re.findall(r"[a-zåäö]+", query.lower()) if len(w) > 2]
+    phrases = []
+    for n in (2, 1):
+        for i in range(len(words) - n + 1):
+            phrases.append(" ".join(words[i:i + n]))
+    out, seen = [], set()
+    for ph in phrases:
+        if ph == " ".join(words) or ph in seen:
+            continue
+        seen.add(ph)
+        found, tr = search(ph, attrs, limit=3)
+        if found and not any(ph in o["phrase"] or o["phrase"] in ph for o in out):
+            out.append({"phrase": ph, "count": tr["in_category"], "example": found[0]["name"]})
+    return sorted(out, key=lambda o: -len(o["phrase"].split()))[:limit]
 
 
 def describe(p):

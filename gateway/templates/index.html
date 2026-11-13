@@ -65,6 +65,7 @@ const PRESETS = {
     ['Milk for Monday', 'I need 1,000 litres of lactose-free milk by Monday. Find an option that meets our requirements based on price and availability.'],
     ['Small top-up', 'We need 100 litres of lactose-free milk by Monday.'],
     ['Organic oat drink', 'Order 200 litres of organic oat drink by Tuesday.'],
+    ['Chicken nugget milk?', 'We need 100 litres of chicken nugget milk by Monday.'],
   ],
   mnd_school_espoo: [
     ['Muesli, nut-free', 'We need 40 kg of muesli by Wednesday for the school breakfast.'],
@@ -173,6 +174,9 @@ function renderStep(s, n) {
           ${Object.entries(counts).map(([r, n]) => `${n} × ${esc(r)}`).join(' · ')}</p>
           ${ex.length > 3 ? `<details style="margin-top:6px"><summary>Show products</summary><p class="small" style="margin:6px 0 0">${list}</p></details>`
                          : `<p class="small" style="margin:6px 0 0">${list}</p>`}`; })() : ''}
+      ${t.reality_check ? `<p class="small" style="margin:12px 0 0"><span class="chip ${t.reality_check.kept_categories.length ? 'ok' : 'bad'}">Reality check</span>
+        ${t.reality_check.kept_categories.length ? `kept only products that <i>are</i> ${esc(t.query)}` : `nothing in the catalog is ${esc(t.query)}`}${t.reality_check.removed.length
+          ? ` · removed ${t.reality_check.removed.map(r => `${r.count} like “${esc(r.examples[0])}”`).slice(0, 3).join(', ')}` : ''}</p>` : ''}
       ${Object.keys(t.failed_checks || {}).length ? `<p class="small muted" style="margin:12px 0 0">Checked against product data, not names: ${Object.entries(t.failed_checks).map(([k, v]) => `${v} ${esc(k === 'lactose' ? 'contain lactose (> 0 g/100 g)' : k)}`).join(' · ')}</p>` : ''}
       ${s.official_substitutes_added.length ? `<p class="small" style="margin:8px 0 0"><span class="chip warn">Official substitutes added</span> ${s.official_substitutes_added.join(', ')}</p>` : ''}
       ${(s.substitutes_rejected || []).length ? `<p class="small" style="margin:8px 0 0"><span class="chip bad">Substitutes rejected</span> ${s.substitutes_rejected.map(e => `${esc(e.name)} <span class="muted">(${esc(e.reason)})</span>`).join(' · ')}</p>` : ''}`,
@@ -275,7 +279,14 @@ async function verify(btn, jws) {
 function renderOutcome(res) {
   const o = res.order;
   let body;
-  if (!o && res.result.status === 'no_safe_product') body = `<div class="banner bad"><h3>No safe product: nothing ordered</h3>${esc(res.result.error)}</div>`;
+  if (!o && res.result.status === 'not_in_catalog') {
+    const sg = res.result.suggestions || [];
+    body = `<div class="banner bad"><h3>Reality check: not in Valio's catalog</h3>${esc(res.result.error)}
+      ${sg.length ? `<div style="margin-top:10px" class="small">What does exist (nothing is ordered until you ask):</div>
+        <div class="chips" style="margin-top:6px">${sg.map(x => `<button class="chip" onclick='useSuggestion(${JSON.stringify(res.steps[0].intent.product)}, ${JSON.stringify(x.phrase)})'>${esc(x.phrase)} · ${x.count} products</button>`).join('')}</div>` : ''}
+      <div class="small muted" style="margin-top:8px">Stopped before any price or availability call.</div></div>`;
+  }
+  else if (!o && res.result.status === 'no_safe_product') body = `<div class="banner bad"><h3>No safe product: nothing ordered</h3>${esc(res.result.error)}</div>`;
   else if (!o) body = `<div class="banner bad"><h3>No order</h3>${esc(res.result.error || res.result.status.replace('_', ' '))}</div>`;
   else if (o.status === 'placed') body = `<div class="banner ok"><h3>Order placed automatically</h3>Within the agent's own authority · ${o.id} · ${eur(o.total)}</div>`;
   else if (o.status === 'blocked') body = `<div class="banner bad"><h3>Blocked by the mandate</h3>The gateway refused the order.</div>`;
@@ -290,6 +301,12 @@ function renderOutcome(res) {
     <div class="step-head"><h3>Outcome</h3></div><div id="outcomeBody">${body}</div></div></div>`);
   if (o) { $('#out').insertAdjacentHTML('beforeend', '<div id="record"></div>'); showRecord(o.id); }
   $('#outcome').scrollIntoView({behavior: 'smooth', block: 'center'});
+}
+
+function useSuggestion(asked, phrase) {
+  const t = $('#request'), re = new RegExp(asked.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+  t.value = re.test(t.value) ? t.value.replace(re, phrase) : `${t.value} (${phrase})`;
+  t.focus(); window.scrollTo({top: 0, behavior: 'smooth'});
 }
 
 async function decide(id, decision, who) {

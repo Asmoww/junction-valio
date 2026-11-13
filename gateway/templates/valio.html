@@ -87,7 +87,7 @@ async function load() {
 async function loadTraps() {
   const t = await (await fetch('/api/traps')).json();
   if (!t.results.length) { $('#traps').innerHTML = '<p class="muted">Not run yet: <code>python scripts/run_traps.py</code></p>'; return; }
-  const CAT = {lookup: 'Lookup', need: "Buyer's need", controls: 'Controls', exceptions: 'Exceptions', allergy: 'Allergy safety', attack: 'Attacks'};
+  const CAT = {lookup: 'Lookup', need: "Buyer's need", controls: 'Controls', exceptions: 'Exceptions', allergy: 'Allergy safety', attack: 'Attacks', reality: 'Reality check'};
   $('#trapSummary').innerHTML = `<span class="chip ${t.failed ? 'bad' : 'ok'}">${t.passed} / ${t.results.length - t.skipped} passed</span> <span class="faint small" style="text-transform:none;letter-spacing:0;font-weight:400">run ${ago(t.run_at)}</span>`;
   $('#traps').innerHTML = `<table><tbody>${t.results.map(r => `<tr><td style="width:120px"><span class="chip">${esc(CAT[r.category] || r.category)}</span></td>
     <td><div class="name">${esc(r.title)}</div><div class="small faint">${esc(r.detail)}</div></td>

@@ -207,7 +207,7 @@ def audit(ref: str | None = None):
 def search(q: str, attributes: str = "", limit: int = 10):
     """Structured product search. Attributes: FREE_FROM_LACTOSE, FREE_FROM_GLUTEN, VEGAN, ORGANIC, FINNISH."""
     attrs = [a for a in attributes.split(",") if a]
-    found, trace = catalog.search(q, attrs, min(limit, 20))
+    found, trace = catalog.search(q, attrs, min(limit, 20), type_check=ai.type_check if ai.enabled() else None)
     return {"trace": trace, "products": [catalog.describe(p) for p in found]}
 
 
