@@ -64,5 +64,7 @@ uv run pytest                             # tests (keep an end-to-end demo-flow 
 - `gateway/catalog.py` local product search (no API calls), allergen/label names
 - `gateway/policy.py` + `gateway/mandates/*.json` mandate rules (the guardrails)
 - `gateway/signing.py` Ed25519 JWS offers · `gateway/store.py` SQLite + hash-chained audit log
-- `gateway/main.py` FastAPI: password gate, `/v1` open API, `/api` demo endpoints · `gateway/templates/index.html` demo UI
+- `gateway/mcp_server.py` MCP tools (streamable HTTP at /mcp, `Authorization: Bearer <password>`)
+- `gateway/ai.py` optional Claude request reading (`ANTHROPIC_API_KEY`), `gateway/security.py` supplier-text injection scanner
+- `gateway/main.py` FastAPI: password gate, `/v1` open API, `/api` demo endpoints · `gateway/templates/` pages (index = buyer agent, valio = dashboard, connect) + shared style.css
 - Deployed on Pyry's server: user service `valio-gateway` on port 5201 behind Cloudflare tunnel → valio.psavela.com

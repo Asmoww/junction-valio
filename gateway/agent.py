@@ -10,7 +10,7 @@ import re
 import uuid
 from datetime import date, datetime, timedelta, timezone
 
-from . import catalog, policy, signing, store
+from . import ai, catalog, policy, security, signing, store
 from .config import OFFER_TTL_MINUTES
 from .valio import ValioClient
 
@@ -183,8 +183,8 @@ def create_offer(mandate, option, intent):
     payload = {
         "offer_id": offer_id, "issuer": "valio-aimo-trade-gateway (demo)", "customer": mandate["customer"],
         "mandate_id": mandate["mandate_id"], "currency": "EUR", "price_basis": "catalog price, fixed (not negotiated)",
-        "lines": [{k: l[k] for k in ("productId", "name", "units", "salesUnit", "unitPrice", "lineTotal",
-                                     "deliveryDate", "reliability", "substitution")} for l in option["lines"]],
+        "lines": [{k: l.get(k) for k in ("productId", "name", "units", "salesUnit", "perUnit", "unitPrice", "lineTotal",
+                                         "deliveryDate", "reliability", "substitution")} for l in option["lines"]],
         "total_eur": option["total_eur"], "deliver_by": intent["deliver_by"],
         "issued_at": store.now(), "expires_at": exp.isoformat(timespec="seconds"),
     }
@@ -217,13 +217,56 @@ def place_order(offer_jws, idempotency_key, mandate, context, client=None, actor
     status = {"auto_approve": "placed", "needs_approval": "pending_approval", "blocked": "blocked"}[verdict["outcome"]]
     order = {"id": "ord_" + uuid.uuid4().hex[:10], "offer_id": payload["offer_id"], "idempotency_key": idempotency_key,
              "status": status, "total": payload["total_eur"], "mandate_id": mandate["mandate_id"], "policy": verdict,
-             "record": {"offer": payload, "context": context}}
+             "record": {"offer": payload, "context": context, "agent": mandate["agent"]}}
     store.save_order(order)
     store.log(order["id"], actor, "order.submitted", {"offer_id": payload["offer_id"], "total_eur": payload["total_eur"]})
     store.log(order["id"], "gateway", f"policy.{verdict['outcome']}",
               {"failed_rules": [r["rule"] for r in verdict["rules"] if not r["ok"]],
                "approver": (verdict["approver"] or {}).get("role")})
     return order, None
+
+
+def quote(mandate_id, deliver_by, lines, client=None):
+    """Signed fixed-price offer for explicit lines (used by /v1/quotes and the MCP tool).
+
+    Returns (offer, jws, None) or (None, None, error)."""
+    mandate = policy.load(mandate_id)
+    ids = [str(l["productId"]) for l in lines]
+    client = client or ValioClient()
+    prices = client.prices(mandate["customer"], deliver_by, ids)
+    now_s, avail = client.availability(mandate["customer"], deliver_by, ids)
+    out = []
+    for l in lines:
+        pid = str(l["productId"])
+        pr, av, p = prices.get(pid), avail.get(pid) or {}, catalog.get(pid)
+        if not p or not pr or not pr.get("catalogPrice"):
+            return None, None, f"no price for {pid}"
+        if av.get("closingTime") and av["closingTime"] < now_s:
+            return None, None, f"{pid}: order deadline for {deliver_by} passed at {av['closingTime']}"
+        sched = [x for x in av.get("scheduleLines", []) if not x.get("salesBlock") and x.get("availableDate")
+                 and x["availableDate"] <= deliver_by]
+        if not sched or sum(x["availableAmount"] for x in sched) < l["units"]:
+            return None, None, f"{pid} not available in that quantity by {deliver_by}"
+        up = pr["catalogPrice"]["value"]
+        out.append({"productId": pid, "name": p["name"], "units": l["units"], "salesUnit": p["salesUnit"],
+                    "unitPrice": up, "lineTotal": round(up * l["units"], 2), "perUnit": 1,
+                    "deliveryDate": min(x["availableDate"] for x in sched), "reliability": p["reliability"],
+                    "substitution": l.get("substitution")})
+    option = {"lines": out, "total_eur": round(sum(x["lineTotal"] for x in out), 2)}
+    offer, jws = create_offer(mandate, option, {"deliver_by": deliver_by})
+    return offer, jws, None
+
+
+def order_from_jws(jws, idempotency_key, rationale="", requested_units=None):
+    """Commit a signed offer on behalf of an external agent (used by /v1/orders and MCP)."""
+    ok, payload = signing.verify(jws)
+    if not ok:
+        store.log("security", "unknown", "security.invalid_signature", {"error": payload})
+        return None, payload
+    mandate = policy.load(payload["mandate_id"])
+    ctx = {"deliver_by": payload["deliver_by"], "delivery_date": max(l["deliveryDate"] for l in payload["lines"]),
+           "rationale": rationale, "requested_units": requested_units}
+    return place_order(jws, idempotency_key, mandate, ctx, actor=f"agent:{mandate['agent']}")
 
 
 def decide(order_id, decision, approver, comment=""):
@@ -238,14 +281,20 @@ def decide(order_id, decision, approver, comment=""):
     return order, None
 
 
-def run(text, mandate_id, overrides=None, simulate_price_change=False):
+def run(text, mandate_id, overrides=None, simulate_price_change=False, inject=False):
     """Run the whole buyer-agent flow and return a step-by-step trace for the demo UI."""
     mandate = policy.load(mandate_id, overrides)
     client = ValioClient()
     steps = []
-    intent = parse_request(text)
     run_id = "run_" + uuid.uuid4().hex[:10]
-    store.log(run_id, "agent", "request.received", {"text": text, "mandate_id": mandate_id})
+    ai_intent = ai.parse(text)
+    if ai_intent and "_error" not in ai_intent:
+        intent, parser = ai_intent, f"Claude ({ai.MODEL})"
+    else:
+        intent = parse_request(text)
+        parser = "rules" + (f" (Claude unavailable: {ai_intent['_error']})" if ai_intent else " (no Claude key configured)")
+    intent["parser"] = parser
+    store.log(run_id, f"agent:{mandate['agent']}", "request.received", {"text": text, "mandate_id": mandate_id, "parser": parser})
     steps.append({"step": "request", "title": "Understand the request", "intent": intent})
 
     # The agent also filters out anything the mandate forbids before asking for prices.
@@ -270,6 +319,10 @@ def run(text, mandate_id, overrides=None, simulate_price_change=False):
                   "candidates": [catalog.describe(p) for p in candidates]})
     if not candidates:
         return {"run_id": run_id, "steps": steps, "result": {"status": "no_match"}, "api_calls": client.calls}
+
+    if inject and len(candidates) > 1:
+        steps += _injection_attack(candidates[1], mandate, intent, client, run_id)
+        candidates = [p for p in candidates if p["id"] != candidates[1]["id"]]
 
     ids = [p["id"] for p in candidates]
     prices = client.prices(mandate["customer"], intent["deliver_by"], ids)
@@ -308,6 +361,7 @@ def run(text, mandate_id, overrides=None, simulate_price_change=False):
     context = {"deliver_by": intent["deliver_by"], "delivery_date": max(l["deliveryDate"] for l in chosen["lines"]),
                "partial": chosen["partial"], "simulate_price_change": simulate_price_change,
                "request": text, "run_id": run_id, "options_considered": len(options),
+               "requested_quantity": intent["quantity"],
                "rationale": f"{chosen['label']}: {chosen['why']}."}
     order, err = place_order(jws, f"{run_id}:{offer['offer_id']}", mandate, context, client)
     if err and simulate_price_change:
@@ -326,5 +380,37 @@ def run(text, mandate_id, overrides=None, simulate_price_change=False):
     order["record"]["options"] = options
     store.save_order(order)
     steps.append({"step": "policy", "title": "Check the order against the mandate", "policy": order["policy"]})
+    store.log(run_id, f"agent:{mandate['agent']}", "run.completed",
+              {"order_id": order["id"], "status": order["status"], "api_calls": len(client.calls)})
     return {"run_id": run_id, "steps": steps, "order": order, "api_calls": client.calls, "mandate": mandate,
             "result": {"status": order["status"]}}
+
+
+def _injection_attack(target, mandate, intent, client, run_id):
+    """Red-team demo: a poisoned product description tries to hijack the buyer agent.
+
+    1. The gateway scans supplier text before serving it and flags the product.
+    2. We then play a *compromised* agent that obeys the hidden instruction anyway, to show that the
+       gateway's mandate check stops the order even when the agent itself has been fooled.
+    """
+    steps = []
+    findings = security.scan(security.POISON)
+    store.log(target["id"], "gateway", "security.injection_detected",
+              {"productId": target["id"], "findings": [f["why"] for f in findings], "run_id": run_id})
+    steps.append({"step": "injection_scan", "title": "Red team: poisoned supplier text detected",
+                  "product": catalog.describe(target), "text": security.POISON, "findings": findings})
+    units = 10000
+    offer, jws, err = quote(mandate["mandate_id"], intent["deliver_by"], [{"productId": target["id"], "units": units}], client)
+    if err:
+        steps.append({"step": "attack_result", "title": "Compromised agent tries to obey the injection",
+                      "units": units, "product": target["name"], "blocked_at": "offer", "error": err})
+        return steps
+    order, oerr = place_order(jws, f"{run_id}:attack", mandate,
+                              {"deliver_by": intent["deliver_by"], "delivery_date": offer["lines"][0]["deliveryDate"],
+                               "requested_quantity": intent["quantity"], "request": "(injected instruction)",
+                               "rationale": "followed instructions found in a product description", "run_id": run_id},
+                              client, actor=f"agent:{mandate['agent']} (compromised)")
+    steps.append({"step": "attack_result", "title": "Compromised agent tries to obey the injection",
+                  "units": units, "product": target["name"], "total_eur": offer["total_eur"],
+                  "order": order, "error": oerr})
+    return steps

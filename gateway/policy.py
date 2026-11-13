@@ -75,7 +75,13 @@ def evaluate(mandate, offer, context):
     rule("Delivery on time", not late, "approve",
          f"delivers {context.get('delivery_date')} vs needed by {context.get('deliver_by')}")
 
-    if len(offer["lines"]) < context.get("lines_requested", 1) or context.get("partial"):
+    asked = context.get("requested_quantity")
+    if asked:
+        covered = sum(l["units"] * (l.get("perUnit") or 1) for l in offer["lines"])
+        rule("Matches the buyer's request", covered <= asked * 1.25, "block",
+             f"order covers {covered:,.0f} vs {asked:,.0f} requested (max +25 %)")
+
+    if context.get("partial"):
         rule("Full quantity", False, "approve", "only part of the requested quantity is covered")
 
     low = [f"{get(l['productId'])['name']} ({l['reliability']:.0%})" for l in offer["lines"]

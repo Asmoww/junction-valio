@@ -2,16 +2,27 @@
 import hashlib
 import hmac
 import secrets
+from collections import Counter, defaultdict
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Body, FastAPI, Form, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
-from . import agent, catalog, policy, signing, store
+from . import agent, ai, catalog, policy, signing, store
 from .config import DEMO_PASSWORD
-from .valio import ValioClient
+from .mcp_server import app as mcp_app
+from .mcp_server import mcp
+
+
+@asynccontextmanager
+async def lifespan(_):
+    async with mcp.session_manager.run():
+        yield
+
 
 app = FastAPI(
+    lifespan=lifespan,
     title="Valio Aimo Trade Gateway (demo)",
     version="0.1.0",
     description="Open interface for external purchasing agents: lookup → signed fixed-price offer → order → "
@@ -32,7 +43,7 @@ async def password_gate(request: Request, call_next):
     if secrets.compare_digest(request.cookies.get(_COOKIE, ""), _token) or \
             (auth.startswith("Bearer ") and secrets.compare_digest(auth[7:], DEMO_PASSWORD)):
         return await call_next(request)
-    if request.url.path.startswith(("/v1", "/api")):
+    if request.url.path.startswith(("/v1", "/api", "/mcp")):
         return JSONResponse({"detail": "authentication required"}, status_code=401)
     return RedirectResponse(f"/login?next={request.url.path}", status_code=303)
 
@@ -86,7 +97,73 @@ def run_agent(body: dict = Body(...)):
     if body.get("auto_limit") is not None:
         overrides["auto_approve.max_order_total_eur"] = float(body["auto_limit"])
     return agent.run(body["request"], body.get("mandate_id", "mnd_hotel_helsinki"), overrides,
-                     simulate_price_change=bool(body.get("simulate_price_change")))
+                     simulate_price_change=bool(body.get("simulate_price_change")), inject=bool(body.get("inject")))
+
+
+@app.get("/api/info", tags=["demo"])
+def info():
+    return {"ai_parser": ai.enabled(), "model": ai.MODEL if ai.enabled() else None}
+
+
+@app.get("/connect", response_class=HTMLResponse, include_in_schema=False)
+def connect_page():
+    return (TEMPLATES / "connect.html").read_text()
+
+
+@app.get("/static/style.css", include_in_schema=False)
+def stylesheet():
+    from fastapi.responses import Response
+    return Response((TEMPLATES / "style.css").read_text(), media_type="text/css",
+                    headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/valio", response_class=HTMLResponse, include_in_schema=False)
+def valio_page():
+    return (TEMPLATES / "valio.html").read_text()
+
+
+@app.get("/api/dashboard", tags=["demo"])
+def dashboard():
+    """Valio's view: which agents buy, under which mandates, what gets approved, escalated or blocked."""
+    orders = store.list_orders(500)
+    mandates = policy.mandates()
+    agents = defaultdict(lambda: Counter())
+    rules = Counter()
+    for o in orders:
+        a = o["record"].get("agent") or mandates.get(o["mandate_id"], {}).get("agent", "unknown")
+        c = agents[a]
+        c["orders"] += 1
+        c[o["status"]] += 1
+        if o["status"] == "placed":
+            c["value_placed"] += o["total"]
+        if o["policy"]["outcome"] == "auto_approve":
+            c["auto"] += 1
+        for r in o["policy"]["rules"]:
+            if not r["ok"]:
+                rules[(r["rule"], r["level"])] += 1
+    events = store.events(limit=2000)
+    runs = [e for e in events if e["type"] == "run.completed"]
+    security = [e for e in events if e["type"].startswith("security.") or e["type"] == "order.rejected"]
+    status = Counter(o["status"] for o in orders)
+    return {
+        "totals": {"orders": len(orders), "placed": status["placed"], "pending": status["pending_approval"],
+                   "blocked": status["blocked"], "rejected": status["rejected"],
+                   "value_placed": round(sum(o["total"] for o in orders if o["status"] == "placed"), 2),
+                   "value_pending": round(sum(o["total"] for o in orders if o["status"] == "pending_approval"), 2),
+                   "agent_runs": len(runs),
+                   "avg_api_calls": round(sum(e["data"].get("api_calls", 0) for e in runs) / len(runs), 1) if runs else None,
+                   "security_events": len(security)},
+        "agents": [{"agent": a, "mandates": sorted({m["mandate_id"] for m in mandates.values() if m["agent"] == a}),
+                    **{k: round(v, 2) for k, v in c.items()}} for a, c in agents.items()],
+        "escalations": [{"rule": r, "level": l, "count": n} for (r, l), n in rules.most_common()],
+        "security": [{"ts": e["ts"], "type": e["type"], "actor": e["actor"], "ref": e["ref"], "data": e["data"]}
+                     for e in reversed(security[-30:])],
+        "recent": [{"id": o["id"], "created": o["created"], "status": o["status"],
+                    "agent": o["record"].get("agent") or mandates.get(o["mandate_id"], {}).get("agent"),
+                    "total": o["total"], "lines": [f"{l['units']} × {l['name']}" for l in o["record"]["offer"]["lines"]],
+                    "failed": [r["rule"] for r in o["policy"]["rules"] if not r["ok"]]} for o in orders[:25]],
+        "chain": store.verify_chain(),
+    }
 
 
 @app.get("/api/audit", tags=["demo"])
@@ -116,41 +193,17 @@ def product(product_id: str):
 def quote(body: dict = Body(..., examples=[{"mandate_id": "mnd_hotel_helsinki", "deliver_by": "2026-11-16",
                                             "lines": [{"productId": "463335", "units": 1000}]}])):
     """Price and availability for specific lines, returned as a signed fixed-price offer (valid 15 min)."""
-    mandate = policy.load(body["mandate_id"])
-    ids = [l["productId"] for l in body["lines"]]
-    c = ValioClient()
-    prices = c.prices(mandate["customer"], body["deliver_by"], ids)
-    _, avail = c.availability(mandate["customer"], body["deliver_by"], ids)
-    lines = []
-    for l in body["lines"]:
-        pr, av, p = prices.get(l["productId"]), avail.get(l["productId"]) or {}, catalog.get(l["productId"])
-        if not p or not pr or not pr.get("catalogPrice"):
-            raise HTTPException(422, f"no price for {l['productId']}")
-        sched = [s for s in av.get("scheduleLines", []) if not s.get("salesBlock") and s.get("availableDate")
-                 and s["availableDate"] <= body["deliver_by"]]
-        if not sched or sum(s["availableAmount"] for s in sched) < l["units"]:
-            raise HTTPException(409, f"{l['productId']} not available in that quantity by {body['deliver_by']}")
-        up = pr["catalogPrice"]["value"]
-        lines.append({"productId": p["id"], "name": p["name"], "units": l["units"], "salesUnit": p["salesUnit"],
-                      "unitPrice": up, "lineTotal": round(up * l["units"], 2), "perUnit": 1,
-                      "deliveryDate": min(s["availableDate"] for s in sched), "reliability": p["reliability"],
-                      "substitution": l.get("substitution")})
-    option = {"lines": lines, "total_eur": round(sum(x["lineTotal"] for x in lines), 2)}
-    payload, jws = agent.create_offer(mandate, option, {"deliver_by": body["deliver_by"]})
-    return {"offer": payload, "jws": jws, "api_calls": c.calls}
+    offer, jws, err = agent.quote(body["mandate_id"], body["deliver_by"], body["lines"])
+    if err:
+        raise HTTPException(409, err)
+    return {"offer": offer, "jws": jws}
 
 
 @app.post("/v1/orders", tags=["v1: order"])
 def order(body: dict = Body(...), idempotency_key: str = Header(...)):
     """Commit a signed offer. The gateway verifies the signature, re-checks prices and applies the mandate."""
-    ok, payload = signing.verify(body["jws"])
-    if not ok:
-        raise HTTPException(400, payload)
-    mandate = policy.load(payload["mandate_id"])
-    ctx = {"deliver_by": payload["deliver_by"], "delivery_date": max(l["deliveryDate"] for l in payload["lines"]),
-           "rationale": body.get("rationale", "")}
-    o, err = agent.place_order(body["jws"], idempotency_key, mandate, ctx, actor=f"agent:{mandate['agent']}")
-    if err and not o:
+    o, err = agent.order_from_jws(body["jws"], idempotency_key, body.get("rationale", ""), body.get("requested_units"))
+    if not o:
         raise HTTPException(409, err)
     return o
 
@@ -183,6 +236,8 @@ def decision(order_id: str):
 @app.post("/v1/offers/verify", tags=["v1: trust"])
 def verify_offer(body: dict = Body(...)):
     ok, payload = signing.verify(body["jws"])
+    if not ok:
+        store.log("security", "verifier", "security.invalid_signature", {"error": payload})
     return {"valid": ok, "payload": payload if ok else None, "error": None if ok else payload}
 
 
@@ -190,3 +245,7 @@ def verify_offer(body: dict = Body(...)):
 def well_known_jwks():
     """Public key for verifying offer signatures."""
     return signing.jwks()
+
+
+# MCP over streamable HTTP at /mcp. Mounted last so the routes above take precedence.
+app.mount("/", mcp_app)

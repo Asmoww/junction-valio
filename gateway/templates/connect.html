@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>Connect an agent · Trusted Trade Agents</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar"><div class="inner">
+  <div class="brand"><span class="dot">A</span>Trusted Trade Agents <small>Valio Aimo · Junction 2026</small></div>
+  <nav class="tabs"><a href="/">Buyer agent</a><a href="/valio">Valio view</a><a href="/connect" class="on">Connect an agent</a></nav>
+  <div class="right">Open interface</div>
+</div></header>
+
+<div class="page" style="max-width:980px">
+  <div class="page-head">
+    <div>
+      <h1>Bring your own agent</h1>
+      <p>Any purchasing agent can work with the gateway on open standards: MCP for AI agents, OpenAPI for everything else,
+         and signed offers anyone can verify. Every channel goes through the same mandate check and audit trail.</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>MCP server</h2>
+    <p style="margin:0 0 12px">Streamable HTTP at <code>https://valio.psavela.com/mcp</code> with a bearer token (the demo password).
+       For example in Claude Code:</p>
+    <pre class="mono">claude mcp add --transport http valio https://valio.psavela.com/mcp \
+  --header "Authorization: Bearer &lt;demo password&gt;"</pre>
+    <p class="small muted" style="margin:14px 0 8px">Tools</p>
+    <table><tbody>
+      <tr><td class="name">get_mandate</td><td class="muted">What the agent may decide alone, hard limits, allergen bans, approvers</td></tr>
+      <tr><td class="name">search_products</td><td class="muted">Structured search over the static catalog. No live API calls</td></tr>
+      <tr><td class="name">check_price_availability</td><td class="muted">Live price and availability for up to 20 products</td></tr>
+      <tr><td class="name">request_offer</td><td class="muted">Signed fixed-price offer, valid 15 minutes</td></tr>
+      <tr><td class="name">place_order</td><td class="muted">Commit an offer: placed, sent for approval, or blocked. Idempotent</td></tr>
+      <tr><td class="name">get_order</td><td class="muted">Status and decision record</td></tr>
+    </tbody></table>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h2>REST · OpenAPI</h2>
+      <p style="margin:0 0 12px">The same flow as plain HTTP, documented with OpenAPI.</p>
+      <div class="chips"><a class="chip navy" href="/docs">Swagger UI</a><a class="chip navy" href="/openapi.json">openapi.json</a></div>
+      <pre class="mono" style="margin-top:14px">POST /v1/quotes   → signed offer
+POST /v1/orders   → placed | pending | blocked
+POST /v1/approvals/{order_id}
+GET  /v1/orders/{order_id}/decision</pre>
+    </div>
+    <div class="card">
+      <h2>Trust</h2>
+      <p style="margin:0 0 12px">Offers are Ed25519-signed JWS. Verify them without trusting the channel they came through.</p>
+      <div class="chips"><a class="chip navy" href="/.well-known/jwks.json">/.well-known/jwks.json</a></div>
+      <ul class="small muted" style="margin:14px 0 0;padding-left:18px">
+        <li>Prices are fixed catalog prices, never negotiated</li>
+        <li>Live prices are re-checked before committing</li>
+        <li>Supplier text is untrusted data and is scanned</li>
+        <li>Every decision is in a hash-chained audit log</li>
+      </ul>
+    </div>
+  </div>
+</div>
+</body>
+</html>

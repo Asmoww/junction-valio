@@ -30,7 +30,8 @@ LABELS = {
 }
 # Words that change what a product *is*. A candidate containing one is penalised unless the
 # request asked for it ("milk" should not return chocolate milk or milk powder).
-MODIFIERS = {
+MODIFIERS = {  # noqa: E501
+
     "chocolate", "cocoa", "coffee", "latte", "cappuccino", "macchiato", "espresso", "mocca",
     "powder", "fermented", "sour", "curdled", "condensed", "pudding", "cheese", "cake", "flourmix",
     "strawberry", "vanilla", "berry", "berries", "mango", "rhubarb", "caramel", "mint", "flavor",

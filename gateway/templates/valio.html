@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>Valio view · Trusted Trade Agents</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar"><div class="inner">
+  <div class="brand"><span class="dot">A</span>Trusted Trade Agents <small>Valio Aimo · Junction 2026</small></div>
+  <nav class="tabs"><a href="/">Buyer agent</a><a href="/valio" class="on">Valio view</a><a href="/connect">Connect an agent</a></nav>
+  <div class="right" id="updated"></div>
+</div></header>
+
+<div class="page">
+  <div class="page-head">
+    <div>
+      <h1>Agent traffic at the gateway</h1>
+      <p>Valio's side of the same record: which agents buy, under whose mandate, what goes through on its own,
+         what needs a person, and what gets stopped.</p>
+    </div>
+  </div>
+
+  <div class="metrics" id="metrics"></div>
+
+  <div class="grid2">
+    <div class="card"><h2>Agents</h2><div id="agents"></div></div>
+    <div class="card"><h2>Why orders were escalated or stopped</h2><div id="rules" class="bars"></div></div>
+  </div>
+
+  <div class="grid2">
+    <div class="card"><h2>Recent orders</h2><div id="recent" style="overflow-x:auto"></div></div>
+    <div class="card"><h2>Security events</h2><div id="security"></div></div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const eur = n => '€' + Number(n || 0).toLocaleString('en-US', {maximumFractionDigits: 0});
+const STATUS = {placed: ['ok', 'Placed'], pending_approval: ['warn', 'Awaiting approval'], blocked: ['bad', 'Blocked'], rejected: ['bad', 'Rejected']};
+const SEC = {'security.injection_detected': 'Prompt injection in supplier text', 'security.invalid_signature': 'Forged or altered offer', 'order.rejected': 'Stale price caught'};
+const ago = ts => { const s = (Date.now() - new Date(ts)) / 1000; return s < 60 ? 'just now' : s < 3600 ? `${Math.round(s / 60)} min ago` : s < 86400 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} d ago`; };
+
+async function load() {
+  const d = await (await fetch('/api/dashboard')).json();
+  const t = d.totals;
+  const auto = d.agents.reduce((a, x) => a + (x.auto || 0), 0);
+  $('#metrics').innerHTML = [
+    ['dark', t.orders, 'orders from agents'],
+    ['', eur(t.value_placed), 'placed value'],
+    ['', t.orders ? Math.round(auto / t.orders * 100) + ' %' : '—', 'decided by the agent alone'],
+    ['', t.pending, 'waiting for a person'],
+    ['', t.blocked, 'blocked by a mandate'],
+    ['', t.avg_api_calls ?? '—', 'live API calls per request'],
+    ['', t.security_events, 'security events'],
+  ].map(([c, v, l]) => `<div class="metric ${c}"><div class="v">${v}</div><div class="l">${l}</div></div>`).join('');
+
+  $('#agents').innerHTML = d.agents.length ? `<table><thead><tr><th>Agent</th><th class="r">Orders</th><th class="r">Alone</th><th class="r">Escalated</th><th class="r">Blocked</th><th class="r">Placed value</th></tr></thead><tbody>
+    ${d.agents.map(a => `<tr><td><div class="name">${esc(a.agent)}</div><div class="small faint">${a.mandates.join(', ')}</div></td>
+      <td class="r">${a.orders}</td><td class="r">${a.auto || 0}</td><td class="r">${(a.orders - (a.auto || 0) - (a.blocked || 0))}</td>
+      <td class="r">${a.blocked ? `<span class="chip bad">${a.blocked}</span>` : 0}</td><td class="r">${eur(a.value_placed)}</td></tr>`).join('')}</tbody></table>`
+    : '<p class="muted">No agent orders yet. Run one on the Buyer agent tab.</p>';
+
+  const max = Math.max(1, ...d.escalations.map(r => r.count));
+  $('#rules').innerHTML = d.escalations.length ? d.escalations.map(r => `<div class="row"><span>${esc(r.rule)} <span class="faint small">${r.level === 'block' ? 'stops the order' : 'needs a person'}</span></span>
+    <div class="track"><div class="fill" style="width:${r.count / max * 100}%;background:${r.level === 'block' ? 'var(--bad)' : 'var(--accent)'}"></div></div><b class="r">${r.count}</b></div>`).join('')
+    : '<p class="muted">Nothing escalated yet.</p>';
+
+  $('#recent').innerHTML = d.recent.length ? `<table><thead><tr><th>Order</th><th>Agent</th><th>Status</th><th class="r">Total</th></tr></thead><tbody>
+    ${d.recent.map(o => { const [c, l] = STATUS[o.status] || ['', o.status]; return `<tr><td><div class="name">${esc(o.lines.join(' + '))}</div>
+      <div class="small faint">${o.id} · ${ago(o.created)}${o.failed.length ? ' · ' + esc(o.failed.join(', ').toLowerCase()) : ''}</div></td>
+      <td class="small muted" style="white-space:nowrap">${esc((o.agent || '').replace('-agent', ''))}</td><td><span class="chip ${c}">${l}</span></td><td class="r">${eur(o.total)}</td></tr>`; }).join('')}</tbody></table>`
+    : '<p class="muted">No orders yet.</p>';
+
+  $('#security').innerHTML = d.security.length ? `<table><tbody>${d.security.map(e => `<tr><td><div class="name">${esc(SEC[e.type] || e.type)}</div>
+      <div class="small faint">${esc(e.actor)} · ${ago(e.ts)}${e.data.productId ? ' · product ' + esc(e.data.productId) : ''}${e.data.findings ? ' · ' + esc(e.data.findings.join(', ')) : ''}${e.data.reason ? ' · ' + esc(e.data.reason) : ''}</div></td>
+      <td class="r"><span class="chip ${e.type === 'order.rejected' ? 'warn' : 'bad'}">${e.type === 'order.rejected' ? 'caught' : 'flagged'}</span></td></tr>`).join('')}</tbody></table>
+      <p class="small muted" style="margin:12px 0 0">${d.chain.valid ? `<span class="chip ok">Audit chain intact · ${d.chain.events} events</span>` : '<span class="chip bad">Audit chain broken</span>'}</p>`
+    : '<p class="muted">No security events. Try the red-team switches on the Buyer agent tab.</p>';
+  $('#updated').textContent = 'Updated ' + new Date().toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'});
+}
+load();
+setInterval(load, 10000);
+</script>
+</body>
+</html>
