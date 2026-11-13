@@ -1,7 +1,8 @@
 """Post a short progress update to the team Discord.
 
-Usage: python scripts/notify.py "Gateway deployed at valio.psavela.com"
-Reads DISCORD_WEBHOOK_URL from .env. Keep messages to one line; post only on milestones.
+Usage: python scripts/notify.py $'Title line\n- change one\n- change two'
+Format: a short title line, then one bullet per change. Concise, no emojis. Post only on milestones.
+Reads DISCORD_WEBHOOK_URL from .env.
 """
 import json
 import os

@@ -38,8 +38,10 @@ change only by agreement; record the change in `docs/DECISIONS.md`.
 4. Never commit API keys or tokens. Use `.env` (gitignored); list variable names in `.env.example`.
 5. Query the Valio APIs only when needed, never for all products.
 6. Before finishing: update `docs/STATUS.md`, commit, push (or run `/handoff`).
-7. Post a one-line Discord update on real milestones only (feature works, deployed, blocked):
-   `python scripts/notify.py "..."`. Webhook URL is in `.env` (from team chat), never in git.
+7. Post a Discord update on real milestones only (feature works, deployed, blocked): a short title line, then
+   one bullet per change. Concise, no emojis, never one long sentence. Example:
+   `python scripts/notify.py $'Valio demo: switched to Sonnet 5.5\n- Fixed: "chicken nugget milk" read as "milk"\n- Tests: 43 offline, 24/24 live'`
+   Webhook URL is in `.env` (from team chat), never in git.
 8. Everything in English: code, comments, docs, commit messages, UI text.
 
 ## Stack and how to run
