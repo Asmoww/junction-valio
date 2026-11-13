@@ -35,7 +35,9 @@ MODIFIERS = {  # noqa: E501
     "chocolate", "cocoa", "coffee", "latte", "cappuccino", "macchiato", "espresso", "mocca",
     "powder", "fermented", "sour", "curdled", "condensed", "pudding", "cheese", "cake", "flourmix",
     "strawberry", "vanilla", "berry", "berries", "mango", "rhubarb", "caramel", "mint", "flavor",
-    "flavour", "portion", "buttermilk", "cooking", "blend", "yoghurt", "yogurt", "quark", "drink" ,
+    "flavour", "portion", "buttermilk", "cooking", "blend", "yoghurt", "yogurt", "quark", "drink",
+    "mashed", "mash", "gratin", "salad", "chips", "crisps", "fries", "wedges", "soup", "sauce", "casserole",
+    "pie", "dough", "pizza", "snack", "bites", "cream", "creamy", "seasoned", "marinated", "mix",
 }
 MODIFIERS.discard("drink")  # Finnish lactose-free milk is sold as "milk drink"
 
@@ -62,6 +64,14 @@ def _words(s):
     return set(re.findall(r"[a-zåäö]+", s.lower()))
 
 
+def _stem(word):
+    """Crude singular form so "potatoes" matches "potato" and "flakes" matches "flake"."""
+    for suffix in ("oes", "ies", "es", "s"):
+        if word.endswith(suffix) and len(word) - len(suffix) >= 3:
+            return word[: -len(suffix)] + ("y" if suffix == "ies" else "o" if suffix == "oes" else "")
+    return word
+
+
 def matches_attributes(p, attrs):
     """Check required attributes (claims). Returns (ok, reason)."""
     for a in attrs:
@@ -82,15 +92,16 @@ def search(query, attrs=(), limit=12):
     """Return (candidates, trace). Candidates are catalog entries ranked by relevance."""
     load()
     q = _words(query)
+    stems = {_stem(t) for t in q}
     scored = []
     for p in _catalog:
         words = _words(p["_text"])
-        if not q <= words and not all(any(w.startswith(t) for w in words) for t in q):
+        if not all(any(w.startswith(t) for w in words) for t in stems):
             continue
         ok, _ = matches_attributes(p, attrs)
         if not ok:
             continue
-        penalty = len((words & MODIFIERS) - q)
+        penalty = len({w for w in words if w in MODIFIERS} - q - {m for m in MODIFIERS if any(m.startswith(t) for t in stems)})
         scored.append((penalty, len(p["name"]), p))
     scored.sort(key=lambda x: (x[0], x[1]))
     plain = [p for pen, _, p in scored if pen == 0] or [p for _, _, p in scored]

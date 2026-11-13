@@ -78,8 +78,10 @@ def evaluate(mandate, offer, context):
     asked = context.get("requested_quantity")
     if asked:
         covered = sum(l["units"] * (l.get("perUnit") or 1) for l in offer["lines"])
-        rule("Matches the buyer's request", covered <= asked * 1.25, "block",
-             f"order covers {covered:,.0f} vs {asked:,.0f} requested (max +25 %)")
+        # Rounding up to whole packs is fine (one extra pack); beyond that, max +25 %.
+        allowance = max(asked * 0.25, max((l.get("perUnit") or 1) for l in offer["lines"]))
+        rule("Matches the buyer's request", covered <= asked + allowance, "block",
+             f"order covers {covered:,.0f} vs {asked:,.0f} requested (max +25 % or one extra pack)")
 
     if context.get("partial"):
         rule("Full quantity", False, "approve", "only part of the requested quantity is covered")
