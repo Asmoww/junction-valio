@@ -8,7 +8,7 @@ order goes through, needs a human, or is blocked.
 import contextvars
 import math
 import re
-import threading
+import sqlite3
 import uuid
 from collections import Counter
 from datetime import date, datetime, time, timedelta, timezone
@@ -460,6 +460,10 @@ def create_offer(mandate, option, intent):
         "requested_quantity": intent.get("quantity"),
         "issued_at": store.now(), "expires_at": exp.astimezone(timezone.utc).isoformat(timespec="seconds"),
         "expiry_reason": reason,
+        # Said inside the signature, so nobody can mistake a demo for a real purchase:
+        "clock": (f"replay of Valio's data snapshot as of {CLOCK.get()} (cut-offs shifted)" if CLOCK.get()
+                  else "Valio's real clock"),
+        "commitment": "simulated: the challenge has no Valio order API, so 'placed' means accepted by this gateway",
     }
     jws = signing.sign(payload)
     store.save_offer(offer_id, mandate["mandate_id"], payload, jws)
@@ -468,15 +472,15 @@ def create_offer(mandate, option, intent):
     return payload, jws
 
 
-# One commit or approval at a time: the "offer used once", "24 h spend" and "still pending" checks read the store
-# and then write to it, so two simultaneous calls could otherwise both pass. Fine for one process; several
-# workers would need the same guarantee from the database (open gap in docs/FRAMEWORK.md).
-_commit = threading.RLock()
+# One commit or approval at a time, across all server processes on the machine (store.commit_lock): the "offer
+# used once", "24 h spend" and "still pending" checks read the store and then write to it. The database also
+# refuses a second order for one offer, and approvals are a compare-and-set on "pending_approval".
+_commit = store.commit_lock
 
 
 def place_order(offer_jws, idempotency_key, mandate, context, client=None, actor="agent"):
     """Gateway side of an order: verify the signed offer, re-check prices, apply the mandate."""
-    with _commit:
+    with _commit():
         return _place_order(offer_jws, idempotency_key, mandate, context, client, actor)
 
 
@@ -513,7 +517,11 @@ def _place_order(offer_jws, idempotency_key, mandate, context, client, actor):
     order = {"id": "ord_" + uuid.uuid4().hex[:10], "offer_id": payload["offer_id"], "idempotency_key": idempotency_key,
              "status": status, "total": payload["total_eur"], "mandate_id": mandate["mandate_id"], "policy": verdict,
              "record": {"offer": payload, "context": context, "agent": mandate["agent"]}}
-    store.save_order(order)
+    try:
+        store.save_order(order)
+    except sqlite3.IntegrityError:  # another process got there first
+        store.log(payload["offer_id"], actor, "security.offer_replayed", {"idempotency_key": idempotency_key})
+        return None, "this signed offer was already used for an order: request a new offer"
     store.log(order["id"], actor, "order.submitted", {"offer_id": payload["offer_id"], "total_eur": payload["total_eur"]})
     store.log(order["id"], "gateway", f"policy.{verdict['outcome']}",
               {"failed_rules": [r["rule"] for r in verdict["rules"] if not r["ok"]],
@@ -614,7 +622,7 @@ def decide(order_id, decision, approver, comment="", client=None):
     The approver must be named in the buyer's mandate with authority for this total. If the price lock
     ran out while the order waited, the price is checked again before the order is placed: a changed
     price means a new offer, never a silent placement at an old price."""
-    with _commit:
+    with _commit():
         return _decide(order_id, decision, approver, comment, client)
 
 
@@ -659,8 +667,12 @@ def _decide(order_id, decision, approver, comment, client):
         store.log(order_id, "gateway", "price.reconfirmed", {"reason": "price lock expired before approval"})
     order["status"] = "placed" if decision == "approve" else "rejected"
     order["record"].setdefault("approvals", []).append(
-        {"approver": approver, "decision": decision, "comment": comment, "at": store.now()})
-    store.save_order(order)
+        {"approver": approver, "decision": decision, "comment": comment, "at": store.now(),
+         # What the click means: a gate-4 approval confirms facts the data couldn't prove (the approver checks
+         # the label or the supplier); a gate-5 approval uses the approver's authority. Gate 3 can't be approved.
+         "gate": (order["policy"].get("ladder") or {}).get("decided_by")})
+    if not store.save_order(order, expect_status="pending_approval"):
+        return None, "someone else decided this order first"
     store.log(order_id, f"human:{approver}", f"approval.{decision}", {"comment": comment})
     return order, None
 

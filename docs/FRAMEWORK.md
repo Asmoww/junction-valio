@@ -104,6 +104,26 @@ Fixed after it: a signed offer can be committed once, whatever the idempotency k
 sealed into the signed offer and an agent claiming a different one is refused; unknown substitution types are refused;
 a late approval rechecks stock and cut-off as well as price; mandates that don't set delivery-history or 24 h limits
 fail closed. Commits and approvals run one at a time, so two calls arriving together can't both pass the
-"offer used once" or 24 h check (one process; several workers would need the database to enforce it). Already fixed before it (on `main` or this branch): negative and half-pack quantities, approvals by agents
+"offer used once" or 24 h check. Already fixed before it (on `main` or this branch): negative and half-pack quantities, approvals by agents
 or by people outside the mandate, the external "matches the request" check, 10.5 L packs, missing quantities, unknown
 allergen data, Terminal stock, the 24 h limit.
+
+## Outside red-team review, round 2 (ChatGPT, 13 Nov 23:24)
+Its 30 test specifications were written without access to the code. What is now proven by tests:
+- **Separate server processes** (`tests/test_processes.py`, real processes sharing one database): one signed offer
+  gives one order; two €400 orders against a €500 daily autonomy give one automatic order and one approval;
+  approve and reject at the same moment give one result. Protection: a lock file across processes on the machine,
+  a database rule of one order per offer, and approvals that only apply while the order is still pending. Each test
+  fails with the protection removed. Several machines would need a shared database server.
+- **A model that misreads the request** (`tests/test_ladder.py`): Claude reading 500 L from "100 litres" is asked
+  back (the rules read the same text and disagree); Claude dropping a stated milk allergy still stops (allergies are
+  read from the text by rules, never only by the model).
+- **Signed offers say what they are:** the clock (real or snapshot replay) and that "placed" is a simulated
+  commitment, because the challenge has no Valio order API.
+- **Approvals record which gate they answer:** a gate-4 approval means a person checked a fact the data couldn't
+  prove; a gate-5 approval uses authority. Gate 3 (hard rules, allergen bans) can't be approved by anyone.
+
+Still open, and said openly: an outside agent's quote carries only its own reading of the buyer (the gateway never
+sees the buyer's words, so it checks the mandate's limits, not the reading); one shared login, so approver identity
+and caller-to-mandate binding are not authenticated; pack-size requirements; absurd pack choices; the audit chain
+is tamper-evident, not tamper-proof (whoever can rewrite the whole database can recompute it).

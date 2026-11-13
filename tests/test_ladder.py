@@ -209,3 +209,25 @@ def test_buyer_profile_is_shown_and_never_overrides_the_request():
     assert "fresh or long-life both fine" in res["steps"][0]["intent"]["from_profile"]  # test products have no fat %
     res = agent.run("We need 100 litres of 3.5% lactose-free milk by Monday", HOTEL)
     assert res["steps"][0]["intent"]["fat_pct"] == 3.5 and "fat 1.5 %" not in (res["steps"][0]["intent"].get("from_profile") or [])
+
+
+# ---- Round-2 review (13 Nov 23:24): a wrong reading by the model can't become an order ---------------------
+
+def _model_reads(monkeypatch, **wrong):
+    from gateway import ai
+    base = {"product": "lactose-free milk", "quantity": 100, "unit": "L", "attributes": ["FREE_FROM_LACTOSE"],
+            "deliver_by": "2026-11-16", "fat_pct": None, "shelf_life": None, "request_type": "buy"}
+    monkeypatch.setattr(ai, "parse", lambda text, today=None: dict(base, raw=text, **wrong))
+
+
+def test_model_reading_500_from_a_100_litre_request_is_asked_back(monkeypatch, valio):
+    _model_reads(monkeypatch, quantity=500)  # T01: the buyer said 100, the model says 500
+    act, gate, res = action("We need 100 litres of lactose-free milk by Monday")
+    assert (act, gate) == ("ask_back", "clear") and "reads two ways" in str(res["result"])
+    assert res["api_calls"] == [] and "order" not in res
+
+
+def test_model_dropping_a_stated_allergy_still_blocks_milk(monkeypatch, valio):
+    _model_reads(monkeypatch, quantity=50)  # T02: the model's reading has no allergy at all
+    act, gate, res = action("50 L lactose-free milk for the hospital milk-allergy diet ward by Monday")
+    assert (act, gate) == ("stop", "allowed") and "order" not in res

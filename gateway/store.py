@@ -1,4 +1,6 @@
 """SQLite storage: offers, orders and a hash-chained audit log."""
+import contextlib
+import fcntl
 import hashlib
 import json
 import sqlite3
@@ -17,6 +19,31 @@ CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, offer_id TEXT, idempoten
 CREATE TABLE IF NOT EXISTS events (seq INTEGER PRIMARY KEY AUTOINCREMENT, ref TEXT, ts TEXT, actor TEXT,
   type TEXT, data TEXT, prev_hash TEXT, hash TEXT);
 """)
+try:  # One order per signed offer, enforced by the database too (an old demo DB with duplicates keeps working)
+    _db.execute("CREATE UNIQUE INDEX IF NOT EXISTS one_order_per_offer ON orders (offer_id)")
+except sqlite3.IntegrityError:
+    pass
+
+# Commits and approvals read the store and then write to it ("offer used once", "24 h spend", "still pending").
+# This lock covers every server process on the machine (a lock file next to the database), not just threads.
+_commit_threads = threading.RLock()
+_commit_depth = threading.local()
+_lockfile = open(str(DB_PATH) + ".lock", "a+")
+
+
+@contextlib.contextmanager
+def commit_lock():
+    with _commit_threads:
+        depth = getattr(_commit_depth, "n", 0)
+        if depth == 0:
+            fcntl.flock(_lockfile, fcntl.LOCK_EX)
+        _commit_depth.n = depth + 1
+        try:
+            yield
+        finally:
+            _commit_depth.n = depth
+            if depth == 0:
+                fcntl.flock(_lockfile, fcntl.LOCK_UN)
 
 
 def now():
@@ -92,9 +119,20 @@ def _order(r):
     return dict(r, policy=json.loads(r["policy"]), record=json.loads(r["record"] or "{}"))
 
 
-def save_order(o):
+def save_order(o, expect_status=None):
+    """Insert or update an order. A second order for the same signed offer or idempotency key raises
+    sqlite3.IntegrityError. With expect_status, the update only happens if the stored status is still that
+    (compare-and-set): returns False if someone else changed it first."""
     with _lock:
-        _db.execute("INSERT OR REPLACE INTO orders VALUES (?,?,?,?,?,?,?,?,?,?)",
+        if expect_status:
+            cur = _db.execute("UPDATE orders SET status=?, total=?, policy=?, record=?, updated=? WHERE id=? AND status=?",
+                              (o["status"], o["total"], json.dumps(o["policy"]), json.dumps(o["record"], default=str),
+                               now(), o["id"], expect_status))
+            _db.commit()
+            return cur.rowcount == 1
+        _db.execute("INSERT INTO orders VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status, "
+                    "total=excluded.total, policy=excluded.policy, record=excluded.record, updated=excluded.updated",
                     (o["id"], o["offer_id"], o["idempotency_key"], o["status"], o["total"], o["mandate_id"],
                      json.dumps(o["policy"]), json.dumps(o["record"], default=str), o.get("created") or now(), now()))
         _db.commit()
+        return True
