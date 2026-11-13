@@ -58,6 +58,12 @@ def parse(text, today=None):
     out = next((b.text for b in r.content if b.type == "text"), None)
     if not out:
         return {"_error": "empty answer"}
-    intent = json.loads(out)
+    try:
+        intent = json.loads(out)
+        date.fromisoformat(intent["deliver_by"])  # reject anything that isn't a real date
+    except (ValueError, KeyError, TypeError):
+        return {"_error": "Claude's answer didn't match the schema"}
+    if intent.get("quantity") is not None and not intent["quantity"] > 0:
+        return {"_error": "Claude read a non-positive quantity"}
     intent["raw"] = text
     return intent

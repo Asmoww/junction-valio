@@ -36,6 +36,7 @@ for p in products:
     s = p.get("synkkaData") or {}
     groups = {c["name"]: c.get("values") or [] for c in s.get("classifications", [])}
     net = next((u.get("netWeight") for u in s.get("unitConversions") or [] if u.get("netWeight")), None)
+    lactose = next((v.get("value") for v in groups.get("nutritionFact", []) if v.get("id") == "LACS"), None)
     catalog.append({
         "id": p["id"],
         "name": text(s.get("names"), "en") or text(s.get("names"), "fi"),
@@ -53,6 +54,7 @@ for p in products:
         "claims": sorted({v["id"] for v in groups.get("nutritionalClaim", [])}),
         "labels": sorted({v["id"] for v in groups.get("packagingMarkedLabel", []) if v["id"].isupper()}),
         "netWeightKg": (net["value"] / 1000 if net["unit"] == "GRM" else net["value"]) if net else None,
+        "lactose": lactose,  # g per 100 g/ml from the manufacturer; None = no value in the data
         "reliability": reliability.get(p["id"]),
         "carbonKgPerKg": carbon.get(p["id"]),
         "substitutes": [x["substituteProduct"] for x in p.get("substitutions") or []],

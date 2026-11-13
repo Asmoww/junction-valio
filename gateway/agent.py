@@ -8,11 +8,44 @@ order goes through, needs a human, or is blocked.
 import math
 import re
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from . import ai, catalog, policy, security, signing, store
-from .config import OFFER_TTL_MINUTES
+from .config import MAX_OFFER_LINES, OFFER_TTL_MINUTES, TIMEZONE, WEIGHT_SALES_UNITS
 from .valio import ValioClient
+
+# Valio's availability API uses 999999 for supplier-warehouse ("Terminal") stock it can't see, and the
+# mock also returns huge placeholder numbers. None of these are real, confirmed quantities.
+STOCK_PLACEHOLDERS = {999999, 666666666, 9999999999}
+
+
+def _when(s):
+    """Parse an API timestamp or date into an aware datetime (naive values are Helsinki time; a bare
+    date means the end of that day)."""
+    if not s:
+        return None
+    try:
+        d = datetime.fromisoformat(str(s))
+    except ValueError:
+        return None
+    if len(str(s)) == 10:
+        d = datetime.combine(d.date(), time(23, 59, 59))
+    return d if d.tzinfo else d.replace(tzinfo=ZoneInfo(TIMEZONE))
+
+
+def _passed(deadline, now_s):
+    """True if an order deadline is before the API's own clock (compared as times, not strings)."""
+    d, n = _when(deadline), _when(now_s)
+    return bool(d and n and d < n)
+
+
+def _number(s):
+    """'1,000' / '1 000' / '1.000' -> 1000; '2,5' / '2.5' -> 2.5 (Finnish and English styles)."""
+    s = s.strip().replace("\u00a0", " ")
+    if re.fullmatch(r"\d{1,3}([ ,.]\d{3})+", s):
+        return float(re.sub(r"[ ,.]", "", s))
+    return float(s.replace(" ", "").replace(",", "."))
 
 WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 ATTRS = {
@@ -34,7 +67,7 @@ def parse_request(text, today=None):
     today = today or date.today()
     t = text.lower()
     q = re.search(r"(\d[\d,. ]*)\s*(litres?|liters?|l|kg|kilos|kilograms|pcs|pieces|units)\b", t)
-    quantity = float(q.group(1).replace(" ", "").replace(",", "")) if q else None
+    quantity = _number(q.group(1)) if q else None
     unit = UNITS.get(q.group(2), "PCS") if q else "PCS"
     attrs = [code for pat, code in ATTRS.items() if re.search(pat, t)]
     deliver_by = None
@@ -53,7 +86,8 @@ def parse_request(text, today=None):
     for pat in ATTRS:
         stripped = re.sub(pat, " ", stripped)
     words = [w for w in re.findall(r"[a-zåäö]+", stripped) if w not in STOP and w not in WEEKDAYS and w not in UNITS]
-    return {"product": " ".join(words[:3]) or "milk", "quantity": quantity, "unit": unit,
+    # No guessing: if we can't tell what to buy, say so instead of defaulting to some product.
+    return {"product": " ".join(words[:3]), "quantity": quantity, "unit": unit,
             "attributes": attrs, "deliver_by": (deliver_by or today + timedelta(days=3)).isoformat(), "raw": text}
 
 
@@ -63,8 +97,8 @@ def _per_unit(p, price, unit):
         return 1.0
     cp, comp = (price.get("catalogPrice") or {}).get("value"), (price.get("comparisonPrice") or {}).get("value")
     if cp and comp and (price.get("comparisonUnit") or "").upper() == unit:
-        x = cp / comp
-        return round(x) if abs(x - round(x)) < 0.15 * max(1, x) else round(x, 2)
+        x = cp / comp  # both prices are rounded to cents, so 31.31 / 1.57 = 19.94 means a 20 L pack
+        return round(x) if round(x) and abs(x - round(x)) <= 0.03 * x else round(x, 2)
     return None
 
 
@@ -91,10 +125,12 @@ def _assess(p, price, avail, intent, now_s):
     available = sum(s["availableAmount"] for s in lines)
     row["closing_time"] = a.get("closingTime")
     row["logistic_model"] = a.get("logisticModel")
+    row["stock_confirmed"] = a.get("logisticModel") != "Terminal" and not any(
+        s.get("availableAmount") in STOCK_PLACEHOLDERS for s in lines)
     if a.get("salesBlock"):
         row["status"] = "blocked"
         row["issues"].append("sales block")
-    elif a.get("closingTime") and a["closingTime"] < now_s:
+    elif _passed(a.get("closingTime"), now_s):
         row["status"] = "deadline_passed"
         row["issues"].append(f"order deadline for this date passed ({a['closingTime'][:16].replace('T', ' ')})")
     elif not lines:
@@ -132,7 +168,9 @@ def _score(rows, weights):
 def _line(r, substitution=None):
     return {"productId": r["productId"], "name": r["name"], "units": r["units"], "salesUnit": r["sales_unit"],
             "unitPrice": r["unit_price"], "lineTotal": r["total"], "perUnit": r["per_unit"],
-            "deliveryDate": r["delivery_date"], "reliability": r["reliability"], "substitution": substitution}
+            "deliveryDate": r["delivery_date"], "reliability": r["reliability"], "substitution": substitution,
+            "orderDeadline": r.get("closing_time"), "priceValidTo": r.get("price_valid_to"),
+            "stockConfirmed": r.get("stock_confirmed", True)}
 
 
 def build_options(rows, intent):
@@ -179,12 +217,17 @@ def build_options(rows, intent):
 def create_offer(mandate, option, intent):
     """Lock list prices and availability for a short time and sign the offer."""
     offer_id = "ofr_" + uuid.uuid4().hex[:12]
-    exp = datetime.now(timezone.utc) + timedelta(minutes=OFFER_TTL_MINUTES)
+    # The price lock ends at the earliest of: 15 minutes, any line's order deadline, any line's price validity.
+    limits = [datetime.now(timezone.utc) + timedelta(minutes=OFFER_TTL_MINUTES)]
+    for l in option["lines"]:
+        limits += [t for t in (_when(l.get("orderDeadline")), _when(l.get("priceValidTo"))) if t]
+    exp = min(limits).astimezone(timezone.utc)
     payload = {
         "offer_id": offer_id, "issuer": "valio-aimo-trade-gateway (demo)", "customer": mandate["customer"],
         "mandate_id": mandate["mandate_id"], "currency": "EUR", "price_basis": "catalog price, fixed (not negotiated)",
         "lines": [{k: l.get(k) for k in ("productId", "name", "units", "salesUnit", "perUnit", "unitPrice", "lineTotal",
-                                         "deliveryDate", "reliability", "substitution")} for l in option["lines"]],
+                                         "deliveryDate", "reliability", "substitution", "orderDeadline",
+                                         "priceValidTo", "stockConfirmed")} for l in option["lines"]],
         "total_eur": option["total_eur"], "deliver_by": intent["deliver_by"],
         "issued_at": store.now(), "expires_at": exp.isoformat(timespec="seconds"),
     }
@@ -197,11 +240,13 @@ def create_offer(mandate, option, intent):
 
 def place_order(offer_jws, idempotency_key, mandate, context, client=None, actor="agent"):
     """Gateway side of an order: verify the signed offer, re-check prices, apply the mandate."""
-    if existing := store.order_by_key(idempotency_key):
-        return existing, "duplicate request: returning the original order (idempotent)"
     ok, payload = signing.verify(offer_jws)
     if not ok:
         return None, payload
+    if existing := store.order_by_key(idempotency_key):
+        if existing["offer_id"] != payload["offer_id"]:
+            return None, "idempotency key already used for a different offer: use a new key"
+        return existing, "duplicate request: returning the original order (idempotent)"
     if payload["expires_at"] < store.now():
         return None, "offer expired: request a new one"
     client = client or ValioClient()
@@ -231,6 +276,9 @@ def quote(mandate_id, deliver_by, lines, client=None):
 
     Returns (offer, jws, None) or (None, None, error)."""
     mandate = policy.load(mandate_id)
+    if err := _check_lines(lines):
+        store.log("security", "gateway", "security.quote_refused", {"mandate_id": mandate_id, "reason": err})
+        return None, None, err
     ids = [str(l["productId"]) for l in lines]
     client = client or ValioClient()
     prices = client.prices(mandate["customer"], deliver_by, ids)
@@ -241,7 +289,7 @@ def quote(mandate_id, deliver_by, lines, client=None):
         pr, av, p = prices.get(pid), avail.get(pid) or {}, catalog.get(pid)
         if not p or not pr or not pr.get("catalogPrice"):
             return None, None, f"no price for {pid}"
-        if av.get("closingTime") and av["closingTime"] < now_s:
+        if _passed(av.get("closingTime"), now_s):
             return None, None, f"{pid}: order deadline for {deliver_by} passed at {av['closingTime']}"
         sched = [x for x in av.get("scheduleLines", []) if not x.get("salesBlock") and x.get("availableDate")
                  and x["availableDate"] <= deliver_by]
@@ -251,10 +299,42 @@ def quote(mandate_id, deliver_by, lines, client=None):
         out.append({"productId": pid, "name": p["name"], "units": l["units"], "salesUnit": p["salesUnit"],
                     "unitPrice": up, "lineTotal": round(up * l["units"], 2), "perUnit": 1,
                     "deliveryDate": min(x["availableDate"] for x in sched), "reliability": p["reliability"],
-                    "substitution": l.get("substitution")})
+                    "substitution": l.get("substitution"), "orderDeadline": av.get("closingTime"),
+                    "priceValidTo": (pr["catalogPrice"].get("validTo") or "")[:10] or None,
+                    "stockConfirmed": av.get("logisticModel") != "Terminal"
+                    and not any(x.get("availableAmount") in STOCK_PLACEHOLDERS for x in sched)})
     option = {"lines": out, "total_eur": round(sum(x["lineTotal"] for x in out), 2)}
     offer, jws = create_offer(mandate, option, {"deliver_by": deliver_by})
     return offer, jws, None
+
+
+def _check_lines(lines):
+    """Refuse malformed order lines before anything is priced or signed.
+
+    Without this, an agent could add a line with negative units to pull the total under the
+    auto-approve limit, or order 0.37 of a carton."""
+    if not isinstance(lines, list) or not lines:
+        return "an offer needs at least one line"
+    if len(lines) > MAX_OFFER_LINES:
+        return f"at most {MAX_OFFER_LINES} lines per offer"
+    seen = set()
+    for l in lines:
+        pid = str((l or {}).get("productId", ""))
+        p = catalog.get(pid)
+        if not p:
+            return f"unknown product {pid!r}"
+        if pid in seen:
+            return f"{pid} appears twice: combine it into one line"
+        seen.add(pid)
+        units = l.get("units")
+        if isinstance(units, bool) or not isinstance(units, (int, float)) or not math.isfinite(units) or units <= 0:
+            return f"{pid}: units must be a positive number"
+        if (p.get("salesUnit") or "").upper() not in WEIGHT_SALES_UNITS and units != int(units):
+            return f"{pid}: sold per {p.get('salesUnit')}, so units must be a whole number"
+        lot = p.get("lot") or 1
+        if lot >= 1 and round(units / lot, 6) != int(round(units / lot, 6)):
+            return f"{pid}: units must be a multiple of the lot size {lot:g}"
+    return None
 
 
 def order_from_jws(jws, idempotency_key, rationale="", requested_units=None):
@@ -265,14 +345,46 @@ def order_from_jws(jws, idempotency_key, rationale="", requested_units=None):
         return None, payload
     mandate = policy.load(payload["mandate_id"])
     ctx = {"deliver_by": payload["deliver_by"], "delivery_date": max(l["deliveryDate"] for l in payload["lines"]),
-           "rationale": rationale, "requested_units": requested_units}
+           "rationale": rationale, "requested_units": requested_units,
+           # The policy's "matches the buyer's request" rule reads requested_quantity (in the same units as
+           # the offer lines). Before, external agents' orders skipped that rule entirely.
+           "requested_quantity": requested_units}
     return place_order(jws, idempotency_key, mandate, ctx, actor=f"agent:{mandate['agent']}")
 
 
-def decide(order_id, decision, approver, comment=""):
+def decide(order_id, decision, approver, comment="", client=None):
+    """A person approves or rejects a pending order.
+
+    The approver must be named in the buyer's mandate with authority for this total. If the price lock
+    ran out while the order waited, the price is checked again before the order is placed: a changed
+    price means a new offer, never a silent placement at an old price."""
     order = store.get_order(order_id)
     if not order or order["status"] != "pending_approval":
         return None, "order is not waiting for approval"
+    if decision not in ("approve", "reject"):
+        return None, "decision must be 'approve' or 'reject'"
+    mandate = policy.load(order["mandate_id"])
+    who = next((a for a in mandate["approvers"] if a["name"] == approver), None)
+    if not who:
+        store.log(order_id, f"unknown:{approver}", "security.unknown_approver", {"decision": decision})
+        return None, f"{approver or 'this person'} is not an approver in the buyer's mandate"
+    if decision == "approve" and order["total"] > who["up_to_eur"]:
+        return None, f"{approver} can approve up to €{who['up_to_eur']:,}; this order is €{order['total']:,.2f}"
+    offer = order["record"]["offer"]
+    if decision == "approve" and offer["expires_at"] < store.now():
+        client = client or ValioClient()
+        fresh = client.prices(mandate["customer"], offer["deliver_by"], [l["productId"] for l in offer["lines"]])
+        changed = [l["productId"] for l in offer["lines"]
+                   if abs((fresh.get(l["productId"], {}).get("catalogPrice") or {}).get("value", -1) - l["unitPrice"]) > 0.005]
+        if changed:
+            order["status"] = "expired"
+            order["record"].setdefault("approvals", []).append(
+                {"approver": approver, "decision": decision, "comment": comment, "at": store.now(),
+                 "note": f"price lock expired and the price changed for {', '.join(changed)}"})
+            store.save_order(order)
+            store.log(order_id, "gateway", "order.expired", {"products": changed})
+            return None, f"the price lock expired and the price changed for {', '.join(changed)}: request a new offer"
+        store.log(order_id, "gateway", "price.reconfirmed", {"reason": "price lock expired before approval"})
     order["status"] = "placed" if decision == "approve" else "rejected"
     order["record"].setdefault("approvals", []).append(
         {"approver": approver, "decision": decision, "comment": comment, "at": store.now()})
@@ -296,6 +408,10 @@ def run(text, mandate_id, overrides=None, simulate_price_change=False, inject=Fa
     intent["parser"] = parser
     store.log(run_id, f"agent:{mandate['agent']}", "request.received", {"text": text, "mandate_id": mandate_id, "parser": parser})
     steps.append({"step": "request", "title": "Understand the request", "intent": intent})
+    if not (intent.get("product") or "").strip():
+        store.log(run_id, "agent", "request.unclear", {"text": text})
+        return {"run_id": run_id, "steps": steps, "api_calls": client.calls, "mandate": mandate,
+                "result": {"status": "unclear_request", "error": "couldn't tell which product to buy: name it"}}
 
     # The agent also filters out anything the mandate forbids before asking for prices.
     candidates, trace = catalog.search(intent["product"], intent["attributes"])
@@ -339,7 +455,7 @@ def run(text, mandate_id, overrides=None, simulate_price_change=False, inject=Fa
         for r in late:
             a2 = avail2.get(r["productId"]) or {}
             ok2 = [s for s in a2.get("scheduleLines", []) if not s.get("salesBlock") and s.get("availableDate")]
-            if ok2 and not (a2.get("closingTime") and a2["closingTime"] < now_s):
+            if ok2 and not (_passed(a2.get("closingTime"), now_s)):
                 r["earliest_alternative"] = min(s["availableDate"] for s in ok2)
     usable = [r for r in rows if r["status"] in ("ok", "partial")]
     _score(usable, mandate["weights"])
@@ -361,7 +477,7 @@ def run(text, mandate_id, overrides=None, simulate_price_change=False, inject=Fa
     context = {"deliver_by": intent["deliver_by"], "delivery_date": max(l["deliveryDate"] for l in chosen["lines"]),
                "partial": chosen["partial"], "simulate_price_change": simulate_price_change,
                "request": text, "run_id": run_id, "options_considered": len(options),
-               "requested_quantity": intent["quantity"],
+               "requested_quantity": intent["quantity"], "required_attributes": intent.get("attributes") or [],
                "rationale": f"{chosen['label']}: {chosen['why']}."}
     order, err = place_order(jws, f"{run_id}:{offer['offer_id']}", mandate, context, client)
     if err and simulate_price_change:

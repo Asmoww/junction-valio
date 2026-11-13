@@ -5,6 +5,7 @@ every offer against it; the agent's prompt is not trusted to do this. Each rule 
 so the verdict is fully explainable.
 """
 import json
+import re
 from datetime import date
 from pathlib import Path
 
@@ -53,13 +54,29 @@ def evaluate(mandate, offer, context):
     rule("Forbidden allergens", not bad, "block",
          "; ".join(bad) if bad else f"none of: {', '.join(ALLERGENS.get(a, a) for a in hard.get('forbidden_allergens', [])) or '-'}")
 
-    missing = []
+    missing, name_only = [], []
+    # Lactose-free can come from the mandate or from the buyer's request ("lactose-free milk").
+    asked_lactose_free = "FREE_FROM_LACTOSE" in (context.get("required_attributes") or [])
     for line in offer["lines"]:
         p = get(line["productId"])
-        for claim in hard.get("required_claims", []):
-            if claim not in p["claims"] and not (claim == "FREE_FROM_LACTOSE" and "lactose free" in p["name"].lower()):
+        needed = list(hard.get("required_claims", []))
+        if asked_lactose_free and "FREE_FROM_LACTOSE" not in needed:
+            needed.append("FREE_FROM_LACTOSE")
+        for claim in needed:
+            if claim in p["claims"] or (claim == "FREE_FROM_LACTOSE" and p.get("lactose") == 0):
+                continue  # backed by the manufacturer's data (claim, or lactose 0 g/100 g)
+            if claim == "FREE_FROM_LACTOSE" and re.search(r"lactose[ -]?free|laktoositon", p["name"].lower()):
+                name_only.append(f"{p['name']}: lactose free by name only, no lactose value in the data")
+            else:
                 missing.append(f"{p['name']}: not {claim.lower().replace('_', ' ')}")
     rule("Required claims", not missing, "block", "; ".join(missing) or ", ".join(hard.get("required_claims", [])) or "-")
+    rule("Claims verified in product data", not name_only, "approve",
+         "; ".join(name_only) or "every required claim is backed by the manufacturer's data")
+
+    unconfirmed = [l.get("name") or l["productId"] for l in offer["lines"] if l.get("stockConfirmed") is False]
+    rule("Stock confirmed by Valio", not unconfirmed, "approve",
+         "ships from a supplier's warehouse, quantity not confirmed: " + ", ".join(unconfirmed) if unconfirmed
+         else "Valio confirms the quantity for every line")
 
     subs = [l for l in offer["lines"] if l.get("substitution")]
     sub_policy = mandate["substitutions"]

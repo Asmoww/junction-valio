@@ -3,6 +3,11 @@
 Update at the end of every session. Newest first within each section.
 
 ## In progress
+- (Rasmus's Claude, branch `fix/gateway-hardening`) Attack review of v0.2 and fixes, with 36 offline tests in
+  `tests/`. **After merging, rebuild the catalog on the server** (`python scripts/build_catalog.py`): the
+  policy now reads each product's lactose value, and without the rebuild every lactose-free order goes to a
+  person. Not touched here because Asmoww is on them: search shortlist (cheapest milks dropped) and allergen
+  bans for MAY_CONTAIN / missing data.
 - (Pyry) Demo live at https://valio.psavela.com (password in team chat). Next: pitch deck + demo script; Claude request reading needs `ANTHROPIC_API_KEY` in `.env` on the server.
 
 ## Blocked / needs a decision
