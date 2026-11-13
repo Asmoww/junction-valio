@@ -349,7 +349,7 @@ def _line(r, substitution=None):
 def _kind(r):
     """What makes two products interchangeable in one order line: fat %, shelf life, lactose-free or not."""
     p = r["product"]
-    lactose = p.get("lactosePer100")
+    lactose = p.get("lactoseGPer100")
     return (p.get("fatPct"), p.get("longLife"), None if lactose is None else lactose == 0)
 
 

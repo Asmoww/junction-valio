@@ -46,6 +46,11 @@ MODIFIERS |= {"cafe", "barista", "kahvi", "kaakao", "piima", "kerma", "jogurtti"
 MODIFIERS |= {"nut", "nuts", "cashew", "peanut", "almond", "hazelnut", "seed", "seeds", "shea", "coconut", "apple", "soy", "soya"}
 # Finnish compounds: "kahvimaito" (coffee milk), "annosmaito" (portion cups), "suklaamaito" ...
 MODIFIER_PREFIXES = ("kahvi", "kaakao", "suklaa", "annos", "piimä", "kerma", "jogurt", "rahka", "vanilja", "mansikka")
+# English words for the Finnish prefixes: when the request itself asks for "coffee milk", "kahvimaito" is the
+# product, not a modifier (otherwise every real coffee milk is penalised and search falls back to coffee drinks).
+PREFIX_MEANS = {"kahvi": {"coffee", "cafe"}, "kaakao": {"cocoa"}, "suklaa": {"chocolate"}, "annos": {"portion"},
+                "piimä": {"buttermilk", "sour"}, "kerma": {"cream"}, "jogurt": {"yoghurt", "yogurt"},
+                "rahka": {"quark"}, "vanilja": {"vanilla"}, "mansikka": {"strawberry"}}
 
 _catalog = None
 _by_id = None
@@ -81,8 +86,11 @@ def _words(s):
     return set(re.findall(r"[a-zåäö]+", fold(s)))
 
 
-def _is_modifier(w):
-    return w in MODIFIERS or w.startswith(MODIFIER_PREFIXES)
+def _is_modifier(w, asked=frozenset()):
+    if w in MODIFIERS:
+        return True
+    pre = next((x for x in MODIFIER_PREFIXES if w.startswith(x)), None)
+    return bool(pre) and not (PREFIX_MEANS.get(pre, set()) & asked)
 
 
 _vocab = None
@@ -198,7 +206,7 @@ def search(query, attrs=(), limit=30, spec=None, type_check=None):
         if not ok:
             rejected["outside spec"] += 1
             continue
-        penalty = len({w for w in words if _is_modifier(w)} - q - {w for w in words if any(w.startswith(t) for t in stems)})
+        penalty = len({w for w in words if _is_modifier(w, q)} - q - {w for w in words if any(w.startswith(t) for t in stems)})
         scored.append((penalty, bool(gaps), p, gaps))
     plain = [x for x in scored if x[0] == 0] or scored
     reality = None

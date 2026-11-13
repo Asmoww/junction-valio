@@ -76,7 +76,11 @@ def milk_reports_unstated_choices():
 
 
 def terminal_cutoff_passed_refused():
-    _, _, err = agent.quote("mnd_hotel_helsinki", MONDAY, [{"productId": "463038", "units": 50}])
+    token = agent.CLOCK.set("")  # Valio's real clock: the demo clock would move this cut-off into the future
+    try:
+        _, _, err = agent.quote("mnd_hotel_helsinki", MONDAY, [{"productId": "463038", "units": 50}])
+    finally:
+        agent.CLOCK.reset(token)
     return bool(err and "deadline" in err), err or "offer was issued for a product whose cut-off passed"
 
 

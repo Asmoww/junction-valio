@@ -174,3 +174,10 @@ def test_splitting_a_purchase_into_small_orders_hits_the_daily_limit(valio):
         order, _ = agent.order_from_jws(jws, f"k-smurf-{i}")
     assert order["status"] == "pending_approval"
     assert any(r["rule"] == "Agent's own spend in 24 h" and not r["ok"] for r in order["policy"]["rules"])
+
+
+def test_finnish_compound_is_the_product_when_the_request_asks_for_it():
+    from gateway import catalog
+    p = {"_text": "valio coffee milk 1 l lactose free uht valio kahvimaito 1 l laktoositon"}
+    assert catalog._is_modifier("kahvimaito")                          # asked for "milk": coffee milk is a modifier
+    assert not catalog._is_modifier("kahvimaito", {"coffee", "milk"})  # asked for "coffee milk": it's the product
