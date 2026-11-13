@@ -128,7 +128,7 @@ components:
         deliver_by: {type: string, format: date}
         fat_pct: {type: [number, "null"]}
         shelf_life: {type: [string, "null"], enum: [fresh, long_life, null]}
-        parser: {type: string, description: "Who produced the spec, e.g. Claude (claude-opus-5-5) or rules"}
+        parser: {type: string, description: "Who produced the spec, e.g. Claude (claude-sonnet-5-5) or rules"}
     SpecGap:
       type: object
       properties:

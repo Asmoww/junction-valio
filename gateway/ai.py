@@ -7,7 +7,7 @@ import json
 import os
 from datetime import date
 
-MODEL = "claude-opus-5-5"
+MODEL = "claude-sonnet-5-5"
 SCHEMA = {
     "type": "object",
     "properties": {
