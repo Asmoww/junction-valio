@@ -11,6 +11,12 @@ Key semantics:
 - **Prices are fixed** catalog prices, never negotiated. An offer is a signed price lock (Ed25519 JWS,
   key at `/.well-known/jwks.json`) that expires at the earliest of 15 min, the order cut-off and the
   price's validity.
+- **Stock Valio can't confirm** (supplier-warehouse products, or no availability answer) needs a person.
+  Valio's own stock with a placeholder quantity counts as confirmed and carries a trust flag.
+- **Lactose-free backed only by the product name** (no lactose value in the data) needs a person.
+- **Only a signed-in person can approve** (`/v1/approvals`); an agent's Bearer token gets 403, and the
+  approver must be in the mandate with authority for the total.
+- **Order lines are validated** before pricing: positive, whole units for pieces/boxes, lot size, no duplicates, max 20.
 - **Trust flags** come with every offer line: stock known or not, cut-off, price basis, data gaps,
   reliability warning. Unknown never means "safe": no allergen data is "unknown", not "allergen-free".
 - **Allergens:** `CONTAINS` a banned allergen blocks. `MAY_CONTAIN` follows `allergen_policy.may_contain`

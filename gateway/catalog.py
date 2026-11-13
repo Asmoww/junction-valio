@@ -83,14 +83,14 @@ def matches_attributes(p, attrs):
     gaps = []
     for a in attrs:
         if a == "FREE_FROM_LACTOSE":
-            if p.get("lactoseG") is not None:
-                if p["lactoseG"] > 0.1:
-                    return False, f"lactose {p['lactoseG']} g/100 g", gaps
+            if p.get("lactose") is not None:
+                if p["lactose"] > 0.1:
+                    return False, f"lactose {p['lactose']} g/100 g", gaps
             elif "FREE_FROM_LACTOSE" in p["claims"] or re.search(r"lactose[ -]?free|laktoositon", p["_text"]):
                 gaps.append("lactose value missing: lactose-free only per name/claim")
             else:
                 return False, "not lactose-free", gaps
-            if re.search(r"low[ -]lactose|vähälaktoos", p["_text"]) and p.get("lactoseG") != 0:
+            if re.search(r"low[ -]lactose|vähälaktoos", p["_text"]) and p.get("lactose") != 0:
                 return False, "low-lactose, not lactose-free", gaps
         elif a == "ORGANIC":
             if not ("EU_ORGANIC_FARMING" in p["labels"] or "organic" in p["_text"] or "luomu" in p["_text"]):
@@ -119,8 +119,8 @@ def matches_spec(p, spec):
 def evidence(p, attrs=()):
     """Short, checkable reasons this product matches, from structured data."""
     ev = []
-    if p.get("lactoseG") is not None and "FREE_FROM_LACTOSE" in attrs:
-        ev.append(f"lactose {p['lactoseG']:g} g/100 g")
+    if p.get("lactose") is not None and "FREE_FROM_LACTOSE" in attrs:
+        ev.append(f"lactose {p['lactose']:g} g/100 g")
     if p.get("fatPct") is not None:
         ev.append(f"fat {p['fatPct']:g} %")
     if p["salesUnit"]:
@@ -190,7 +190,7 @@ def describe(p):
         "allergens": [ALLERGENS.get(a, a) for a in p["contains"]],
         "mayContain": [ALLERGENS.get(a, a) for a in p.get("mayContain", [])],
         "allergenDataComplete": p.get("allergenData", False),
-        "lactoseGPer100": p.get("lactoseG"),
+        "lactosePer100": p.get("lactose"),
         "fatPct": p.get("fatPct"),
         "longLife": is_long_life(p),
         "claims": p["claims"],

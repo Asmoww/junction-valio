@@ -37,6 +37,5 @@
   "allergen_policy": {
     "may_contain": "allow",
     "no_data": "allow"
-  },
-  "max_unconfirmed_units": 500
+  }
 }

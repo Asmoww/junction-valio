@@ -56,7 +56,8 @@ data), then `python scripts/build_catalog.py` builds `data/catalog.json`.
 ```bash
 uv sync                                   # install
 uv run uvicorn gateway.main:app --reload  # run gateway + demo UI on :8000 (DEMO_PASSWORD in .env)
-uv run pytest tests/traps                  # trap suite on live data (state/traps.db, not the demo DB)
+uv run pytest                             # offline tests (fake catalog + fake Valio, no network)
+uv run pytest -m live tests/traps         # trap suite on live data (separate DB, not the demo DB)
 python scripts/run_traps.py               # same, and publishes results to the Valio view
 ```
 

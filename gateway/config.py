@@ -20,9 +20,12 @@ VALIO_API_BASE_URL = os.environ.get("VALIO_API_BASE_URL") or "https://junction26
 VALIO_API_KEY = os.environ.get("VALIO_API_KEY", "")
 DEMO_PASSWORD = os.environ.get("DEMO_PASSWORD", "")
 DATA_DIR = ROOT / "data"
-STATE_DIR = ROOT / "state"
-STATE_DIR.mkdir(exist_ok=True)
+STATE_DIR = Path(os.environ.get("TG_STATE_DIR") or ROOT / "state")  # tests point this at a temp folder
+STATE_DIR.mkdir(parents=True, exist_ok=True)
 # Separate database for test runs, so trap tests never show up as demo orders.
 DB_PATH = Path(os.environ.get("GATEWAY_DB") or STATE_DIR / "gateway.db")
 TIMEZONE = "Europe/Helsinki"
 OFFER_TTL_MINUTES = 15
+# Units sold by weight may be ordered in fractions; everything else (pieces, boxes, packs) in whole units.
+WEIGHT_SALES_UNITS = {"KG", "KGM", "G", "GRM"}
+MAX_OFFER_LINES = 20

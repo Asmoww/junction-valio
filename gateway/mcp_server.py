@@ -52,7 +52,7 @@ def check_price_availability(product_ids: list[str], deliver_by: str, mandate_id
         rows.append({"productId": pid, "unitPrice": cp.get("value"), "salesUnit": (catalog.get(pid) or {}).get("salesUnit"),
                      "comparisonPrice": (pr.get("comparisonPrice") or {}).get("value"), "comparisonUnit": pr.get("comparisonUnit"),
                      "orderDeadline": av.get("closingTime"),
-                     "deadlinePassed": bool(av.get("closingTime") and av["closingTime"] < now_s),
+                     "deadlinePassed": agent._passed(av.get("closingTime"), now_s),
                      "logisticModel": av.get("logisticModel"), "salesBlock": av.get("salesBlock"),
                      "schedule": av.get("scheduleLines", [])})
     return {"serverTime": now_s, "products": rows, "apiCalls": len(c.calls)}

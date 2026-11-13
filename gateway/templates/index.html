@@ -293,7 +293,9 @@ function renderOutcome(res) {
 }
 
 async function decide(id, decision, who) {
-  const o = await post(`/v1/approvals/${id}`, {decision, approver: who, comment: `${decision}d in demo UI`});
+  let o;
+  try { o = await post(`/v1/approvals/${id}`, {decision, approver: who, comment: `${decision}d in demo UI`}); }
+  catch (e) { $('#outcomeBody').innerHTML = `<div class="banner bad"><h3>Not placed</h3>${esc(e.message)}</div>`; showRecord(id); return; }
   $('#outcomeBody').innerHTML = o.status === 'placed'
     ? `<div class="banner ok"><h3>Approved by ${esc(who)} · order placed</h3>${o.id} · ${eur(o.total)}</div>`
     : `<div class="banner bad"><h3>Rejected by ${esc(who)}</h3>No order was placed.</div>`;

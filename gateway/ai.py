@@ -28,7 +28,8 @@ SYSTEM = ("You convert a professional kitchen's purchasing request into a struct
           "wholesaler's catalog search. Product: the generic product only, in English, without brand, size or "
           "requirements (those go in attributes). Unit: L for liquids by volume, KG for weight, PCS otherwise. "
           "Resolve weekday names to the next such date after today. If no date is given, use today + 3 days. "
-          "Never guess fat level or shelf life: leave them null unless stated.")
+          "Never guess fat level or shelf life: leave them null unless stated. "
+          "If the request names no product, return an empty string as product: never invent one.")
 
 
 def enabled():
@@ -62,6 +63,14 @@ def parse(text, today=None):
     out = next((b.text for b in r.content if b.type == "text"), None)
     if not out:
         return {"_error": "empty answer"}
-    intent = json.loads(out)
+    try:
+        intent = json.loads(out)
+        date.fromisoformat(intent["deliver_by"])  # reject anything that isn't a real date
+    except (ValueError, KeyError, TypeError):
+        return {"_error": "Claude's answer didn't match the schema"}
+    if intent.get("quantity") is not None and not intent["quantity"] > 0:
+        return {"_error": "Claude read a non-positive quantity"}
+    if intent.get("product", "").strip().lower() in ("unspecified", "unknown", "none", "n/a", "product"):
+        intent["product"] = ""
     intent["raw"] = text
     return intent

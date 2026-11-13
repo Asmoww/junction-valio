@@ -43,6 +43,5 @@
   "allergen_policy": {
     "may_contain": "block",
     "no_data": "needs_approval"
-  },
-  "max_unconfirmed_units": 100
+  }
 }

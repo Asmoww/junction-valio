@@ -19,7 +19,6 @@
     "may_contain": "block",
     "no_data": "needs_approval"
   },
-  "max_unconfirmed_units": 100,
   "substitutions": {
     "official_substitute": "with_approval",
     "other_product": "with_approval"

@@ -79,7 +79,7 @@ paths:
         "200": {description: Order, content: {application/json: {schema: {$ref: "#/components/schemas/Order"}}}}
   /v1/approvals/{order_id}:
     post:
-      summary: A human approves or rejects a pending order
+      summary: A signed-in person approves or rejects a pending order (agent Bearer tokens get 403)
       parameters: [{name: order_id, in: path, required: true, schema: {type: string}}]
       requestBody:
         required: true
@@ -192,6 +192,9 @@ components:
         substitution: {type: [string, "null"], enum: [official_substitute, null]}
         trust: {$ref: "#/components/schemas/TrustFlags"}
         evidence: {type: array, items: {type: string}, description: "Why it matches, from structured data, e.g. lactose 0 g/100 g"}
+        orderDeadline: {type: [string, "null"], description: Valio's order cut-off for this line}
+        priceValidTo: {type: [string, "null"], format: date}
+        stockConfirmed: {type: boolean, description: "false = supplier warehouse or no answer: needs a person"}
     QuoteRequest:
       type: object
       required: [mandate_id, deliver_by, lines]
@@ -243,7 +246,7 @@ components:
         id: {type: string}
         offer_id: {type: string}
         idempotency_key: {type: string}
-        status: {type: string, enum: [placed, pending_approval, rejected, blocked]}
+        status: {type: string, enum: [placed, pending_approval, rejected, blocked, expired]}
         total: {type: number}
         mandate_id: {type: string}
         policy: {$ref: "#/components/schemas/PolicyVerdict"}

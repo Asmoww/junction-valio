@@ -6,8 +6,8 @@ Open questions go to Valio's tech mentors (Nurmi-Aro, Takanen, Tapper).
 
 | # | What we see | Evidence | How the gateway treats it |
 |---|---|---|---|
-| 1 | **Supplier-warehouse ("Terminal") stock is unknown** | API docs: `availableAmount` is always 999,999 for Terminal products. 20 of 35 lactose-free milks are Terminal | Trust flag `stock: unknown`. Lines above `max_unconfirmed_units` need a person |
-| 2 | **Stock items report placeholder quantities** (9,999,999,999 and 666,666,666) | Only a few products show real numbers (51, 192, 384, 698) | Trust flag "in stock: exact quantity not given". Real numbers drive partial / split orders |
+| 1 | **Supplier-warehouse ("Terminal") stock is unknown** | API docs: `availableAmount` is always 999,999 for Terminal products. 20 of 35 lactose-free milks are Terminal | Trust flag `stock: unknown`; the order needs a person ("Stock confirmed by Valio") |
+| 2 | **Stock items report placeholder quantities** (9,999,999,999 and 666,666,666) | Only a few products show real numbers (51, 192, 384, 698) | Counts as confirmed Valio stock (the docs say Valio knows its own stock), with trust flag "exact quantity not given". Real numbers drive partial / split orders |
 | 3 | **Requested date is ignored** | Identical answers for 16 Nov and 24 Nov on all 35 lactose-free milks; `availableDate` is the same | We don't spend API calls asking for "the next possible date": it can't tell us anything here |
 | 4 | **Terminal cut-offs have already passed** but `availableDate` still says Monday | All 20 Terminal milks: `closingTime` 12 Nov 15:00, checked 13 Nov 20:42 | Cut-off wins: the product is "deadline passed", no offer is issued. *Ask mentors if intended* |
 | 5 | **One product returns no availability** | 464440 has no schedule lines | Status "not in time", trust flag "no availability answer" |
