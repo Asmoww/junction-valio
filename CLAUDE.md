@@ -64,6 +64,7 @@ python scripts/run_traps.py               # same, and publishes results to the V
 ```
 
 ## Code map
+- `gateway/gates.py` **the decision ladder** (docs/FRAMEWORK.md): every request ends at one gate with one action; every policy rule belongs to a gate
 - `gateway/agent.py` buyer agent flow: parse request → search → price/availability → options → signed offer → order
 - `gateway/catalog.py` local product search (no API calls), allergen/label names
 - `gateway/policy.py` + `gateway/mandates/*.json` mandate rules (the guardrails)

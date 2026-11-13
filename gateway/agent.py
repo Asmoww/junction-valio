@@ -5,15 +5,16 @@ Valio APIs for price and availability only for those, builds good-better-best op
 signed offer for the best one and submits the order. The gateway's policy engine decides whether the
 order goes through, needs a human, or is blocked.
 """
+import contextvars
 import math
-from collections import Counter
 import re
 import uuid
+from collections import Counter
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from . import ai, catalog, policy, security, signing, store
-from .config import MAX_OFFER_LINES, OFFER_TTL_MINUTES, TIMEZONE, WEIGHT_SALES_UNITS
+from . import ai, catalog, gates, policy, security, signing, store
+from .config import DEMO_CLOCK, MAX_OFFER_LINES, OFFER_TTL_MINUTES, TIMEZONE, WEIGHT_SALES_UNITS
 from .valio import ValioClient
 
 # Valio's availability API uses 999999 for supplier-warehouse ("Terminal") stock it can't see, and the
@@ -35,9 +36,26 @@ def _when(s):
     return d if d.tzinfo else d.replace(tzinfo=ZoneInfo(TIMEZONE))
 
 
+# Demo clock (see config.DEMO_CLOCK). A context variable so one demo run can switch back to Valio's real
+# clock (the "passed cut-off" trap) without affecting other requests.
+CLOCK = contextvars.ContextVar("demo_clock", default=DEMO_CLOCK)
+
+
+def _clock_shift():
+    """How far the demo clock is behind real time (zero when it's off)."""
+    demo = _when(CLOCK.get())
+    return (datetime.now(timezone.utc) - demo) if demo else timedelta(0)
+
+
+def _deadline(s):
+    """An order cut-off as it applies now: shifted by the demo clock, if one is set."""
+    d = _when(s)
+    return d + _clock_shift() if d else None
+
+
 def _passed(deadline, now_s):
     """True if an order deadline is before the API's own clock (compared as times, not strings)."""
-    d, n = _when(deadline), _when(now_s)
+    d, n = _deadline(deadline), _when(now_s)
     return bool(d and n and d < n)
 
 
@@ -87,14 +105,65 @@ def parse_request(text, today=None):
         stripped = re.split(r"\b(?:by|for|to|before|until|from|delivered|so|and|that|which)\b|[,.;!?]", t[q.end():])[0]
     for pat in ATTRS:
         stripped = re.sub(pat, " ", stripped)
-    words = [w for w in re.findall(r"[a-zåäö]+", stripped) if w not in STOP and w not in WEEKDAYS and w not in UNITS]
+    words = [w for w in re.findall(r"[a-zåäö]+", stripped)
+             if w not in STOP and w not in WEEKDAYS and w not in UNITS and w not in QUESTION_WORDS
+             and w not in ("fresh", "uht", "tuore")]  # shelf life is captured separately below
     fat = re.search(r"(\d+(?:[.,]\d+)?)\s*%", t)
     shelf = "long_life" if re.search(r"\buht\b|long[- ]life|pitkään säilyvä", t) else \
         "fresh" if re.search(r"\bfresh\b|tuore", t) else None
+    if re.search(r"\b(cancel|change|modify|amend)\b", t) and re.search(r"\border\b", t):
+        request_type = "change"
+    elif (t.rstrip().endswith("?") or re.match(r"\s*(what|how|which|is|are|do|does|can you tell)\b", t)) \
+            and not re.search(r"\b(need|order|buy|deliver)\b", t):
+        request_type = "question"
+    elif quantity or any(w in catalog.vocabulary() for w in words):
+        request_type = "buy"
+    else:
+        request_type = "other"  # no quantity and no product word Valio sells: not a purchasing request
     # No guessing: if we can't tell what to buy, say so instead of defaulting to some product.
-    return {"product": " ".join(words[:3]), "quantity": quantity, "unit": unit,
+    return {"request_type": request_type, "ignored_terms": [], "product": " ".join(words[:3]), "quantity": quantity, "unit": unit,
             "attributes": attrs, "deliver_by": (deliver_by or today + timedelta(days=3)).isoformat(),
             "fat_pct": float(fat.group(1).replace(",", ".")) if fat else None, "shelf_life": shelf, "raw": text}
+
+
+QUESTION_WORDS = {"what", "how", "much", "many", "which", "is", "are", "do", "does", "cost", "costs", "there", "any",
+                  "available", "have", "you", "in", "stock", "tell", "me", "can", "price", "prices"}
+
+# Words that describe the situation, not the product ("for the school breakfast", "hotel", "guests").
+CONTEXT_WORDS = {"school", "breakfast", "lunch", "dinner", "hotel", "kitchen", "guests", "guest", "people", "event",
+                 "weekend", "morning", "evening", "asap", "urgent", "urgently", "about", "around", "approximately",
+                 "some", "more", "extra", "small", "top", "up", "also", "us", "me", "my", "is", "are", "be", "can",
+                 "you", "it", "this", "with", "in", "at", "per", "day", "days", "total", "litre", "kilo", "piece",
+                 "pack", "packs", "box", "boxes", "carton", "cartons", "bottle", "bottles"}
+
+
+SPEC_WORDS = {"fresh", "chilled", "uht", "long", "life", "whole", "light", "skimmed", "semi", "fat", "low", "full",
+              "tuore", "kevyt", "rasvaton", "taysmaito", "täysmaito"}
+
+
+def unmatched_terms(text, intent):
+    """Product words in the request that the reading dropped.
+
+    A request like "chili cheese chicken nuggets and 100 litres of milk" must not quietly become an
+    order for milk alone. We only flag words that occur in Valio's own product names (so they really are
+    product words), outside a "for ..." purpose clause, and not covered by the product or requirements."""
+    t = catalog.fold(text)
+    parts = re.split(r"\bfor\b", t, maxsplit=1)
+    if len(parts) == 2 and re.search(r"\d", parts[0]):
+        t = parts[0]  # "... by Wednesday for the school breakfast": the purpose clause isn't the product
+    for pat in ATTRS:
+        t = re.sub(pat, " ", t)
+    covered = {catalog._stem(w) for w in re.findall(r"[a-zåäö]+", catalog.fold(intent.get("product") or ""))}
+    covered |= SPEC_WORDS  # fat level and fresh/long-life are captured as fat_pct and shelf_life
+    vocab = catalog.vocabulary()
+    out = []
+    for w in re.findall(r"[a-zåäö]+", t):
+        if (len(w) < 3 or w in STOP or w in WEEKDAYS or w in UNITS or w in CONTEXT_WORDS
+                or catalog._stem(w) in covered or any(c and catalog._stem(w).startswith(c) for c in covered)):
+            continue
+        if w in vocab or catalog._stem(w) in vocab:
+            out.append(w)
+    return sorted(set(out))
 
 
 def _per_unit(p, price, unit):
@@ -183,10 +252,13 @@ def trust_flags(p, price, avail, available, now_s):
     return {
         "stock": stock,
         "stock_known": model == "Stock",
-        "cutoff": (f"passed at {cut[:16].replace('T', ' ')}" if cut < now_s else f"order by {cut[:16].replace('T', ' ')}") if cut else "no cut-off given",
+        "cutoff": ((f"passed at {cut[:16].replace('T', ' ')}" if _passed(cut, now_s) else f"order by {cut[:16].replace('T', ' ')}")
+                   + (" (demo clock)" if CLOCK.get() else "")) if cut else "no cut-off given",
         "price": f"{'customer net price' if price.get('netPriceFound') else 'catalog price'}, valid until {cp.get('validTo', '')[:10]}",
         "data_gaps": gaps,
         "reliability_warning": p.get("reliability") is not None and p["reliability"] < 0.95,
+        "reliability": (f"{p['reliability']:.0%} on time" if p.get("reliability") is not None
+                        else "unverified: no delivery history"),
     }
 
 
@@ -260,7 +332,7 @@ def create_offer(mandate, option, intent):
     # The price lock ends at the earliest of: 15 minutes, any line's order deadline, any line's price validity.
     limits = [(datetime.now(timezone.utc) + timedelta(minutes=OFFER_TTL_MINUTES), f"{OFFER_TTL_MINUTES} min offer window")]
     for l in option["lines"]:
-        limits += [(t, why) for t, why in ((_when(l.get("orderDeadline")), f"order cut-off for {l['productId']}"),
+        limits += [(t, why) for t, why in ((_deadline(l.get("orderDeadline")), f"order cut-off for {l['productId']}"),
                                            (_when(l.get("priceValidTo")), f"price validity for {l['productId']}")) if t]
     exp, reason = min(limits, key=lambda x: x[0])
     exp = exp.astimezone(timezone.utc)
@@ -438,8 +510,23 @@ def decide(order_id, decision, approver, comment="", client=None):
     return order, None
 
 
-def run(text, mandate_id, overrides=None, simulate_price_change=False, inject=False):
-    """Run the whole buyer-agent flow and return a step-by-step trace for the demo UI."""
+def run(text, mandate_id, overrides=None, simulate_price_change=False, inject=False, real_clock=False):
+    """Run the whole buyer-agent flow and return a step-by-step trace for the demo UI.
+
+    real_clock=True ignores the demo clock for this run, so the mock's passed cut-offs apply."""
+    token = CLOCK.set("" if real_clock else DEMO_CLOCK)
+    try:
+        res = _run(text, mandate_id, overrides, simulate_price_change, inject)
+    finally:
+        CLOCK.reset(token)
+    res["clock"] = {"demo_clock": "" if real_clock else DEMO_CLOCK,
+                    "note": ("Demo clock: the mock's availability snapshot is replayed as of "
+                             f"{DEMO_CLOCK[:16].replace('T', ' ')}; every order cut-off is shifted by the same amount."
+                             if DEMO_CLOCK and not real_clock else "Valio's real clock: the mock's cut-offs apply as given.")}
+    return res
+
+
+def _run(text, mandate_id, overrides=None, simulate_price_change=False, inject=False):
     mandate = policy.load(mandate_id, overrides)
     client = ValioClient()
     steps = []
@@ -458,12 +545,35 @@ def run(text, mandate_id, overrides=None, simulate_price_change=False, inject=Fa
         intent = parse_request(text)
         parser = "rules" + (f" (Claude unavailable: {ai_intent['_error']})" if ai_intent else " (no Claude key configured)")
     intent["parser"] = parser
+    # What the reading left out. Claude reports what it dropped; the word check catches it if Claude doesn't.
+    intent["ignored_terms"] = sorted(set(intent.get("ignored_terms") or []) | set(unmatched_terms(text, intent)))
     store.log(run_id, f"agent:{mandate['agent']}", "request.received", {"text": text, "mandate_id": mandate_id, "parser": parser})
     steps.append({"step": "request", "title": "Understand the request", "intent": intent})
-    if not (intent.get("product") or "").strip():
-        store.log(run_id, "agent", "request.unclear", {"text": text})
+
+    def exit_at(gate, action, status, reason):
+        """Leave the decision ladder at this gate: nothing is ordered, and the reason is recorded."""
+        store.log(run_id, f"agent:{mandate['agent']}", f"gate.{gate}.{action}", {"reason": reason})
         return {"run_id": run_id, "steps": steps, "api_calls": client.calls, "mandate": mandate,
-                "result": {"status": "unclear_request", "error": "couldn't tell which product to buy: name it"}}
+                "result": {"status": status, "error": reason}, "ladder": gates.ladder(gate, action, reason)}
+
+    # Gate 0: is it a purchase?
+    rtype = intent.get("request_type") or "buy"
+    if rtype == "other":
+        return exit_at("purchase", "decline", "not_a_purchase",
+                       "This isn't a purchasing request, so the agent does nothing with it.")
+    if rtype == "change":
+        return exit_at("purchase", "decline", "change_not_supported",
+                       "Changing or cancelling a placed order goes to a person in this demo; the agent only places new orders.")
+    # Gate 1: do we know exactly what is wanted?
+    if not (intent.get("product") or "").strip():
+        return exit_at("clear", "ask_back", "unclear_request", "Which product? The request doesn't name one.")
+    if rtype == "buy" and not intent.get("quantity"):
+        return exit_at("clear", "ask_back", "unclear_request", f"How much {intent['product']}? The request gives no quantity.")
+    if rtype == "buy" and intent.get("ignored_terms"):
+        return exit_at("clear", "ask_back", "unclear_request",
+                       f"Understood: {intent.get('quantity') or ''} {intent.get('unit', '')} {intent['product']}. "
+                       f"Not understood or not covered: {', '.join(intent['ignored_terms'])}. "
+                       "Send them as separate lines, or confirm the order without them.")
 
     spec = {"fat_pct": intent.get("fat_pct"), "shelf_life": intent.get("shelf_life")}
     candidates, trace = catalog.search(intent["product"], intent["attributes"], spec=spec,
@@ -513,10 +623,9 @@ def run(text, mandate_id, overrides=None, simulate_price_change=False, inject=Fa
                           "search": trace, "excluded_by_mandate": excluded, "official_substitutes_added": [],
                           "substitutes_rejected": [], "spec_gaps": [], "candidates": []})
             store.log(run_id, f"agent:{mandate['agent']}", "run.unit_mismatch", {"asked": intent["unit"], "sold_by": alt})
-            return {"run_id": run_id, "steps": steps, "api_calls": client.calls, "mandate": mandate,
-                    "result": {"status": "unit_mismatch", "error": msg,
-                               "fix": {"from": intent["unit"], "to": alt,
-                                       "label": f"Use {intent['quantity']:,g} {UNIT_WORDS[alt]} instead"}}}
+            res = exit_at("clear", "ask_back", "unit_mismatch", msg)  # gate 1: the quantity can't mean anything
+            res["result"]["fix"] = {"from": intent["unit"], "to": alt, "label": f"Use {intent['quantity']:,g} {UNIT_WORDS[alt]} instead"}
+            return res
     gaps = spec_gaps(candidates, intent)
     steps.append({"step": "lookup", "title": "Find candidates in the catalog (local, no API calls)",
                   "search": trace, "excluded_by_mandate": excluded, "official_substitutes_added": subs,
@@ -529,10 +638,8 @@ def run(text, mandate_id, overrides=None, simulate_price_change=False, inject=Fa
                    "Nothing was ordered. Lactose-free is not milk-free: ask for a plant-based alternative instead."
                    if any("milk" in r for r in reasons) else
                    f"All {len(excluded)} matching products fail this mandate's allergen rules ({'; '.join(reasons)}). Nothing was ordered.")
-            store.log(run_id, f"agent:{mandate['agent']}", "run.no_safe_product", {"excluded": len(excluded)})
-            return {"run_id": run_id, "steps": steps, "api_calls": client.calls, "mandate": mandate,
-                    "result": {"status": "no_safe_product", "error": msg}}
-        # Reality check failed: say what doesn't exist and what does, but order nothing.
+            return exit_at("allowed", "stop", "no_safe_product", msg)  # gate 3: every candidate breaks a hard rule
+        # Gate 2 (possible?): the reality check failed. Say what doesn't exist and what does, but order nothing.
         what = intent["product"]
         attrs = " and ".join(a.lower().replace("_", " ").replace("free from ", "") + "-free" if a.startswith("FREE_FROM_")
                              else a.lower() for a in intent["attributes"])
@@ -547,9 +654,9 @@ def run(text, mandate_id, overrides=None, simulate_price_change=False, inject=Fa
             msg = (f"“{what}” is not a product in Valio's catalog" + (f" ({rc['reason']})" if rc and rc.get("reason") else "")
                    + ". Nothing was ordered.")
             sugg = catalog.suggest(what, intent["attributes"])
-        store.log(run_id, f"agent:{mandate['agent']}", "run.not_in_catalog", {"product": what, "suggestions": [x["phrase"] for x in sugg]})
-        return {"run_id": run_id, "steps": steps, "api_calls": client.calls, "mandate": mandate,
-                "result": {"status": "not_in_catalog", "error": msg, "suggestions": sugg}}
+        res = exit_at("possible", "ask_back", "not_in_catalog", msg)
+        res["result"]["suggestions"] = sugg
+        return res
 
     ids = [p["id"] for p in candidates]
     prices = client.prices(mandate["customer"], intent["deliver_by"], ids)
@@ -587,11 +694,12 @@ def run(text, mandate_id, overrides=None, simulate_price_change=False, inject=Fa
         if len(best) > 1:
             g["cost_spread_eur"] = round((max(best.values()) - min(best.values())) * (intent["quantity"] or 0), 2)
     steps.append({"step": "options", "title": "Compare options (good-better-best)", "options": options, "spec_gaps": gaps})
-    if not options:
-        msg = explain_no_option(rows, intent)
-        store.log(run_id, "agent", "no_option", {"reason": msg})
-        return {"run_id": run_id, "steps": steps, "result": {"status": "no_option", "error": msg},
-                "api_calls": client.calls, "mandate": mandate}
+    if rtype == "question":  # Gate 0 said "not a purchase": answer with prices and trust flags, order nothing
+        return {"run_id": run_id, "steps": steps, "api_calls": client.calls, "mandate": mandate,
+                "result": {"status": "answered"},
+                "ladder": gates.ladder("purchase", "answer", f"{len(usable)} products can be delivered by {intent['deliver_by']}")}
+    if not options:  # Gate 2: Valio can't supply it as asked; say exactly why, per reason
+        return exit_at("possible", "ask_back", "no_option", explain_no_option(rows, intent))
 
     # The agent knows the buyer's hard limit: it never asks for an offer it knows the gateway must block.
     hard = mandate["hard_limits"]["max_order_total_eur"]
@@ -605,11 +713,11 @@ def run(text, mandate_id, overrides=None, simulate_price_change=False, inject=Fa
         msg = (f"The cheapest option ({line['units']:,} × {line['name']}, €{best['total_eur']:,.2f}) is above this buyer's "
                f"hard limit of €{hard:,} per order, so the agent didn't order. Nothing was ordered.")
         store.log(run_id, f"agent:{mandate['agent']}", "run.over_hard_limit", {"cheapest_eur": best["total_eur"], "hard_limit": hard})
-        result = {"status": "over_hard_limit", "error": msg}
+        res = exit_at("allowed", "stop", "over_hard_limit", msg)  # gate 3: no person may approve above the hard limit
         if max_units > 0:
-            result["fix"] = {"quantity": max_qty,
-                             "label": f"Order {max_qty:,g} {unit} instead (€{max_units * line['unitPrice']:,.2f}, within the limit)"}
-        return {"run_id": run_id, "steps": steps, "result": result, "api_calls": client.calls, "mandate": mandate}
+            res["result"]["fix"] = {"quantity": max_qty,
+                                    "label": f"Order {max_qty:,g} {unit} instead (€{max_units * line['unitPrice']:,.2f}, within the limit)"}
+        return res
     chosen = within[0]
     if chosen is not options[0]:
         steps[-1]["note"] = (f"{options[0]['label']} (€{options[0]['total_eur']:,.2f}) is above the hard limit of €{hard:,}; "
@@ -621,6 +729,9 @@ def run(text, mandate_id, overrides=None, simulate_price_change=False, inject=Fa
                "partial": chosen["partial"], "simulate_price_change": simulate_price_change,
                "request": text, "run_id": run_id, "options_considered": len(options),
                "requested_quantity": intent["quantity"], "required_attributes": intent.get("attributes") or [],
+               "ignored_terms": intent.get("ignored_terms") or [],
+               # Unstated details (fat %, fresh vs long-life) and how much they move the order.
+               "spec_gaps": [{"field": g["field"], "cost_spread_eur": g.get("cost_spread_eur", 0)} for g in gaps],
                "rationale": f"{chosen['label']}: {chosen['why']}."}
     order, err = place_order(jws, f"{run_id}:{offer['offer_id']}", mandate, context, client)
     if err and simulate_price_change:
@@ -631,8 +742,7 @@ def run(text, mandate_id, overrides=None, simulate_price_change=False, inject=Fa
         order, err = place_order(jws, f"{run_id}:{offer['offer_id']}", mandate, context, client)
     if err:
         steps.append({"step": "order_rejected", "title": "Order rejected by the gateway", "error": err})
-        return {"run_id": run_id, "steps": steps, "result": {"status": "error", "error": err},
-                "api_calls": client.calls, "mandate": mandate}
+        return exit_at("possible", "ask_back", "error", err)
     order["record"]["api_calls"] = client.calls
     order["record"]["rows"] = [{k: r.get(k) for k in ("productId", "name", "status", "issues", "total", "score",
                                                       "reliability", "earliest_alternative")} for r in rows]
@@ -642,7 +752,7 @@ def run(text, mandate_id, overrides=None, simulate_price_change=False, inject=Fa
     store.log(run_id, f"agent:{mandate['agent']}", "run.completed",
               {"order_id": order["id"], "status": order["status"], "api_calls": len(client.calls)})
     return {"run_id": run_id, "steps": steps, "order": order, "api_calls": client.calls, "mandate": mandate,
-            "result": {"status": order["status"]}}
+            "result": {"status": order["status"]}, "ladder": order["policy"]["ladder"]}
 
 
 def _injection_attack(target, mandate, intent, client, run_id):

@@ -9,6 +9,7 @@ import re
 from datetime import date
 from pathlib import Path
 
+from . import gates
 from .catalog import ALLERGENS, get
 
 MANDATE_DIR = Path(__file__).parent / "mandates"
@@ -57,11 +58,17 @@ def allergen_problem(mandate, p):
 
 
 def evaluate(mandate, offer, context):
-    """Return {outcome, approver, rules}. outcome: auto_approve | needs_approval | blocked."""
+    """Return {outcome, approver, rules, ladder}. outcome: auto_approve | needs_approval | blocked.
+
+    Every rule belongs to one gate of the decision ladder (gates.py): 3 Allowed, 4 Proven, 5 Agent's call.
+    The first gate with a failed rule decides the action."""
     rules = []
 
     def rule(name, ok, level, detail):
-        rules.append({"rule": name, "ok": bool(ok), "level": level if not ok else "pass", "detail": detail})
+        gate = gates.gate_of(name)
+        level = "block" if gate == "allowed" else "approve"  # the gate, not the call site, decides severity
+        rules.append({"rule": name, "ok": bool(ok), "level": level if not ok else "pass", "detail": detail,
+                      "gate": gate})
 
     total = offer["total_eur"]
     hard = mandate["hard_limits"]
@@ -134,20 +141,38 @@ def evaluate(mandate, offer, context):
     if context.get("partial"):
         rule("Full quantity", False, "approve", "only part of the requested quantity is covered")
 
+    minimum = mandate.get("min_delivery_reliability", 0)
     low = [f"{get(l['productId'])['name']} ({l['reliability']:.0%})" for l in offer["lines"]
-           if l.get("reliability") is not None and l["reliability"] < mandate.get("min_delivery_reliability", 0)]
+           if l.get("reliability") is not None and l["reliability"] < minimum]
+    unknown = [get(l["productId"])["name"] for l in offer["lines"] if l.get("reliability") is None]
     rule("Delivery reliability", not low, "approve",
-         "below " + f"{mandate.get('min_delivery_reliability', 0):.0%}: " + ", ".join(low) if low
-         else f"all lines ≥ {mandate.get('min_delivery_reliability', 0):.0%} or no history")
+         f"below {minimum:.0%}: " + ", ".join(low) if low else f"every line with a delivery history is ≥ {minimum:.0%}")
+    if mandate.get("unknown_reliability", "allow") == "needs_approval":
+        rule("Delivery history known", not unknown, "approve",
+             "no delivery history for: " + ", ".join(unknown) if unknown else "every line has a delivery history")
+    elif unknown:  # allowed by this mandate, but said out loud rather than shown as a pass on reliability
+        rules.append({"rule": "Delivery history known", "ok": True, "level": "pass", "gate": "proven",
+                      "detail": "no history for " + ", ".join(unknown) + " (this mandate allows it)"})
+
+    # Details the buyer didn't state (fat %, fresh vs long-life) that change the price: the agent may pick
+    # alone only if the difference is within the mandate's tolerance; otherwise the approver chooses.
+    tolerance = mandate.get("auto_approve", {}).get("max_unstated_detail_spread_eur", 25)
+    wide = [g for g in context.get("spec_gaps") or [] if (g.get("cost_spread_eur") or 0) > tolerance]
+    rule("Unstated details within tolerance", not wide, "approve",
+         "; ".join(f"{g['field']} not stated, moves the order by €{g['cost_spread_eur']:,.0f}" for g in wide)
+         + f" (tolerance €{tolerance:,.0f})" if wide else
+         (f"unstated details move the order by at most €{tolerance:,.0f}" if context.get("spec_gaps") else "nothing left unstated"))
 
     rule("Auto-approve spend limit", total <= auto["max_order_total_eur"], "approve",
          f"€{total:,.2f} vs auto-approve limit €{auto['max_order_total_eur']:,}")
 
-    if any(r["level"] == "block" for r in rules):
+    verdict = gates.from_rules(rules)
+    if verdict["action"] == "stop":
         outcome, approver = "blocked", None
-    elif any(r["level"] == "approve" for r in rules):
+    elif verdict["action"] in ("person_checks", "person_approves"):
         outcome = "needs_approval"
         approver = next((a for a in mandate["approvers"] if total <= a["up_to_eur"]), mandate["approvers"][-1])
     else:
         outcome, approver = "auto_approve", None
-    return {"outcome": outcome, "approver": approver, "rules": rules, "mandate_id": mandate["mandate_id"]}
+    return {"outcome": outcome, "approver": approver, "rules": rules, "mandate_id": mandate["mandate_id"],
+            "ladder": verdict}

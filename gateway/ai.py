@@ -11,6 +11,10 @@ MODEL = "claude-sonnet-5-5"
 SCHEMA = {
     "type": "object",
     "properties": {
+        "request_type": {"type": "string", "enum": ["buy", "question", "change", "other"],
+                         "description": "buy: wants to order products. question: asks about products, prices or "
+                                        "availability without ordering. change: wants to cancel or change an existing "
+                                        "order. other: anything else."},
         "product": {"type": "string", "description": "Plain product noun(s) in English, e.g. 'milk', 'oat drink', 'muesli'."},
         "quantity": {"type": ["number", "null"]},
         "unit": {"type": "string", "enum": ["L", "KG", "PCS"]},
@@ -20,8 +24,13 @@ SCHEMA = {
         "fat_pct": {"type": ["number", "null"], "description": "Fat percentage only if the buyer states it, else null."},
         "shelf_life": {"anyOf": [{"type": "string", "enum": ["fresh", "long_life"]}, {"type": "null"}],
                        "description": "Only if the buyer states fresh or long-life/UHT, else null."},
+        "ignored_terms": {"type": "array", "items": {"type": "string"},
+                          "description": "Words for products or product requirements in the request that the other "
+                                         "fields do not capture: extra items, brands, flavours, sizes. Never purpose, "
+                                         "place, people, dates or politeness words."},
     },
-    "required": ["product", "quantity", "unit", "attributes", "deliver_by", "fat_pct", "shelf_life"],
+    "required": ["request_type", "product", "quantity", "unit", "attributes", "deliver_by", "fat_pct", "shelf_life",
+                 "ignored_terms"],
     "additionalProperties": False,
 }
 SYSTEM = ("You convert a professional kitchen's purchasing request into a structured intent for a food "
@@ -33,7 +42,9 @@ SYSTEM = ("You convert a professional kitchen's purchasing request into a struct
           "Never guess fat level or shelf life: leave them null unless stated. "
           "If the request names no product, return an empty string as product: never invent one. "
           "Low-lactose (vähälaktoosinen) is not lactose-free: only add FREE_FROM_LACTOSE when the buyer says "
-          "lactose-free (laktoositon).")
+          "lactose-free (laktoositon). The intent holds one product: if the request names more than one product, "
+          "or words you can't place, put the product you captured in product and list everything else in "
+          "ignored_terms. Never drop a product word silently.")
 
 
 def enabled():

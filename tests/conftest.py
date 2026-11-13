@@ -16,7 +16,8 @@ def product(pid, name, unit="ST", lactose=0.0, contains=("AM",), lot=0.01):
     return {"id": pid, "name": name, "name_fi": name, "brand": "Test", "vendor": "Test", "category": "10400",
             "salesUnit": unit, "baseUnit": unit, "lot": lot, "units": {}, "origin": "fi", "contains": list(contains),
             "freeFrom": [], "claims": [], "labels": [], "netWeightKg": None, "lactose": lactose,
-            "reliability": 1.0, "carbonKgPerKg": 1.1, "substitutes": [], "_text": name.lower()}
+            "reliability": 1.0, "carbonKgPerKg": 1.1, "substitutes": [], "_text": catalog.fold(name),
+            "allergenData": True, "mayContain": [], "undeclared": [], "fatPct": None}
 
 
 PRODUCTS = [
@@ -24,6 +25,8 @@ PRODUCTS = [
     product("464073", "Whole milk 1 l lactose free UHT"),
     product("463203", "Portion milk 100x2 cl lactose free", lactose=None),
     product("999001", "Terminal oat drink 1 l lactose free"),
+    product("463380", "Arla Cafè milk 1 l lactose free UHT"),
+    product("700001", "Chili cheese chicken nuggets 1 kg", unit="KG", lactose=None),
 ]
 
 
@@ -31,13 +34,15 @@ PRODUCTS = [
 def fixed_catalog(monkeypatch):
     monkeypatch.setattr(catalog, "_catalog", PRODUCTS)
     monkeypatch.setattr(catalog, "_by_id", {p["id"]: p for p in PRODUCTS})
+    monkeypatch.setattr(catalog, "_vocab", None)
 
 
 class FakeValio:
     """Answers like the Valio mock: price per sales unit, availability with schedule lines."""
 
     def __init__(self, prices=None, closing="2026-11-14T15:00:00+0200", terminal=("999001",)):
-        self.price = {"464306": 1.01, "464073": 1.64, "463203": 0.20, "999001": 1.50, **(prices or {})}
+        self.price = {"464306": 1.01, "464073": 1.64, "463203": 20.0, "999001": 1.50, "463380": 2.65, "700001": 9.0,
+                      **(prices or {})}
         self.closing, self.terminal, self.calls = closing, set(terminal), []
 
     def prices(self, customer, date, ids):

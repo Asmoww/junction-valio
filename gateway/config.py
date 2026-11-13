@@ -26,6 +26,11 @@ STATE_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = Path(os.environ.get("GATEWAY_DB") or STATE_DIR / "gateway.db")
 TIMEZONE = "Europe/Helsinki"
 OFFER_TTL_MINUTES = 15
+# The mock's availability data is a snapshot whose order cut-offs (e.g. Thu 12 Nov 15:00) have already
+# passed. DEMO_CLOCK replays the data as if "now" were this moment (ISO time, e.g.
+# 2026-11-12T12:00:00+02:00): every cut-off is shifted by the same amount, so fresh products are orderable
+# again and the price lock still ends at the (shifted) cut-off. Empty = Valio's real clock. Labelled in the UI.
+DEMO_CLOCK = os.environ.get("DEMO_CLOCK", "").strip()
 # Units sold by weight may be ordered in fractions; everything else (pieces, boxes, packs) in whole units.
 WEIGHT_SALES_UNITS = {"KG", "KGM", "G", "GRM"}
 MAX_OFFER_LINES = 20

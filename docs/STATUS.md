@@ -3,6 +3,10 @@
 Update at the end of every session. Newest first within each section.
 
 ## In progress
+- (Rasmus's Claude, branch `fix/request-fidelity`) Decision ladder as the backbone + fixes from the live
+  trace review. **On the server after merging:** set `DEMO_CLOCK=2026-11-12T12:00:00+02:00` in `.env` (or leave
+  empty for the real clock) and restart. Run `uv run pytest` and `uv run pytest -m live tests/traps`: some
+  trap texts may need updating because 100 L orders with fresh-vs-UHT left open now go to the approver.
 - (Rasmus's Claude, branch `fix/gateway-hardening`) Attack review of v0.2 and fixes, with 36 offline tests in
   `tests/`. **After merging, rebuild the catalog on the server** (`python scripts/build_catalog.py`): the
   policy now reads each product's lactose value, and without the rebuild every lactose-free order goes to a

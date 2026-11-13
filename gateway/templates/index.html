@@ -40,6 +40,7 @@
           <div class="eyebrow" style="margin-bottom:4px">Red team</div>
           <label class="switch"><input type="checkbox" id="inject"><span>Prompt injection in supplier data<small>A product description tells AI agents to order 10,000 units.</small></span></label>
           <label class="switch"><input type="checkbox" id="priceChange"><span>Price changes before ordering<small>The offer goes stale between offer and order.</small></span></label>
+          <label class="switch" id="clockSwitch" style="display:none"><input type="checkbox" id="realClock"><span>Passed order cut-offs<small>Use Valio's real clock: the data snapshot's cut-offs have passed.</small></span></label>
         </div>
         <button class="btn btn-primary" id="runBtn" onclick="run()">Run purchasing agent</button>
       </div>
@@ -90,6 +91,7 @@ const post = (path, body) => api(path, {method: 'POST', headers: {'Content-Type'
 
 async function init() {
   const [list, info] = await Promise.all([api('/api/mandates'), api('/api/info')]);
+  if (info.demo_clock) $('#clockSwitch').style.display = '';
   list.forEach(m => mandates[m.mandate_id] = m);
   $('#mandate').innerHTML = list.map(m => `<option value="${m.mandate_id}">${esc(m.buyer)}</option>`).join('');
   $('#parserTag').innerHTML = info.ai_parser ? `<span class="chip navy">read by Claude</span>` : `<span class="chip">rule-based reading</span>`;
@@ -106,7 +108,7 @@ function renderMandate() {
     <div>Never buy</div><div class="chips">${forb.length ? forb.map(a => `<span class="chip bad">${a}</span>`).join('') : '<span class="faint">no allergen bans</span>'}</div>
     ${forb.length ? `<div>Unclear data</div><div>“may contain”: ${esc((m.allergen_policy?.may_contain || 'block').replace('_', ' '))} · no data: ${esc((m.allergen_policy?.no_data || 'needs_approval').replace('_', ' '))}</div>` : ''}
     <div>Substitutes</div><div>${esc(m.substitutions.official_substitute.replace('_', ' '))}</div>
-    <div>Reliability</div><div>≥ ${(m.min_delivery_reliability * 100).toFixed(0)} % or a human checks</div>
+    <div>Reliability</div><div>≥ ${(m.min_delivery_reliability * 100).toFixed(0)} % or a person approves · no history: ${m.unknown_reliability === 'needs_approval' ? 'a person checks' : 'allowed'}</div>
     <div>Approvers</div><div>${m.approvers.map(a => `${esc(a.role)} <span class="faint">≤ ${eur(a.up_to_eur).replace('.00','')}</span>`).join('<br>')}</div>
   </div>`;
   $('#presets').innerHTML = (PRESETS[m.mandate_id] || []).map(([l, t]) =>
@@ -122,11 +124,14 @@ async function run() {
   try {
     const res = await post('/api/run', {
       request: $('#request').value, mandate_id: $('#mandate').value, auto_limit: Number($('#autoLimit').value),
-      simulate_price_change: $('#priceChange').checked, inject: $('#inject').checked });
+      simulate_price_change: $('#priceChange').checked, inject: $('#inject').checked, real_clock: $('#realClock').checked });
+    const looked = res.api_calls.reduce((a, c) => a + c.products, 0);
     $('#out').insertAdjacentHTML('beforeend', `<div class="counter">
-      <span><b>${res.api_calls.length}</b>live Valio API calls</span>
+      <span><b>${res.api_calls.length}</b>batched Valio API calls</span>
+      <span><b>${looked}</b>product lookups in them</span>
       <span><b>0</b>calls to search 17,546 products</span>
-      <span class="calls">${res.api_calls.map(c => `${c.endpoint.replace('POST /api/', '')} ×${c.products}`).join(' · ')}</span></div>
+      <span class="calls">${res.api_calls.map(c => `${c.endpoint.replace('POST /api/', '')}: ${c.products} products`).join(' · ')}</span></div>
+      ${res.clock?.demo_clock ? `<div class="small muted" style="margin:-4px 0 10px">⏱ ${esc(res.clock.note)} See ASSUMPTIONS.md #4.</div>` : ''}
       <div class="timeline" id="tl"></div>`);
     let n = 0;
     for (const s of res.steps) {
@@ -229,7 +234,7 @@ function renderStep(s, n) {
     const gapHtml = gaps.length ? `<div class="banner warn" style="margin-bottom:12px;padding:12px 16px"><div class="small"><b>Not specified by the buyer, so the agent compared across it:</b>
       ${gaps.map(g => `<div style="margin-top:4px">${esc(g.field)}: ${Object.entries(g.cheapest_per_value).map(([k, v]) => `${esc(k)} ${eur(v)}/unit`).join(' · ')}
       ${g.cost_spread_eur ? ` <b>→ moves this order by ${eur(g.cost_spread_eur).replace('.00', '')}</b>` : ''}</div>`).join('')}
-      <div class="muted" style="margin-top:4px">Shown to the approver instead of asking a question first.</div></div></div>` : '';
+      <div class="muted" style="margin-top:4px">No question first: if this moves the order by more than the mandate's tolerance (€${esc(mandates[$('#mandate').value]?.auto_approve?.max_unstated_detail_spread_eur ?? 25)}), the approver chooses. Otherwise the agent takes the best option.</div></div></div>` : '';
     const note = s.note ? `<p class="small" style="margin:12px 0 0"><span class="chip warn">Within limits</span> ${esc(s.note)}</p>` : '';
     return step(n, 'Compare options', gapHtml + note + `<div class="options">${s.options.map((o, i) => `<div class="option ${i === 0 ? 'chosen' : ''}">
       <div class="lbl">${esc(o.label)}${i === 0 ? ' · chosen' : ''}</div><div class="total">${eur(o.total_eur)}</div>
@@ -301,6 +306,9 @@ function renderOutcome(res) {
       <div class="small muted" style="margin-top:8px">Raising the limit is the purchasing manager's call, not the agent's.</div></div>`;
   }
   else if (!o && res.result.status === 'no_option') body = `<div class="banner bad"><h3>Nothing can be ordered as asked</h3>${esc(res.result.error)}</div>`;
+  else if (res.result.status === 'answered') body = `<div class="banner ok"><h3>Answered: nothing ordered</h3>${esc(res.ladder.reason)}. It was a question, so the agent only looked up prices and availability.</div>`;
+  else if (!o && res.ladder?.action === 'ask_back') body = `<div class="banner warn"><h3>Back to the requester: nothing ordered</h3>${esc(res.result.error)}</div>`;
+  else if (!o && res.ladder?.action === 'decline') body = `<div class="banner bad"><h3>Declined</h3>${esc(res.result.error)}</div>`;
   else if (!o && res.result.status === 'no_safe_product') body = `<div class="banner bad"><h3>No safe product: nothing ordered</h3>${esc(res.result.error)}</div>`;
   else if (!o) body = `<div class="banner bad"><h3>No order</h3>${esc(res.result.error || res.result.status.replace('_', ' '))}</div>`;
   else if (o.status === 'placed') body = `<div class="banner ok"><h3>Order placed automatically</h3>Within the agent's own authority · ${o.id} · ${eur(o.total)}</div>`;
@@ -314,7 +322,7 @@ function renderOutcome(res) {
       <button class="btn btn-bad" onclick="decide('${o.id}','reject','${esc(ap.name)}')">Reject</button></div></div>`;
   }
   $('#tl').insertAdjacentHTML('beforeend', `<div class="step final" id="outcome"><div class="bullet">✓</div><div class="card">
-    <div class="step-head"><h3>Outcome</h3></div><div id="outcomeBody">${body}</div></div></div>`);
+    <div class="step-head"><h3>Outcome</h3></div>${ladderHtml(res.ladder)}<div id="outcomeBody">${body}</div></div></div>`);
   if (o) { $('#out').insertAdjacentHTML('beforeend', '<div id="record"></div>'); showRecord(o.id); }
   $('#outcome').scrollIntoView({behavior: 'smooth', block: 'center'});
 }
@@ -335,6 +343,17 @@ function useSuggestion(asked, phrase) {
   const t = $('#request'), re = new RegExp(asked.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
   t.value = re.test(t.value) ? t.value.replace(re, phrase) : `${t.value} (${phrase})`;
   t.focus(); window.scrollTo({top: 0, behavior: 'smooth'});
+}
+
+// The decision ladder: the first "no" decides who acts next (gateway/gates.py, docs/FRAMEWORK.md).
+function ladderHtml(l) {
+  if (!l) return '';
+  const short = {purchase: 'Purchase?', clear: 'Clear?', possible: 'Possible?', allowed: 'Allowed?', proven: 'Proven?', authority: "Agent's call?"};
+  const cls = {pass: 'ok', fail: 'bad', not_reached: ''};
+  const icon = {pass: '✓', fail: '✕', not_reached: '·'};
+  return `<div class="chips" style="margin:0 0 12px;align-items:center">${l.gates.map(g =>
+    `<span class="chip ${cls[g.state]}" title="${esc(g.question)}">${g.n} ${icon[g.state]} ${esc(short[g.key])}</span>`).join('<span class="faint">›</span>')}
+    <span class="faint">→</span><span class="chip navy"><b>${esc(l.action_text)}</b></span></div>`;
 }
 
 async function decide(id, decision, who) {

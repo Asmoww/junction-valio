@@ -5,6 +5,7 @@ candidates, never for the whole catalogue.
 """
 import json
 import re
+import unicodedata
 from collections import Counter
 
 from .config import DATA_DIR
@@ -40,6 +41,9 @@ MODIFIERS = {  # noqa: E501
     "pie", "dough", "pizza", "snack", "bites", "cream", "creamy", "seasoned", "marinated", "mix",
 }
 MODIFIERS.discard("drink")  # Finnish lactose-free milk is sold as "milk drink"
+MODIFIERS |= {"cafe", "barista", "kahvi", "kaakao", "piima", "kerma", "jogurtti", "rahka", "annos"}
+# Finnish compounds: "kahvimaito" (coffee milk), "annosmaito" (portion cups), "suklaamaito" ...
+MODIFIER_PREFIXES = ("kahvi", "kaakao", "suklaa", "annos", "piimä", "kerma", "jogurt", "rahka", "vanilja", "mansikka")
 
 _catalog = None
 _by_id = None
@@ -50,7 +54,7 @@ def load():
     if _catalog is None:
         _catalog = json.load(open(DATA_DIR / "catalog.json", encoding="utf-8"))
         for p in _catalog:
-            p["_text"] = f"{p['name']} {p['name_fi']} {p['brand'] or ''}".lower()
+            p["_text"] = fold(f"{p['name']} {p['name_fi']} {p['brand'] or ''}")
         _by_id = {p["id"]: p for p in _catalog}
     return _catalog
 
@@ -60,8 +64,37 @@ def get(product_id):
     return _by_id.get(str(product_id))
 
 
+def fold(s):
+    """Lower-case and drop accents (Cafè, café -> cafe) but keep the Finnish letters å, ä, ö."""
+    out = []
+    for ch in (s or "").lower():
+        if ch in "åäö":
+            out.append(ch)
+        else:
+            out.append("".join(c for c in unicodedata.normalize("NFKD", ch) if not unicodedata.combining(c)))
+    return "".join(out)
+
+
 def _words(s):
-    return set(re.findall(r"[a-zåäö]+", s.lower()))
+    return set(re.findall(r"[a-zåäö]+", fold(s)))
+
+
+def _is_modifier(w):
+    return w in MODIFIERS or w.startswith(MODIFIER_PREFIXES)
+
+
+_vocab = None
+
+
+def vocabulary():
+    """Every word that appears in a product name: used to spot food words a request mentioned but the
+    agent's reading dropped ("chili cheese chicken ... milk" must not quietly become just "milk")."""
+    global _vocab
+    if _vocab is None:
+        _vocab = set()
+        for p in load():
+            _vocab |= _words(p["_text"])
+    return _vocab
 
 
 def _stem(word):
@@ -163,7 +196,7 @@ def search(query, attrs=(), limit=30, spec=None, type_check=None):
         if not ok:
             rejected["outside spec"] += 1
             continue
-        penalty = len({w for w in words if w in MODIFIERS} - q - {m for m in MODIFIERS if any(m.startswith(t) for t in stems)})
+        penalty = len({w for w in words if _is_modifier(w)} - q - {w for w in words if any(w.startswith(t) for t in stems)})
         scored.append((penalty, bool(gaps), p, gaps))
     plain = [x for x in scored if x[0] == 0] or scored
     reality = None

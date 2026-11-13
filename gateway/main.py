@@ -12,8 +12,8 @@ from urllib.parse import quote as urlquote
 from fastapi import Body, FastAPI, Form, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
-from . import agent, ai, catalog, policy, security, signing, store
-from .config import DEMO_PASSWORD
+from . import agent, ai, catalog, gates, policy, security, signing, store
+from .config import DEMO_CLOCK, DEMO_PASSWORD
 from .mcp_server import app as mcp_app
 from .mcp_server import mcp
 
@@ -118,12 +118,14 @@ def run_agent(body: dict = Body(...)):
         hard = policy.mandates()[mandate_id]["hard_limits"]["max_order_total_eur"]
         overrides["auto_approve.max_order_total_eur"] = min(max(float(body["auto_limit"]), 0.0), hard)
     return agent.run(body["request"], mandate_id, overrides,
-                     simulate_price_change=bool(body.get("simulate_price_change")), inject=bool(body.get("inject")))
+                     simulate_price_change=bool(body.get("simulate_price_change")), inject=bool(body.get("inject")),
+                     real_clock=bool(body.get("real_clock")))
 
 
 @app.get("/api/info", tags=["demo"])
 def info():
-    return {"ai_parser": ai.enabled(), "model": ai.MODEL if ai.enabled() else None}
+    return {"ai_parser": ai.enabled(), "model": ai.MODEL if ai.enabled() else None, "demo_clock": DEMO_CLOCK,
+            "ladder": gates.GATES}
 
 
 @app.get("/api/traps", tags=["demo"])
