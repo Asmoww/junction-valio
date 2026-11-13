@@ -227,7 +227,8 @@ def quote(body: dict = Body(..., examples=[{"mandate_id": "mnd_hotel_helsinki", 
     """Price and availability for specific lines, returned as a signed fixed-price offer (valid 15 min)."""
     if body.get("mandate_id") not in policy.mandates():
         raise HTTPException(404, "unknown mandate")
-    offer, jws, err = agent.quote(body["mandate_id"], body["deliver_by"], body.get("lines") or [])
+    offer, jws, err = agent.quote(body["mandate_id"], body["deliver_by"], body.get("lines") or [],
+                                  requested_quantity=body.get("requested_quantity"))
     if err:
         raise HTTPException(409, err)
     return {"offer": offer, "jws": jws}

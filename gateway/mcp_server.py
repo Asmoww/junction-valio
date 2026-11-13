@@ -60,10 +60,12 @@ def check_price_availability(product_ids: list[str], deliver_by: str, mandate_id
 
 
 @mcp.tool()
-def request_offer(lines: list[dict], deliver_by: str, mandate_id: str = "mnd_hotel_helsinki") -> dict:
+def request_offer(lines: list[dict], deliver_by: str, mandate_id: str = "mnd_hotel_helsinki",
+                  requested_quantity: float | None = None) -> dict:
     """Get a signed fixed-price offer (valid 15 min). lines: [{"productId": "463335", "units": 1000}].
-    Keep the returned jws: place_order needs it."""
-    offer, jws, err = agent.quote(mandate_id, deliver_by, lines)
+    requested_quantity: how many sales units the buyer asked for; it is sealed into the signed offer and the
+    order is checked against it. Keep the returned jws: place_order needs it."""
+    offer, jws, err = agent.quote(mandate_id, deliver_by, lines, requested_quantity=requested_quantity)
     return {"error": err} if err else {"offer": offer, "jws": jws}
 
 

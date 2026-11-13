@@ -43,7 +43,7 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const eur = n => '€' + Number(n || 0).toLocaleString('en-US', {maximumFractionDigits: 0});
 const STATUS = {placed: ['ok', 'Placed'], pending_approval: ['warn', 'Awaiting approval'], blocked: ['bad', 'Blocked'], rejected: ['bad', 'Rejected'], expired: ['bad', 'Price lock expired']};
-const SEC = {'security.injection_detected': 'Prompt injection in supplier text', 'security.invalid_signature': 'Forged or altered offer', 'order.rejected': 'Stale price caught', 'security.agent_tried_to_approve': 'Agent tried to approve its own order', 'security.unknown_approver': 'Approval by someone outside the mandate', 'security.quote_refused': 'Malformed order lines refused'};
+const SEC = {'security.injection_detected': 'Prompt injection in supplier text', 'security.injection_in_request': 'Instructions hidden in a buyer request', 'security.invalid_signature': 'Forged or altered offer', 'order.rejected': 'Stale price caught', 'security.agent_tried_to_approve': 'Agent tried to approve its own order', 'security.unknown_approver': 'Approval by someone outside the mandate', 'security.quote_refused': 'Malformed order lines refused', 'security.offer_replayed': 'Same signed offer used twice', 'security.intent_mismatch': 'Agent changed the requested quantity'};
 const ago = ts => { const s = (Date.now() - new Date(ts)) / 1000; return s < 60 ? 'just now' : s < 3600 ? `${Math.round(s / 60)} min ago` : s < 86400 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} d ago`; };
 
 async function load() {

@@ -68,6 +68,11 @@ def get_offer(offer_id):
     return dict(r, payload=json.loads(r["payload"])) if r else None
 
 
+def order_by_offer(offer_id):
+    r = _db.execute("SELECT * FROM orders WHERE offer_id = ? ORDER BY created LIMIT 1", (offer_id,)).fetchone()
+    return _order(r)
+
+
 def order_by_key(key):
     r = _db.execute("SELECT * FROM orders WHERE idempotency_key = ?", (key,)).fetchone()
     return _order(r)

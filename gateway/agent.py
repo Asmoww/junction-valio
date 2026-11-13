@@ -246,6 +246,11 @@ def _assess(p, price, avail, intent, now_s):
         row["status"] = "unit_mismatch"
         row["issues"].append(f"can't convert {p['salesUnit']} to {intent['unit']}")
         return row
+    if not intent.get("quantity") and (intent.get("request_type") or "buy") == "buy":
+        # Defence in depth: gate 1 already asks back, but a purchase without a quantity is never "one pack".
+        row["status"] = "no_quantity"
+        row["issues"].append("no quantity given")
+        return row
     need = math.ceil(intent["quantity"] / per_unit) if intent["quantity"] else 1
     row.update(unit_price=unit_price, sales_unit=p["salesUnit"], per_unit=per_unit, units_needed=need,
                price_per_req_unit=round(unit_price / per_unit, 3), price_valid_to=price["catalogPrice"]["validTo"][:10],
@@ -432,6 +437,9 @@ def create_offer(mandate, option, intent):
                                          "priceValidTo", "stockConfirmed", "trust", "evidence")}
                   for l in option["lines"]],
         "total_eur": option["total_eur"], "deliver_by": intent["deliver_by"],
+        # What the buyer asked for, sealed into the signature: the order is checked against this, not against
+        # whatever the agent claims later.
+        "requested_quantity": intent.get("quantity"),
         "issued_at": store.now(), "expires_at": exp.astimezone(timezone.utc).isoformat(timespec="seconds"),
         "expiry_reason": reason,
     }
@@ -451,6 +459,10 @@ def place_order(offer_jws, idempotency_key, mandate, context, client=None, actor
         if existing["offer_id"] != payload["offer_id"]:
             return None, "idempotency key already used for a different offer: use a new key"
         return existing, "duplicate request: returning the original order (idempotent)"
+    if store.order_by_offer(payload["offer_id"]):
+        # A signed offer can be committed once. A new idempotency key doesn't make it a new purchase.
+        store.log(payload["offer_id"], actor, "security.offer_replayed", {"idempotency_key": idempotency_key})
+        return None, "this signed offer was already used for an order: request a new offer"
     if payload["expires_at"] < store.now():
         return None, "offer expired: request a new one"
     client = client or ValioClient()
@@ -480,7 +492,7 @@ def place_order(offer_jws, idempotency_key, mandate, context, client=None, actor
     return order, None
 
 
-def quote(mandate_id, deliver_by, lines, client=None):
+def quote(mandate_id, deliver_by, lines, client=None, requested_quantity=None):
     """Signed fixed-price offer for explicit lines (used by /v1/quotes and the MCP tool).
 
     Returns (offer, jws, None) or (None, None, error)."""
@@ -514,7 +526,7 @@ def quote(mandate_id, deliver_by, lines, client=None):
                     "trust": trust_flags(p, pr, av, sum(x["availableAmount"] for x in sched), now_s),
                     "evidence": catalog.evidence(p)})
     option = {"lines": out, "total_eur": round(sum(x["lineTotal"] for x in out), 2)}
-    offer, jws = create_offer(mandate, option, {"deliver_by": deliver_by})
+    offer, jws = create_offer(mandate, option, {"deliver_by": deliver_by, "quantity": requested_quantity})
     return offer, jws, None
 
 
@@ -558,7 +570,12 @@ def order_from_jws(jws, idempotency_key, rationale="", requested_units=None):
            "rationale": rationale, "requested_units": requested_units,
            # The policy's "matches the buyer's request" rule reads requested_quantity (in the same units as
            # the offer lines). Before, external agents' orders skipped that rule entirely.
-           "requested_quantity": requested_units}
+           "requested_quantity": payload.get("requested_quantity") or requested_units}
+    if payload.get("requested_quantity") and requested_units and abs(requested_units - payload["requested_quantity"]) > 1e-9:
+        store.log(payload["offer_id"], f"agent:{mandate['agent']}", "security.intent_mismatch",
+                  {"signed": payload["requested_quantity"], "claimed": requested_units})
+        return None, (f"the order claims {requested_units:g} requested, but the signed offer says "
+                      f"{payload['requested_quantity']:g}: request a new offer")
     return place_order(jws, idempotency_key, mandate, ctx, actor=f"agent:{mandate['agent']}")
 
 
@@ -573,6 +590,8 @@ def decide(order_id, decision, approver, comment="", client=None):
         return None, "order is not waiting for approval"
     if decision not in ("approve", "reject"):
         return None, "decision must be 'approve' or 'reject'"
+    if order["mandate_id"] not in policy.mandates():
+        return None, f"unknown mandate {order['mandate_id']}: nobody can approve under it"
     mandate = policy.load(order["mandate_id"])
     who = next((a for a in mandate["approvers"] if a["name"] == approver), None)
     if not who:
@@ -583,9 +602,17 @@ def decide(order_id, decision, approver, comment="", client=None):
     offer = order["record"]["offer"]
     if decision == "approve" and offer["expires_at"] < store.now():
         client = client or ValioClient()
-        fresh = client.prices(mandate["customer"], offer["deliver_by"], [l["productId"] for l in offer["lines"]])
+        ids = [l["productId"] for l in offer["lines"]]
+        fresh = client.prices(mandate["customer"], offer["deliver_by"], ids)
         changed = [l["productId"] for l in offer["lines"]
                    if abs((fresh.get(l["productId"], {}).get("catalogPrice") or {}).get("value", -1) - l["unitPrice"]) > 0.005]
+        # Stock and cut-off can change while an order waits too.
+        now_s, avail = client.availability(mandate["customer"], offer["deliver_by"], ids)
+        for l in offer["lines"]:
+            a = avail.get(l["productId"]) or {}
+            sched = [x for x in a.get("scheduleLines", []) if not x.get("salesBlock") and x.get("availableDate")]
+            if _passed(a.get("closingTime"), now_s) or sum(x.get("availableAmount", 0) for x in sched) < l["units"]:
+                changed.append(l["productId"])
         if changed:
             order["status"] = "expired"
             order["record"].setdefault("approvals", []).append(

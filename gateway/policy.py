@@ -119,7 +119,8 @@ def evaluate(mandate, offer, context):
     subs = [l for l in offer["lines"] if l.get("substitution")]
     sub_policy = mandate["substitutions"]
     sub_levels = {l["substitution"] for l in subs}
-    forbidden_subs = [s for s in sub_levels if sub_policy.get(s) == "forbidden"]
+    # Fail closed: a substitution type the mandate doesn't name is treated as forbidden.
+    forbidden_subs = [s for s in sub_levels if sub_policy.get(s, "forbidden") not in ("allowed", "with_approval")]
     rule("Substitutions allowed", not forbidden_subs, "block",
          f"forbidden: {', '.join(forbidden_subs)}" if forbidden_subs else (", ".join(sorted(sub_levels)) or "no substitutes"))
     approve_subs = [s for s in sub_levels if sub_policy.get(s) == "with_approval"]
@@ -147,7 +148,7 @@ def evaluate(mandate, offer, context):
     unknown = [get(l["productId"])["name"] for l in offer["lines"] if l.get("reliability") is None]
     rule("Delivery reliability", not low, "approve",
          f"below {minimum:.0%}: " + ", ".join(low) if low else f"every line with a delivery history is ≥ {minimum:.0%}")
-    if mandate.get("unknown_reliability", "allow") == "needs_approval":
+    if mandate.get("unknown_reliability", "needs_approval") == "needs_approval":  # unset = fail closed
         rule("Delivery history known", not unknown, "approve",
              "no delivery history for: " + ", ".join(unknown) if unknown else "every line has a delivery history")
     elif unknown:  # allowed by this mandate, but said out loud rather than shown as a pass on reliability
@@ -165,11 +166,12 @@ def evaluate(mandate, offer, context):
 
     rule("Auto-approve spend limit", total <= auto["max_order_total_eur"], "approve",
          f"€{total:,.2f} vs auto-approve limit €{auto['max_order_total_eur']:,}")
-    if auto.get("max_auto_eur_per_24h") is not None:
-        before = context.get("auto_spend_24h") or 0
-        rule("Agent's own spend in 24 h", before + total <= auto["max_auto_eur_per_24h"], "approve",
-             f"€{before:,.2f} already ordered alone in 24 h + €{total:,.2f} vs €{auto['max_auto_eur_per_24h']:,} "
-             "(splitting an order into small ones doesn't avoid approval)")
+    # Unset = fail closed: the agent's own spend in 24 h is capped at its per-order limit.
+    cap = auto.get("max_auto_eur_per_24h", auto["max_order_total_eur"])
+    before = context.get("auto_spend_24h") or 0
+    rule("Agent's own spend in 24 h", before + total <= cap, "approve",
+         f"€{before:,.2f} already ordered alone in 24 h + €{total:,.2f} vs €{cap:,} "
+         "(splitting an order into small ones doesn't avoid approval)")
 
     verdict = gates.from_rules(rules)
     if verdict["action"] == "stop":

@@ -84,6 +84,9 @@ an approver who can't fix it), 105 were real gaps now closed (rules 3-5 above), 
 - Shopping lists are sent back rather than split into lines (100).
 - Pack size can't be stated as a requirement ("20 L Novobox only"), so such requests are sent back.
 - Nothing binds a caller to a mandate yet (one shared password): any agent can quote under any buyer's mandate.
+- Approver identity is the shared demo login: the gateway checks that the approver is named in the mandate and has
+  authority for the total, and refuses agents' tokens, but it can't tell which signed-in person clicked. Next step:
+  one login per approver.
 - No weekly budget in the mandate; no rule against an explicit but absurd pack choice (50,000 portion cups).
 - The mock ignores the requested date; that is an assumption (ASSUMPTIONS.md), not a gate-4 rule.
 
@@ -94,3 +97,12 @@ the reality check is meant to catch this, but that path wasn't testable here. Th
 prompt claims ("not in time for Monday") that the simulation can't show.
 Nothing crashes. 30 ordinary kitchen requests: 29 go through; "40 litres of yoghurt" is sent back because yoghurt
 is sold by the kilo.
+
+## Outside red-team review (ChatGPT, 13 Nov 22:26, of an older `main`)
+Its 11 tests are in `tests/test_red_team_regressions.py`, adapted only where its fakes didn't match the code.
+Fixed after it: a signed offer can be committed once, whatever the idempotency key; the buyer's requested quantity is
+sealed into the signed offer and an agent claiming a different one is refused; unknown substitution types are refused;
+a late approval rechecks stock and cut-off as well as price; mandates that don't set delivery-history or 24 h limits
+fail closed. Already fixed before it (on `main` or this branch): negative and half-pack quantities, approvals by agents
+or by people outside the mandate, the external "matches the request" check, 10.5 L packs, missing quantities, unknown
+allergen data, Terminal stock, the 24 h limit.
