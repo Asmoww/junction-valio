@@ -634,10 +634,11 @@ def _decide(order_id, decision, approver, comment, client):
             order["status"] = "expired"
             order["record"].setdefault("approvals", []).append(
                 {"approver": approver, "decision": decision, "comment": comment, "at": store.now(),
-                 "note": f"price lock expired and the price changed for {', '.join(changed)}"})
+                 "note": f"price lock expired and the price, stock or cut-off changed for {', '.join(changed)}"})
             store.save_order(order)
             store.log(order_id, "gateway", "order.expired", {"products": changed})
-            return None, f"the price lock expired and the price changed for {', '.join(changed)}: request a new offer"
+            return None, (f"the price lock expired and the price, stock or cut-off changed for {', '.join(changed)}: "
+                          "request a new offer")
         store.log(order_id, "gateway", "price.reconfirmed", {"reason": "price lock expired before approval"})
     order["status"] = "placed" if decision == "approve" else "rejected"
     order["record"].setdefault("approvals", []).append(

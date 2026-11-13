@@ -123,6 +123,22 @@ def test_expired_lock_with_changed_price_is_not_placed(valio):
     assert store.get_order(order["id"])["status"] == "expired"
 
 
+def test_expired_lock_with_stock_gone_or_cutoff_passed_is_not_placed(valio):
+    class Short(FakeValio):
+        def availability(self, customer, date, ids):
+            now, out = super().availability(customer, date, ids)
+            out["464306"]["scheduleLines"][0]["availableAmount"] = 10  # 900 were offered
+            return now, out
+    for client in (Short(), FakeValio(closing="2026-11-12T15:00:00+0200")):
+        order = pending(valio)
+        rec = store.get_order(order["id"])
+        rec["record"]["offer"]["expires_at"] = "2000-01-01T00:00:00+00:00"
+        store.save_order(rec)
+        o, err = agent.decide(order["id"], "approve", "Aino Virtanen", client=client)
+        assert o is None and "request a new offer" in err
+        assert store.get_order(order["id"])["status"] == "expired"
+
+
 def test_expired_lock_with_same_price_is_reconfirmed_and_placed(valio):
     order = pending(valio)
     rec = store.get_order(order["id"])
