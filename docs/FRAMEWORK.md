@@ -88,6 +88,9 @@ an approver who can't fix it), 105 were real gaps now closed (rules 3-5 above), 
 - The mock ignores the requested date; that is an assumption (ASSUMPTIONS.md), not a gate-4 rule.
 
 Code test (the product run on all 1,000, rule-based reading, simulated Valio prices and stock): wrong automatic
-orders fell from 66 to 3, and the 3 remaining depend on availability the prompt claims but the simulation can't show.
+orders fell from 66 to 8. Five are "20 kg butter for a dairy-free vegan menu", where keyword search without Claude's
+reality check picks a product that merely contains the word ("butter bean balls"); with Claude reading requests
+the reality check is meant to catch this, but that path wasn't testable here. Three depend on availability the
+prompt claims ("not in time for Monday") that the simulation can't show.
 Nothing crashes. 30 ordinary kitchen requests: 29 go through; "40 litres of yoghurt" is sent back because yoghurt
 is sold by the kilo.
