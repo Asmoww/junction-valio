@@ -38,7 +38,9 @@ change only by agreement; record the change in `docs/DECISIONS.md`.
 4. Never commit API keys or tokens. Use `.env` (gitignored); list variable names in `.env.example`.
 5. Query the Valio APIs only when needed, never for all products.
 6. Before finishing: update `docs/STATUS.md`, commit, push (or run `/handoff`).
-7. Everything in English: code, comments, docs, commit messages, UI text.
+7. Post a one-line Discord update on real milestones only (feature works, deployed, blocked):
+   `python scripts/notify.py "..."`. Webhook URL is in `.env` (from team chat), never in git.
+8. Everything in English: code, comments, docs, commit messages, UI text.
 
 ## Stack and how to run
 - Python 3.12+, dependencies in `pyproject.toml`, managed with `uv` (`pip install uv` if missing).
@@ -48,8 +50,19 @@ change only by agreement; record the change in `docs/DECISIONS.md`.
 - Approval UI: served by the gateway (Jinja templates + htmx), so the whole demo is one Python process.
 - Storage: SQLite (audit log, quotes, orders). Tests: pytest.
 
+Data: log in to the resource portal and download the 4 data files into `data/` (gitignored, challenge-only
+data), then `python scripts/build_catalog.py` builds `data/catalog.json`.
+
 ```bash
 uv sync                                   # install
-uv run uvicorn gateway.main:app --reload  # run gateway + approval UI on :8000
+uv run uvicorn gateway.main:app --reload  # run gateway + demo UI on :8000 (DEMO_PASSWORD in .env)
 uv run pytest                             # tests (keep an end-to-end demo-flow test green)
 ```
+
+## Code map
+- `gateway/agent.py` buyer agent flow: parse request → search → price/availability → options → signed offer → order
+- `gateway/catalog.py` local product search (no API calls), allergen/label names
+- `gateway/policy.py` + `gateway/mandates/*.json` mandate rules (the guardrails)
+- `gateway/signing.py` Ed25519 JWS offers · `gateway/store.py` SQLite + hash-chained audit log
+- `gateway/main.py` FastAPI: password gate, `/v1` open API, `/api` demo endpoints · `gateway/templates/index.html` demo UI
+- Deployed on Pyry's server: user service `valio-gateway` on port 5201 behind Cloudflare tunnel → valio.psavela.com

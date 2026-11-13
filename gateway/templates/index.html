@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>Trusted Trade Agents · Valio Aimo gateway demo</title>
+<style>
+  :root { --navy:#0b2a5b; --blue:#14628f; --orange:#f08a24; --bg:#f3f5f8; --card:#fff; --ink:#1b2430; --mute:#5f6b7a;
+          --ok:#1e8e4e; --warn:#c77700; --bad:#c62828; --line:#e2e7ee; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background:var(--bg); color:var(--ink); }
+  header { background:var(--navy); color:#fff; padding:14px 24px; display:flex; align-items:center; gap:16px; flex-wrap:wrap;
+           border-bottom:4px solid var(--orange); }
+  header h1 { font-size:1.15rem; margin:0; }
+  header .sub { opacity:.75; font-size:.85rem; }
+  header nav { margin-left:auto; display:flex; gap:14px; font-size:.85rem; }
+  header a { color:#fff; opacity:.85; }
+  main { display:grid; grid-template-columns: 360px 1fr; gap:20px; padding:20px 24px; max-width:1500px; margin:0 auto; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  .card { background:var(--card); border-radius:12px; padding:16px 18px; box-shadow:0 1px 3px #0001; margin-bottom:16px; }
+  .card h2 { font-size:.8rem; text-transform:uppercase; letter-spacing:.06em; color:var(--blue); margin:0 0 10px; }
+  label { font-size:.8rem; color:var(--mute); display:block; margin:10px 0 4px; }
+  select, textarea, input[type=number] { width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:8px; font:inherit; }
+  textarea { min-height:90px; resize:vertical; }
+  button { font:inherit; border:0; border-radius:8px; padding:9px 14px; cursor:pointer; font-weight:600; }
+  .primary { background:var(--orange); color:#fff; width:100%; padding:11px; font-size:1rem; margin-top:12px; }
+  .primary:disabled { opacity:.6; cursor:wait; }
+  .ghost { background:#eef2f7; color:var(--navy); }
+  .presets { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+  .presets button { background:#eef2f7; color:var(--navy); font-size:.78rem; font-weight:500; padding:5px 9px; }
+  .kv { display:grid; grid-template-columns: auto 1fr; gap:4px 12px; font-size:.85rem; }
+  .kv div:nth-child(odd) { color:var(--mute); }
+  .chip { display:inline-block; padding:2px 8px; border-radius:99px; font-size:.75rem; background:#eef2f7; color:var(--navy); margin:2px 4px 2px 0; }
+  .chip.ok { background:#e3f4ea; color:var(--ok); } .chip.warn { background:#fff1dc; color:var(--warn); } .chip.bad { background:#fde7e7; color:var(--bad); }
+  .toggle { display:flex; gap:8px; align-items:center; font-size:.85rem; margin-top:10px; }
+  .step { position:relative; padding-left:44px; animation: fadein .35s ease both; }
+  .step .stepnum { position:absolute; left:14px; top:16px; width:22px; height:22px; border-radius:50%; background:var(--blue); color:#fff;
+               font-size:.75rem; display:grid; place-items:center; font-weight:700; }
+  .step.alert .stepnum { background:var(--bad); }
+  @keyframes fadein { from { opacity:0; transform: translateY(6px); } to { opacity:1; transform:none; } }
+  table { width:100%; border-collapse:collapse; font-size:.82rem; }
+  th { text-align:left; color:var(--mute); font-weight:500; border-bottom:1px solid var(--line); padding:5px 6px; }
+  td { border-bottom:1px solid var(--line); padding:6px; vertical-align:top; }
+  td.num, th.num { text-align:right; white-space:nowrap; }
+  .funnel { display:flex; gap:8px; flex-wrap:wrap; align-items:center; font-size:.85rem; }
+  .funnel b { font-size:1.2rem; color:var(--navy); display:block; }
+  .funnel .arrow { color:var(--orange); font-size:1.2rem; }
+  .funnel > div:not(.arrow) { background:#f6f8fb; border-radius:8px; padding:8px 12px; }
+  .options { display:grid; grid-template-columns: repeat(auto-fit, minmax(220px,1fr)); gap:10px; }
+  .option { border:1px solid var(--line); border-radius:10px; padding:12px; }
+  .option.chosen { border:2px solid var(--orange); background:#fff8f0; }
+  .option .label { font-size:.72rem; text-transform:uppercase; letter-spacing:.05em; color:var(--orange); font-weight:700; }
+  .option .total { font-size:1.3rem; font-weight:700; color:var(--navy); margin:4px 0; }
+  .mono { font-family: ui-monospace, Menlo, monospace; font-size:.75rem; word-break:break-all; background:#f6f8fb; padding:8px; border-radius:8px; }
+  .rules { list-style:none; padding:0; margin:0; font-size:.85rem; }
+  .rules li { padding:5px 0; border-bottom:1px solid var(--line); display:flex; gap:8px; }
+  .rules .icon { width:20px; flex-shrink:0; text-align:center; font-weight:700; }
+  .rules .pass { color:var(--ok); } .rules .approve { color:var(--warn); } .rules .block { color:var(--bad); }
+  .rules .detail { color:var(--mute); margin-left:auto; text-align:right; font-size:.8rem; }
+  .outcome { border-radius:10px; padding:14px; font-size:.95rem; }
+  .outcome.placed { background:#e3f4ea; } .outcome.pending_approval { background:#fff1dc; } .outcome.blocked, .outcome.rejected, .outcome.error { background:#fde7e7; }
+  .outcome h3 { margin:0 0 6px; font-size:1.05rem; }
+  .approve-btn { background:var(--ok); color:#fff; } .reject-btn { background:var(--bad); color:#fff; }
+  .counter { background:var(--navy); color:#fff; border-radius:10px; padding:10px 14px; display:flex; gap:18px; align-items:center; font-size:.85rem; }
+  .counter b { font-size:1.3rem; color:var(--orange); }
+  .muted { color:var(--mute); font-size:.85rem; }
+  .events { font-size:.78rem; }
+  .events td { padding:4px 6px; }
+  .empty { text-align:center; padding:60px 20px; color:var(--mute); }
+  .empty h2 { color:var(--navy); text-transform:none; letter-spacing:0; font-size:1.3rem; }
+  details summary { cursor:pointer; color:var(--blue); font-size:.85rem; margin-top:8px; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Trusted Trade Agents</h1>
+    <div class="sub">Valio Aimo trade gateway · Junction 2026 demo · synthetic data</div>
+  </div>
+  <nav>
+    <a href="/docs" target="_blank">Open API (Swagger)</a>
+    <a href="/.well-known/jwks.json" target="_blank">Signing key (JWKS)</a>
+    <a href="#" onclick="showAudit();return false">Audit log</a>
+  </nav>
+</header>
+
+<main>
+  <aside>
+    <div class="card">
+      <h2>1 · Buyer's mandate</h2>
+      <select id="mandate" onchange="renderMandate()"></select>
+      <div id="mandateView" style="margin-top:10px"></div>
+      <label for="autoLimit">Auto-approve limit (€) — what the agent may decide alone</label>
+      <input type="number" id="autoLimit" step="50" min="0">
+    </div>
+    <div class="card">
+      <h2>2 · Request to the agent</h2>
+      <textarea id="request">I need 1,000 litres of lactose-free milk by Monday. Find an option that meets our requirements based on price and availability.</textarea>
+      <div class="presets" id="presets"></div>
+      <label class="toggle"><input type="checkbox" id="priceChange"> Red team: price changes between offer and order</label>
+      <button class="primary" id="runBtn" onclick="run()">Run purchasing agent</button>
+    </div>
+  </aside>
+
+  <section id="out">
+    <div class="card empty">
+      <h2>How an outside AI agent buys from Valio Aimo, safely</h2>
+      <p>Pick a mandate, write what the kitchen needs and run the agent.<br>
+      Every step below is a call to the open gateway API: lookup → signed fixed-price offer → mandate check → order or human approval → audit trail.</p>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const eur = n => '€' + Number(n).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+const ALLERGEN = {AN:'tree nuts',AP:'peanuts',SA:'almond',SH:'hazelnut',AS:'sesame',AM:'milk',AW:'gluten',AE:'egg',AF:'fish'};
+const PRESETS = {
+  mnd_hotel_helsinki: [
+    ['Milk for Monday', 'I need 1,000 litres of lactose-free milk by Monday. Find an option that meets our requirements based on price and availability.'],
+    ['Small top-up', 'We need 100 litres of lactose-free milk by Monday.'],
+    ['Organic oat drink', 'Order 200 litres of organic oat drink by Tuesday.'],
+  ],
+  mnd_school_espoo: [
+    ['Muesli (nut-free)', 'We need 40 kg of muesli by Wednesday for the school breakfast.'],
+    ['Gluten-free bread', 'Order 60 kg gluten-free bread by Tuesday.'],
+    ['Lactose-free milk', 'We need 300 litres of lactose-free milk by Monday.'],
+  ],
+};
+let mandates = {}, last = null;
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.detail || r.statusText);
+  return j;
+}
+
+async function init() {
+  const list = await api('/api/mandates');
+  list.forEach(m => mandates[m.mandate_id] = m);
+  $('#mandate').innerHTML = list.map(m => `<option value="${m.mandate_id}">${esc(m.buyer)}</option>`).join('');
+  renderMandate();
+}
+
+function renderMandate() {
+  const m = mandates[$('#mandate').value];
+  $('#autoLimit').value = m.auto_approve.max_order_total_eur;
+  const forb = m.hard_limits.forbidden_allergens.map(a => ALLERGEN[a] || a);
+  $('#mandateView').innerHTML = `<div class="kv">
+    <div>Agent</div><div>${esc(m.agent)}</div>
+    <div>Hard limit</div><div>${eur(m.hard_limits.max_order_total_eur)} per order</div>
+    <div>Never buy</div><div>${forb.length ? forb.map(a => `<span class="chip bad">${a}</span>`).join('') : '<span class="muted">no allergen bans</span>'}</div>
+    <div>Substitutes</div><div>official: <b>${m.substitutions.official_substitute.replace('_',' ')}</b></div>
+    <div>Reliability</div><div>≥ ${(m.min_delivery_reliability*100).toFixed(0)}% or human checks</div>
+    <div>Approvers</div><div>${m.approvers.map(a => `${esc(a.role)} ≤ ${eur(a.up_to_eur)}`).join('<br>')}</div>
+    <div>Weights</div><div>price ${m.weights.price} · reliability ${m.weights.reliability} · carbon ${m.weights.carbon}</div>
+  </div>`;
+  $('#presets').innerHTML = (PRESETS[m.mandate_id] || []).map(([l, t]) =>
+    `<button onclick="$('#request').value=${esc(JSON.stringify(t))}">${esc(l)}</button>`).join('');
+}
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+async function run() {
+  const btn = $('#runBtn'); btn.disabled = true; btn.textContent = 'Agent working…';
+  $('#out').innerHTML = '';
+  try {
+    const res = await api('/api/run', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({
+      request: $('#request').value, mandate_id: $('#mandate').value, auto_limit: Number($('#autoLimit').value),
+      simulate_price_change: $('#priceChange').checked })});
+    last = res;
+    const calls = res.api_calls.length;
+    $('#out').insertAdjacentHTML('beforeend', `<div class="counter card"><div><b>${calls}</b> Valio API calls</div>
+      <div><b>0</b> calls to scan the 17,546-product catalog</div>
+      <div class="muted" style="color:#fff;opacity:.8">${res.api_calls.map(c => `${c.endpoint} ×${c.products} (${c.ms} ms)`).join(' · ')}</div></div>`);
+    let n = 0;
+    for (const s of res.steps) { n++; $('#out').insertAdjacentHTML('beforeend', renderStep(s, n)); await sleep(350); }
+    renderOutcome(res);
+  } catch (e) {
+    $('#out').insertAdjacentHTML('beforeend', `<div class="card outcome error"><h3>Something went wrong</h3>${esc(e.message)}</div>`);
+  }
+  btn.disabled = false; btn.textContent = 'Run purchasing agent';
+}
+
+function statusChip(s) {
+  const map = {ok:['ok','available'], partial:['warn','partial'], deadline_passed:['bad','deadline passed'], unavailable:['bad','not in time'],
+               blocked:['bad','sales block'], no_price:['bad','no price'], unit_mismatch:['warn','unit?']};
+  const [c, t] = map[s] || ['', s]; return `<span class="chip ${c}">${t}</span>`;
+}
+
+function renderStep(s, n) {
+  const wrap = (body, cls='') => `<div class="card step ${cls}"><div class="stepnum">${n}</div><h2>${esc(s.title)}</h2>${body}</div>`;
+  if (s.step === 'request') {
+    const i = s.intent;
+    return wrap(`<div class="kv"><div>Product</div><div><b>${esc(i.product)}</b></div>
+      <div>Quantity</div><div>${i.quantity ?? '—'} ${esc(i.unit)}</div>
+      <div>Requirements</div><div>${i.attributes.map(a => `<span class="chip">${esc(a.replaceAll('_',' ').toLowerCase())}</span>`).join('') || '—'}</div>
+      <div>Deliver by</div><div>${esc(i.deliver_by)}</div></div>
+      <p class="muted">Free text becomes a structured intent. Everything after this works on structured data, not on a chat.</p>`);
+  }
+  if (s.step === 'lookup') {
+    const t = s.search;
+    return wrap(`<div class="funnel">
+      <div><b>17,546</b>products</div><div class="arrow">→</div>
+      <div><b>${t.text_matches}</b>match “${esc(t.query)}”${t.attributes.length ? ' + requirements' : ''}</div><div class="arrow">→</div>
+      <div><b>${t.after_modifier_filter}</b>plain product (no flavoured, powder…)</div><div class="arrow">→</div>
+      <div><b>${t.shortlisted}</b>shortlist (category ${esc(t.category)})</div></div>
+      ${s.excluded_by_mandate.length ? `<p><span class="chip bad">excluded by mandate</span> ${s.excluded_by_mandate.map(e => `${esc(e.name)} — <i>${esc(e.reason)}</i>`).join('; ')}</p>` : ''}
+      ${s.official_substitutes_added.length ? `<p><span class="chip warn">official substitutes added</span> ${s.official_substitutes_added.join(', ')}</p>` : ''}`);
+  }
+  if (s.step === 'price_availability') {
+    const rows = s.rows.map(r => `<tr><td>${esc(r.name)}<br><span class="muted">${r.productId}${r.substitution ? ' · substitute' : ''}</span></td>
+      <td>${statusChip(r.status)}${r.issues.map(i => `<div class="muted">${esc(i)}</div>`).join('')}${r.earliest_alternative ? `<div class="muted">earliest: ${r.earliest_alternative}</div>` : ''}</td>
+      <td class="num">${r.price_per_req_unit != null ? eur(r.price_per_req_unit) : '—'}</td>
+      <td class="num">${r.units != null ? r.units + ' ' + esc(r.sales_unit) : '—'}</td>
+      <td class="num">${r.total != null ? eur(r.total) : '—'}</td>
+      <td class="num">${r.reliability != null ? (r.reliability*100).toFixed(0)+'%' : '<span class="muted">n/a</span>'}</td>
+      <td class="num">${r.score != null ? r.score.toFixed(2) : ''}</td></tr>`).join('');
+    return wrap(`<table><thead><tr><th>Product</th><th>Status</th><th class="num">€ / unit asked</th><th class="num">Order</th>
+      <th class="num">Total</th><th class="num">Delivery reliability</th><th class="num">Score</th></tr></thead><tbody>${rows}</tbody></table>
+      <p class="muted">Prices and availability come live from Valio's mock APIs, only for the shortlist.</p>`);
+  }
+  if (s.step === 'options') {
+    if (!s.options.length) return wrap('<p>No product can be delivered in time.</p>', 'alert');
+    return wrap(`<div class="options">${s.options.map((o, i) => `<div class="option ${i===0?'chosen':''}">
+      <div class="label">${esc(o.label)}${i===0 ? ' · agent picks' : ''}</div>
+      <div class="total">${eur(o.total_eur)}</div>
+      ${o.lines.map(l => `<div>${l.units} × ${esc(l.name)}</div>`).join('')}
+      <div class="muted">${esc(o.why)}${o.partial ? ' · covers only part' : ''}</div></div>`).join('')}</div>`);
+  }
+  if (s.step === 'offer') {
+    const o = s.offer;
+    return wrap(`<div class="kv"><div>Offer</div><div>${o.offer_id}</div><div>Total</div><div><b>${eur(o.total_eur)}</b> (${esc(o.price_basis)})</div>
+      <div>Valid until</div><div>${esc(o.expires_at)}</div></div>
+      <details><summary>Signed offer (Ed25519 JWS) — anyone can verify it with Valio's public key</summary>
+      <div class="mono" style="margin-top:6px">${esc(s.jws)}</div>
+      <button class="ghost" style="margin-top:6px" onclick='verify(this, ${JSON.stringify(s.jws)})'>Verify signature</button>
+      <button class="ghost" style="margin-top:6px" onclick='verify(this, ${JSON.stringify(tamper(s.jws))})'>Tamper with price &amp; verify</button>
+      <span class="muted"></span></details>`);
+  }
+  if (s.step === 'order_rejected') {
+    return wrap(`<p><span class="chip bad">rejected</span> ${esc(s.error)}</p><p class="muted">The gateway re-checks live prices before committing, so a stale offer can never become an order.</p>`, 'alert');
+  }
+  if (s.step === 'policy') {
+    const p = s.policy;
+    const icon = r => r.ok ? '<span class="icon pass">✓</span>' : (r.level === 'block' ? '<span class="icon block">✕</span>' : '<span class="icon approve">!</span>');
+    return wrap(`<ul class="rules">${p.rules.map(r => `<li>${icon(r)}<span>${esc(r.rule)}</span><span class="detail">${esc(r.detail)}</span></li>`).join('')}</ul>
+      <p class="muted">Rules run in the gateway, not in the agent's prompt: a jailbroken agent can't skip them.</p>`);
+  }
+  return '';
+}
+
+function tamper(jws) {
+  // Change the price inside the payload but keep the old signature.
+  const [h, p, sig] = jws.split('.');
+  const json = JSON.parse(atob(p.replace(/-/g,'+').replace(/_/g,'/')));
+  json.total_eur = Math.round(json.total_eur * 0.5 * 100) / 100;
+  const p2 = btoa(unescape(encodeURIComponent(JSON.stringify(json)))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+  return `${h}.${p2}.${sig}`;
+}
+
+async function verify(btn, jws) {
+  const r = await api('/v1/offers/verify', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({jws})});
+  const out = btn.parentElement.querySelector('span.muted');
+  out.innerHTML = r.valid ? `<span class="chip ok">valid signature · total ${eur(r.payload.total_eur)}</span>` : `<span class="chip bad">${esc(r.error)}</span>`;
+}
+
+function renderOutcome(res) {
+  const o = res.order;
+  if (!o) {
+    $('#out').insertAdjacentHTML('beforeend', `<div class="card outcome error"><h3>No order</h3>${esc(res.result.error || res.result.status)}</div>`);
+    return;
+  }
+  const ap = o.policy.approver;
+  let body;
+  if (o.status === 'placed') body = `<h3>✓ Order placed automatically</h3>Within the agent's own authority. ${o.id} · ${eur(o.total)}`;
+  else if (o.status === 'blocked') body = `<h3>✕ Blocked by the mandate</h3>The gateway refused the order. No human can approve a hard-limit breach in one click.`;
+  else body = `<h3>Waiting for human sign-off</h3>Sent to <b>${esc(ap.role)} ${esc(ap.name)}</b> (can approve up to ${eur(ap.up_to_eur)}).
+    <div style="margin-top:10px;display:flex;gap:8px"><button class="approve-btn" onclick="decide('${o.id}','approve','${esc(ap.name)}')">Approve as ${esc(ap.name)}</button>
+    <button class="reject-btn" onclick="decide('${o.id}','reject','${esc(ap.name)}')">Reject</button></div>`;
+  $('#out').insertAdjacentHTML('beforeend', `<div class="card step" id="outcome"><div class="stepnum">✓</div><h2>Outcome</h2>
+    <div class="outcome ${o.status}">${body}</div></div><div id="record"></div>`);
+  showRecord(o.id);
+}
+
+async function decide(id, decision, who) {
+  const o = await api(`/v1/approvals/${id}`, {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({decision, approver: who, comment: decision === 'approve' ? 'Approved in demo UI' : 'Rejected in demo UI'})});
+  $('#outcome .outcome').className = 'outcome ' + o.status;
+  $('#outcome .outcome').innerHTML = o.status === 'placed'
+    ? `<h3>✓ Approved by ${esc(who)} and placed</h3>${o.id} · ${eur(o.total)}` : `<h3>✕ Rejected by ${esc(who)}</h3>No order was placed.`;
+  showRecord(id);
+}
+
+async function showRecord(id) {
+  const d = await api(`/v1/orders/${id}/decision`);
+  const o = d.order, off = o.record.offer, failed = o.policy.rules.filter(r => !r.ok);
+  const story = `The agent was asked: “${esc(o.record.context.request || '')}”. It compared ${o.record.rows?.length ?? '?'} products using
+    ${o.record.api_calls?.length ?? '?'} Valio API calls, and chose <b>${off.lines.map(l => `${l.units} × ${esc(l.name)}`).join(' + ')}</b>
+    for ${eur(off.total_eur)} (${esc(o.record.context.rationale || '')})
+    ${failed.length ? `The order needed sign-off because: ${failed.map(r => esc(r.rule.toLowerCase()) + ' (' + esc(r.detail) + ')').join('; ')}.` : 'It was within the agent\'s own authority.'}
+    ${(o.record.approvals || []).map(a => ` ${esc(a.approver)} chose to ${a.decision} at ${a.at}.`).join('')}`;
+  $('#record').innerHTML = `<div class="card"><h2>Decision record · ${o.id}</h2><p>${story}</p>
+    <table class="events"><thead><tr><th>Time (UTC)</th><th>Who</th><th>What</th><th>Hash</th></tr></thead><tbody>
+    ${d.events.sort((a,b) => a.seq-b.seq).map(e => `<tr><td>${e.ts.slice(11,19)}</td><td>${esc(e.actor)}</td><td>${esc(e.type)}</td><td class="muted">${e.hash.slice(0,12)}…</td></tr>`).join('')}</tbody></table>
+    <p class="muted">Audit chain: ${d.chain.valid ? `<span class="chip ok">intact · ${d.chain.events} events</span>` : '<span class="chip bad">broken</span>'}
+    Every event's hash covers the one before it, so edits to history are detectable. Same record for the buyer and for Valio.</p></div>`;
+}
+
+async function showAudit() {
+  const d = await api('/api/audit');
+  $('#out').innerHTML = `<div class="card"><h2>Gateway audit log (latest ${d.events.length})</h2>
+    <p>${d.chain.valid ? `<span class="chip ok">chain intact · ${d.chain.events} events</span>` : '<span class="chip bad">chain broken</span>'}</p>
+    <table class="events"><thead><tr><th>Time (UTC)</th><th>Ref</th><th>Who</th><th>What</th><th>Details</th></tr></thead><tbody>
+    ${d.events.reverse().map(e => `<tr><td>${e.ts.slice(5,19).replace('T',' ')}</td><td>${esc(e.ref)}</td><td>${esc(e.actor)}</td><td>${esc(e.type)}</td>
+    <td class="muted">${esc(JSON.stringify(e.data)).slice(0,140)}</td></tr>`).join('')}</tbody></table></div>`;
+}
+
+init();
+</script>
+</body>
+</html>

@@ -12,6 +12,8 @@ dependencies = [
     "anthropic>=0.40",
     "mcp>=1.0",
     "python-dotenv>=1.0",
+    "cryptography>=42",
+    "python-multipart>=0.0.9",
 ]
 
 [dependency-groups]
