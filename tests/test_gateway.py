@@ -211,3 +211,17 @@ def test_reality_check_can_only_narrow_never_add():
 
     found, trace = catalog.search("milk", [], type_check=lambda q, g: {"categories": [], "reason": "not milk"})
     assert found == [] and trace["reality_check"]["kept_categories"] == []
+
+
+def test_unit_that_does_not_fit_the_product_stops_before_any_api_call():
+    res = agent.run("We need 1,000 kg of lactose-free milk by Monday.", HOTEL)  # the test milks are sold by the litre
+    assert res["result"]["status"] == "unit_mismatch" and res["api_calls"] == []
+    assert res["result"]["fix"]["to"] == "L" and "Nothing was ordered" in res["result"]["error"]
+
+
+def test_agent_does_not_ask_for_an_offer_above_the_hard_limit():
+    res = agent.run("We need 4,000 litres of lactose-free milk by Monday.", HOTEL)  # €4,040+ ... fits
+    assert res.get("order") is not None
+    res = agent.run("We need 6,000 litres of lactose-free milk by Monday.", HOTEL)  # €6,060 > €5,000 hard limit
+    assert res["result"]["status"] == "over_hard_limit" and "order" not in res
+    assert res["result"]["fix"]["quantity"] <= 5000 / 1.01

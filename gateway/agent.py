@@ -6,6 +6,7 @@ signed offer for the best one and submits the order. The gateway's policy engine
 order goes through, needs a human, or is blocked.
 """
 import math
+from collections import Counter
 import re
 import uuid
 from datetime import date, datetime, time, timedelta, timezone
@@ -47,6 +48,7 @@ def _number(s):
         return float(re.sub(r"[ ,.]", "", s))
     return float(s.replace(" ", "").replace(",", "."))
 
+UNIT_WORDS = {"L": "litres", "KG": "kg", "PCS": "pieces"}
 WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 ATTRS = {
     r"lactose[- ]?free|laktoositon": "FREE_FROM_LACTOSE",
@@ -492,6 +494,22 @@ def run(text, mandate_id, overrides=None, simulate_price_change=False, inject=Fa
                 subs.append(sid)
                 sp["_gaps"] = []
                 candidates.append(sp)
+    # Unit sense check: 1,000 litres of chicken nuggets can't be converted, so stop before any API call.
+    if intent["unit"] in ("L", "KG") and candidates:
+        measures = Counter(m for m in (catalog.measure(p) for p in candidates) if m)
+        if measures and intent["unit"] not in measures and sum(measures.values()) >= len(candidates) / 2:
+            alt = measures.most_common(1)[0][0]
+            words = {"L": "volume (litres)", "KG": "weight (kg)"}
+            msg = (f"{intent['product'].capitalize()} are sold by {words[alt]}, not by {words[intent['unit']]}, so "
+                   f"{intent['quantity']:,g} {UNIT_WORDS[intent['unit']]} can't be ordered. Nothing was ordered.")
+            steps.append({"step": "lookup", "title": "Find candidates in the catalog (local, no API calls)",
+                          "search": trace, "excluded_by_mandate": excluded, "official_substitutes_added": [],
+                          "substitutes_rejected": [], "spec_gaps": [], "candidates": []})
+            store.log(run_id, f"agent:{mandate['agent']}", "run.unit_mismatch", {"asked": intent["unit"], "sold_by": alt})
+            return {"run_id": run_id, "steps": steps, "api_calls": client.calls, "mandate": mandate,
+                    "result": {"status": "unit_mismatch", "error": msg,
+                               "fix": {"from": intent["unit"], "to": alt,
+                                       "label": f"Use {intent['quantity']:,g} {UNIT_WORDS[alt]} instead"}}}
     gaps = spec_gaps(candidates, intent)
     steps.append({"step": "lookup", "title": "Find candidates in the catalog (local, no API calls)",
                   "search": trace, "excluded_by_mandate": excluded, "official_substitutes_added": subs,
@@ -563,11 +581,32 @@ def run(text, mandate_id, overrides=None, simulate_price_change=False, inject=Fa
             g["cost_spread_eur"] = round((max(best.values()) - min(best.values())) * (intent["quantity"] or 0), 2)
     steps.append({"step": "options", "title": "Compare options (good-better-best)", "options": options, "spec_gaps": gaps})
     if not options:
-        store.log(run_id, "agent", "no_option", {"reason": "nothing deliverable by the date"})
-        return {"run_id": run_id, "steps": steps, "result": {"status": "no_option"}, "api_calls": client.calls,
-                "mandate": mandate}
+        msg = explain_no_option(rows, intent)
+        store.log(run_id, "agent", "no_option", {"reason": msg})
+        return {"run_id": run_id, "steps": steps, "result": {"status": "no_option", "error": msg},
+                "api_calls": client.calls, "mandate": mandate}
 
-    chosen = options[0]
+    # The agent knows the buyer's hard limit: it never asks for an offer it knows the gateway must block.
+    hard = mandate["hard_limits"]["max_order_total_eur"]
+    within = [o for o in options if o["total_eur"] <= hard]
+    if not within:
+        best = min(options, key=lambda o: o["total_eur"])
+        line = best["lines"][0]
+        max_units = math.floor(hard / line["unitPrice"]) if line["unitPrice"] else 0
+        max_qty = max_units * (line["perUnit"] or 1)
+        unit = UNIT_WORDS.get(intent["unit"], intent["unit"])
+        msg = (f"The cheapest option ({line['units']:,} × {line['name']}, €{best['total_eur']:,.2f}) is above this buyer's "
+               f"hard limit of €{hard:,} per order, so the agent didn't order. Nothing was ordered.")
+        store.log(run_id, f"agent:{mandate['agent']}", "run.over_hard_limit", {"cheapest_eur": best["total_eur"], "hard_limit": hard})
+        result = {"status": "over_hard_limit", "error": msg}
+        if max_units > 0:
+            result["fix"] = {"quantity": max_qty,
+                             "label": f"Order {max_qty:,g} {unit} instead (€{max_units * line['unitPrice']:,.2f}, within the limit)"}
+        return {"run_id": run_id, "steps": steps, "result": result, "api_calls": client.calls, "mandate": mandate}
+    chosen = within[0]
+    if chosen is not options[0]:
+        steps[-1]["note"] = (f"{options[0]['label']} (€{options[0]['total_eur']:,.2f}) is above the hard limit of €{hard:,}; "
+                             f"the agent took {chosen['label'].lower()} instead.")
     offer, jws = create_offer(mandate, chosen, intent)
     steps.append({"step": "offer", "title": "Get a signed, fixed-price offer", "offer": offer, "jws": jws})
 
@@ -641,3 +680,24 @@ def spec_gaps(candidates, intent):
     if intent.get("shelf_life") is None and len(shelves) > 1:
         gaps.append({"field": "fresh or long-life", "values": ["fresh", "long-life (UHT)"]})
     return gaps
+
+
+def explain_no_option(rows, intent):
+    """Say exactly why nothing can be ordered, per reason, instead of a generic error."""
+    why = Counter(r["status"] for r in rows)
+    parts = []
+    if why["deadline_passed"]:
+        cut = min((r.get("closing_time") or "") for r in rows if r["status"] == "deadline_passed")
+        parts.append(f"{why['deadline_passed']} missed their order deadline for {intent['deliver_by']}"
+                     + (f" ({cut[:16].replace('T', ' ')})" if cut else ""))
+    if why["unavailable"]:
+        parts.append(f"{why['unavailable']} can't be delivered by {intent['deliver_by']}")
+    if why["blocked"]:
+        parts.append(f"{why['blocked']} have a sales block")
+    if why["no_price"]:
+        parts.append(f"{why['no_price']} have no price for this customer")
+    if why["unit_mismatch"]:
+        parts.append(f"{why['unit_mismatch']} can't be measured in {UNIT_WORDS.get(intent['unit'], intent['unit'])}")
+    head = f"None of the {len(rows)} matching {intent['product']} products can be ordered as asked"
+    tail = " A later delivery date may work." if why["deadline_passed"] or why["unavailable"] else ""
+    return f"{head}: {'; '.join(parts)}. Nothing was ordered.{tail}"

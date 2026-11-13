@@ -187,6 +187,20 @@ def cream_is_not_ice_cream():
     return bool(found) and not ice, f"{len(found)} cream products, e.g. {found[0]['name'][:40]}" if found and not ice else f"ice cream: {ice[:3]}"
 
 
+def litres_of_nuggets_explained():
+    r = _run("nug-l", "I need 1,000 litres of chicken nuggets by Monday. Find an option that meets our requirements based on price and availability.", "mnd_hotel_helsinki")
+    fix = (r["result"].get("fix") or {}).get("label", "")
+    return r["result"]["status"] == "unit_mismatch" and r["api_calls"] == [] and "kg" in fix, \
+        f"{r['result'].get('error', r['result']['status'])[:90]} → {fix}"
+
+
+def over_hard_limit_explained():
+    r = _run("nug-kg", "I need 1,000 kg of chicken nuggets by Monday.", "mnd_hotel_helsinki")
+    fix = r["result"].get("fix") or {}
+    return r["result"]["status"] == "over_hard_limit" and fix.get("quantity", 0) > 0 and "order" not in r, \
+        f"{r['result']['status']}: {fix.get('label', '')}"
+
+
 CASES = [
     ("lookup", "Keyword search for lactose-free milk returns only plain milk (no cocoa, coffee milk, powder)", lookup_plain_milk_only),
     ("lookup", "The cheapest milks reach the price check (no cut by name or file order)", lookup_keeps_cheapest),
@@ -210,4 +224,6 @@ CASES = [
     ("reality", "Nonsense product (chicken nugget milk): nothing ordered, no API calls", nonsense_product_not_ordered),
     ("reality", "Lactose-free beer: beer-batter onion rings are not beer, nothing ordered", contains_is_not_is_beer),
     ("reality", "Cream is not ice cream", cream_is_not_ice_cream),
+    ("reality", "1,000 litres of chicken nuggets: unit doesn't fit, explained, no API calls", litres_of_nuggets_explained),
+    ("controls", "Cheapest option above the hard limit: agent doesn't order, offers what fits", over_hard_limit_explained),
 ]

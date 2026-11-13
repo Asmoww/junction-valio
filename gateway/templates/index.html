@@ -229,7 +229,8 @@ function renderStep(s, n) {
       ${gaps.map(g => `<div style="margin-top:4px">${esc(g.field)}: ${Object.entries(g.cheapest_per_value).map(([k, v]) => `${esc(k)} ${eur(v)}/unit`).join(' · ')}
       ${g.cost_spread_eur ? ` <b>→ moves this order by ${eur(g.cost_spread_eur).replace('.00', '')}</b>` : ''}</div>`).join('')}
       <div class="muted" style="margin-top:4px">Shown to the approver instead of asking a question first.</div></div></div>` : '';
-    return step(n, 'Compare options', gapHtml + `<div class="options">${s.options.map((o, i) => `<div class="option ${i === 0 ? 'chosen' : ''}">
+    const note = s.note ? `<p class="small" style="margin:12px 0 0"><span class="chip warn">Within limits</span> ${esc(s.note)}</p>` : '';
+    return step(n, 'Compare options', gapHtml + note + `<div class="options">${s.options.map((o, i) => `<div class="option ${i === 0 ? 'chosen' : ''}">
       <div class="lbl">${esc(o.label)}${i === 0 ? ' · chosen' : ''}</div><div class="total">${eur(o.total_eur)}</div>
       ${o.lines.map(l => `<div class="small">${l.units.toLocaleString('en-US')} × ${esc(l.name)}</div>`).join('')}
       <div class="small faint" style="margin-top:6px">${esc(o.why)}${o.partial ? ' · partial' : ''}</div></div>`).join('')}</div>`);
@@ -286,10 +287,24 @@ function renderOutcome(res) {
         <div class="chips" style="margin-top:6px">${sg.map(x => `<button class="chip" onclick='useSuggestion(${JSON.stringify(res.steps[0].intent.product)}, ${JSON.stringify(x.phrase)})'>${esc(x.phrase)} · ${x.count} products</button>`).join('')}</div>` : ''}
       <div class="small muted" style="margin-top:8px">Stopped before any price or availability call.</div></div>`;
   }
+  else if (!o && res.result.status === 'unit_mismatch') {
+    const f = res.result.fix;
+    body = `<div class="banner bad"><h3>Unit doesn't fit the product</h3>${esc(res.result.error)}
+      <div class="chips" style="margin-top:10px"><button class="chip" onclick='switchUnit(${JSON.stringify(f.to)})'>${esc(f.label)}</button></div>
+      <div class="small muted" style="margin-top:8px">Stopped before any price or availability call. Nothing is ordered until you run it again.</div></div>`;
+  }
+  else if (!o && res.result.status === 'over_hard_limit') {
+    const f = res.result.fix;
+    body = `<div class="banner bad"><h3>Over the buyer's hard limit</h3>${esc(res.result.error)}
+      ${f ? `<div class="chips" style="margin-top:10px"><button class="chip" onclick='setQuantity(${JSON.stringify(f.quantity)})'>${esc(f.label)}</button></div>` : ''}
+      <div class="small muted" style="margin-top:8px">Raising the limit is the purchasing manager's call, not the agent's.</div></div>`;
+  }
+  else if (!o && res.result.status === 'no_option') body = `<div class="banner bad"><h3>Nothing can be ordered as asked</h3>${esc(res.result.error)}</div>`;
   else if (!o && res.result.status === 'no_safe_product') body = `<div class="banner bad"><h3>No safe product: nothing ordered</h3>${esc(res.result.error)}</div>`;
   else if (!o) body = `<div class="banner bad"><h3>No order</h3>${esc(res.result.error || res.result.status.replace('_', ' '))}</div>`;
   else if (o.status === 'placed') body = `<div class="banner ok"><h3>Order placed automatically</h3>Within the agent's own authority · ${o.id} · ${eur(o.total)}</div>`;
-  else if (o.status === 'blocked') body = `<div class="banner bad"><h3>Blocked by the mandate</h3>The gateway refused the order.</div>`;
+  else if (o.status === 'blocked') body = `<div class="banner bad"><h3>Blocked by the mandate</h3>The gateway refused the order:
+    <ul class="rules" style="margin-top:6px">${o.policy.rules.filter(r => !r.ok && r.level === 'block').map(r => `<li><span class="ic block">✕</span>${esc(r.rule)}<span class="detail">${esc(r.detail)}</span></li>`).join('')}</ul></div>`;
   else {
     const ap = o.policy.approver;
     body = `<div class="banner warn"><h3>Waiting for ${esc(ap.role.toLowerCase())} sign-off</h3>
@@ -301,6 +316,18 @@ function renderOutcome(res) {
     <div class="step-head"><h3>Outcome</h3></div><div id="outcomeBody">${body}</div></div></div>`);
   if (o) { $('#out').insertAdjacentHTML('beforeend', '<div id="record"></div>'); showRecord(o.id); }
   $('#outcome').scrollIntoView({behavior: 'smooth', block: 'center'});
+}
+
+function setQuantity(q) {
+  const t = $('#request');
+  t.value = t.value.replace(/\d[\d,. ]*\d|\d/, Number(q).toLocaleString('en-US'));
+  t.focus(); window.scrollTo({top: 0, behavior: 'smooth'});
+}
+
+function switchUnit(to) {
+  const t = $('#request'), word = {KG: 'kg', L: 'litres', PCS: 'pieces'}[to];
+  t.value = t.value.replace(/\b(litres?|liters?|litroja|litraa|l|kg|kilos?|kilograms?|kiloa|pieces|pcs)\b/i, word);
+  t.focus(); window.scrollTo({top: 0, behavior: 'smooth'});
 }
 
 function useSuggestion(asked, phrase) {

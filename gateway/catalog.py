@@ -116,6 +116,16 @@ def matches_spec(p, spec):
     return True, ""
 
 
+def measure(p):
+    """How a product is measured, from its name: "KG" (e.g. 4x2kg, 250 g), "L" (1 l, 2,5 dl) or None."""
+    t = p["_text"]
+    if re.search(r"\d\s*(?:l|dl|cl|ml|litra?a?)\b", t):
+        return "L"
+    if re.search(r"\d\s*(?:kg|g|kilo)\b", t):
+        return "KG"
+    return None
+
+
 def evidence(p, attrs=()):
     """Short, checkable reasons this product matches, from structured data."""
     ev = []
