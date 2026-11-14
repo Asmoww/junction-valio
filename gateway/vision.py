@@ -1,6 +1,7 @@
 """Read a photographed order list (a handwritten note, a whiteboard, a delivery note) into request lines.
 
-NVIDIA Nemotron 3.5 Super VL reads the photo when NVIDIA_API_KEY is set; otherwise Claude does. The reader only
+With READER=eu the gateway's European model (Gemma on Verda) reads the photo; otherwise NVIDIA Nemotron 3.5 Super VL
+when NVIDIA_API_KEY is set, else Claude. The reader only
 transcribes: each line becomes one plain request sentence that goes through the same six checks as a typed
 request. It never orders, never picks products and never decides anything the gateway checks. Text in the photo
 is untrusted: every line is scanned for instructions aimed at the agent, like any request.
@@ -13,7 +14,7 @@ from datetime import date, timedelta
 
 import httpx
 
-from . import config  # noqa: F401  (loads .env)
+from . import ai, config  # noqa: F401  (config loads .env)
 
 NVIDIA_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
 NVIDIA_MODEL = os.environ.get("NVIDIA_VL_MODEL", "nvidia/nemotron-3.5-super-vl-120b-a12b")
@@ -39,6 +40,8 @@ UNITS = {"L": "litres", "KG": "kg", "PCS": "pieces"}
 
 
 def reader_name():
+    if ai.eu():
+        return ai.reader_name()
     return "Nemotron 3.5 Super VL" if os.environ.get("NVIDIA_API_KEY") else "Claude"
 
 
@@ -57,6 +60,18 @@ def _ask_nemotron(b64, media_type, prompt):
                              {"type": "image_url", "image_url": {"url": f"data:{media_type};base64,{b64}"}}]}]})
     if r.status_code == 429:
         raise RuntimeError("NVIDIA's free tier is busy (rate limit): try again in a minute")
+    r.raise_for_status()
+    return r.json()["choices"][0]["message"]["content"]
+
+
+def _ask_eu(b64, media_type, prompt):
+    """The gateway's European model (OpenAI-compatible, e.g. Gemma 4 on Verda), the same server as ai._json_call."""
+    r = httpx.post(os.environ["EU_LLM_BASE_URL"].rstrip("/") + "/chat/completions", timeout=90,
+                   headers={"Authorization": f"Bearer {os.environ.get('EU_LLM_KEY', 'none')}"},
+                   json={"model": os.environ.get("EU_LLM_MODEL", "reader"), "temperature": 0, "max_tokens": 2000,
+                         "messages": [{"role": "user", "content": [
+                             {"type": "text", "text": prompt},
+                             {"type": "image_url", "image_url": {"url": f"data:{media_type};base64,{b64}"}}]}]})
     r.raise_for_status()
     return r.json()["choices"][0]["message"]["content"]
 
@@ -82,7 +97,8 @@ def read_list(image, media_type, default_date=None, today=None):
     b64 = base64.b64encode(image).decode()
     reader = reader_name()
     try:
-        raw = _ask_nemotron(b64, media_type, prompt) if reader.startswith("Nemotron") else _ask_claude(b64, media_type, prompt)
+        ask = _ask_eu if ai.eu() else _ask_nemotron if reader.startswith("Nemotron") else _ask_claude
+        raw = ask(b64, media_type, prompt)
         out = _json_from(raw)
     except Exception as e:  # noqa: BLE001 - any failure: say so, never guess
         return {"error": f"{reader} couldn't read the photo: {str(e)[:160]}", "reader": reader}

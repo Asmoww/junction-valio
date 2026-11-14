@@ -11,6 +11,7 @@ Two providers, same prompts and schemas:
   (scripts/reader_data.py, scripts/finetune_reader.py). Then no request text leaves infrastructure Valio controls.
 """
 import json
+import re
 import os
 from datetime import date
 
@@ -78,21 +79,36 @@ class ModelError(Exception):
     pass
 
 
+def _eu_json(text, schema):
+    """The first JSON object in the EU model's answer, with the schema's required fields present. Raises ModelError."""
+    m = re.search(r"\{.*\}", text or "", re.S)
+    try:
+        out = json.loads(m.group(0)) if m else None
+    except ValueError:
+        out = None
+    if not isinstance(out, dict) or any(k not in out for k in schema.get("required", [])):
+        raise ModelError("EU model gave no valid JSON answer")
+    return json.dumps(out, ensure_ascii=False)
+
+
 def _json_call(system, user, schema, max_tokens=2000):
     """One structured call to the configured provider. Returns the JSON text; raises ModelError."""
     if eu():
         import httpx
         try:
+            # The schema goes in the prompt, not as a decoding grammar: with vLLM's JSON-schema grammar Gemma pads the
+            # answer with whitespace up to max_tokens (60-90 s per call). The answer is still parsed and checked below.
             r = httpx.post(os.environ["EU_LLM_BASE_URL"].rstrip("/") + "/chat/completions", timeout=60,
                            headers={"Authorization": f"Bearer {os.environ.get('EU_LLM_KEY', 'none')}"},
                            json={"model": os.environ.get("EU_LLM_MODEL", "reader"), "temperature": 0, "max_tokens": max_tokens,
-                                 "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-                                 "response_format": {"type": "json_schema", "json_schema": {"name": "out", "schema": schema, "strict": True}}})
+                                 "messages": [{"role": "system", "content": system + "\n\nReply with one JSON object only, "
+                                               "no other text, matching this JSON schema:\n" + json.dumps(schema)},
+                                              {"role": "user", "content": user}]})
             r.raise_for_status()
             out = r.json()["choices"][0]["message"]["content"] or ""
         except (httpx.HTTPError, KeyError, ValueError) as e:
             raise ModelError(f"EU model error: {type(e).__name__}") from e
-        return out.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+        return _eu_json(out, schema)
     import anthropic
     try:
         r = anthropic.Anthropic().beta.messages.create(

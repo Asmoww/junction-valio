@@ -39,7 +39,7 @@ SYSTEM = ("You read a recipe for a professional kitchen and list its ingredients
 
 
 def _rule_read(text):
-    """Simple line reader for '500 g butter' / '2 dl cream' style lines (no Claude key)."""
+    """Simple line reader for '500 g butter' / '2 dl cream' style lines (no model configured)."""
     serves = None
     if m := re.search(r"(?:serves|for|annos(?:ta)?|portions?)\D{0,12}(\d{1,4})", text, re.I):
         serves = float(m.group(1))
@@ -59,14 +59,10 @@ def _rule_read(text):
     return {"serves": serves, "ingredients": out}
 
 
-def _claude_read(text):
-    import anthropic
+def _model_read(text):
+    """The configured model (Gemma in the EU with READER=eu, else Claude) through ai._json_call."""
     try:
-        r = anthropic.Anthropic().messages.create(
-            model=ai.MODEL, max_tokens=3000, system=SYSTEM,
-            output_config={"effort": "low", "format": {"type": "json_schema", "schema": SCHEMA}},
-            messages=[{"role": "user", "content": f"Recipe:\n{text}"}])
-        out = next((b.text for b in r.content if b.type == "text"), None)
+        out = ai._json_call(SYSTEM, f"Recipe:\n{text}", SCHEMA, max_tokens=3000)
         return json.loads(out) if out else None
     except Exception:  # noqa: BLE001 - fall back to the rule reader
         return None
@@ -93,8 +89,8 @@ def read(mandate_id, text, covers, serves=None, deliver_by="", client=None, type
                       + "): nothing was read from it")
     reader, parsed = "rules", None
     if ai.enabled():
-        parsed = _claude_read(text)
-        reader = "Claude" if parsed else "rules (Claude didn't answer)"
+        parsed = _model_read(text)
+        reader = ai.reader_name() if parsed else f"rules ({ai.reader_name()} didn't answer)"
     parsed = parsed or _rule_read(text)
     recipe_serves = serves or parsed.get("serves")
     try:

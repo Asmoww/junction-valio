@@ -64,15 +64,31 @@ the procurement officer, Mikko Nieminen, up to €2,500.
 This policy is valid until 31 December 2026."""
 
 
+def _pdf_text(pdf, max_pages=30):
+    import io
+    from pypdf import PdfReader
+    try:
+        pages = PdfReader(io.BytesIO(pdf)).pages[:max_pages]
+        return "\n\n".join(p.extract_text() or "" for p in pages)[:20000]
+    except Exception as e:  # noqa: BLE001 - a broken or encrypted PDF
+        raise ValueError(f"couldn't read this PDF ({type(e).__name__}): paste the policy text instead") from e
+
+
 def draft(text=None, pdf=None):
-    """Claude's draft: {field: {value, source}} plus what's missing. Raises ValueError."""
+    """The model's draft (Gemma with READER=eu, else Claude): {field: {value, source}} plus what's missing. Raises ValueError."""
     if not text and not pdf:
         raise ValueError("paste the policy or upload a PDF")
     from . import security
     if text and security.scan(text):  # instructions aimed at an AI (supplier-text scanner): policies talk about approvals legitimately
         raise ValueError("the document contains instructions aimed at an agent: nothing was read from it")
     if not ai.enabled():
-        raise ValueError("drafting needs Claude (no API key configured)")
+        raise ValueError("drafting needs a language model (none configured)")
+    if pdf and ai.eu():
+        text, pdf = _pdf_text(pdf), None  # the EU model reads text: the PDF's text layer, scanned before reading
+        if not text.strip():
+            raise ValueError("no text in this PDF (a scanned image?): paste the policy text instead")
+        if security.scan(text):
+            raise ValueError("the document contains instructions aimed at an agent: nothing was read from it")
     if pdf:
         import anthropic
         r = anthropic.Anthropic().beta.messages.create(

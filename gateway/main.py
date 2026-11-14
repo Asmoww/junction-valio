@@ -2,6 +2,7 @@
 import hashlib
 import hmac
 import logging
+import os
 import secrets
 from collections import Counter, defaultdict
 from contextlib import asynccontextmanager
@@ -484,7 +485,7 @@ def rules_sign(request: Request, body: dict = Body(...)):
 
 @app.get("/api/info", tags=["demo"])
 def info():
-    return {"ai_parser": ai.enabled(), "model": ai.MODEL if ai.enabled() else None, "demo_clock": DEMO_CLOCK,
+    return {"ai_parser": ai.enabled(), "model": (os.environ.get("EU_LLM_MODEL") if ai.eu() else ai.MODEL) if ai.enabled() else None, "demo_clock": DEMO_CLOCK,
             "photo_reader": vision.reader_name(), "reader": ai.reader_name(),
             "ladder": gates.GATES}
 

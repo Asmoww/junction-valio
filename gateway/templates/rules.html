@@ -32,7 +32,7 @@
 </div></header>
 
 <div class="page">
-  <div class="phead"><div><h1>Rules from your policy</h1><p>Give us your purchasing or dietary policy. Claude drafts the rules agents must follow; you check and sign them.</p></div></div>
+  <div class="phead"><div><h1>Rules from your policy</h1><p>Give us your purchasing or dietary policy. <span id="readerName">An AI model</span> drafts the rules agents must follow; you check and sign them.</p></div></div>
 
   <div class="panel">
     <div class="fgrid">
@@ -58,6 +58,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '
 const ALLERGENS = {AM: 'milk', ML: 'lactose', AE: 'egg', AP: 'peanuts', AN: 'tree nuts', SA: 'almond', SH: 'hazelnut', AS: 'sesame', AF: 'fish', AC: 'crustaceans', AW: 'gluten', AY: 'soy'};
 const POLICY = {block: 'stop the order', needs_approval: 'a person checks', allow: 'allow'};
 let D = null;
+fetch('/api/info').then(r => r.json()).then(i => { if (i.reader && i.reader !== 'rules') $('#readerName').textContent = i.reader.replace(/ \(EU\)$/, ''); }).catch(() => {});
 
 async function sample() { $('#policy').value = (await (await fetch('/api/rules/sample')).json()).text; }
 

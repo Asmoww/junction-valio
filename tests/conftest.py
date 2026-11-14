@@ -109,3 +109,10 @@ def fully_trusted(request, monkeypatch):
         from gateway import trust
         monkeypatch.setattr(trust, "status", lambda m, ch: {"level": "Trusted", "share": 1.0, "clean": 99, "incidents": 0,
                                                             "limit_eur": float(m["auto_approve"]["max_order_total_eur"])})
+
+
+@pytest.fixture(autouse=True)
+def _no_model_offline(request, monkeypatch):
+    """Offline tests never call a language model, whatever provider the server's .env picks; live traps use it."""
+    if not request.node.get_closest_marker("live"):
+        monkeypatch.setenv("READER", "")
