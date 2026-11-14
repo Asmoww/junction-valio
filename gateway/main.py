@@ -10,9 +10,9 @@ from pathlib import Path
 from urllib.parse import quote as urlquote
 
 from fastapi import Body, FastAPI, Form, Header, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from . import agent, ai, catalog, gates, policy, security, signing, store
+from . import agent, ai, catalog, gates, policy, security, signing, standards, store
 from .config import AGENT_TOKEN as AGENT_TOKEN_ENV, DEMO_CLOCK, DEMO_PASSWORD
 from .mcp_server import app as mcp_app
 from .mcp_server import mcp
@@ -20,6 +20,8 @@ from .mcp_server import mcp
 
 @asynccontextmanager
 async def lifespan(_):
+    for mid in standards.sign_all(policy.mandates().values()):
+        store.log(mid, "buyer", "mandate.signed", {"issuer": standards.buyer_did(mid)})
     async with mcp.session_manager.run():
         yield
 
@@ -40,7 +42,7 @@ AGENT_TOKEN = AGENT_TOKEN_ENV or (hmac.new(DEMO_PASSWORD.encode(), b"tg-agent", 
                                      if DEMO_PASSWORD else "")
 if AGENT_TOKEN and AGENT_TOKEN == DEMO_PASSWORD:
     raise SystemExit("AGENT_TOKEN must differ from DEMO_PASSWORD")
-OPEN_PATHS = {"/login", "/healthz", "/.well-known/jwks.json"}
+OPEN_PATHS = {"/login", "/healthz", "/.well-known/jwks.json", "/v1/mandates/verify"}
 if not DEMO_PASSWORD:
     logging.getLogger("uvicorn.error").warning(
         "DEMO_PASSWORD is not set: the whole gateway, including approvals, is open. Local development only.")
@@ -54,7 +56,7 @@ async def password_gate(request: Request, call_next):
     may look up, quote and order, but only a human session may approve or reject an order, so a hijacked
     agent can't sign off its own order."""
     request.state.principal = "human" if not DEMO_PASSWORD else None
-    if not DEMO_PASSWORD or request.url.path in OPEN_PATHS or request.url.path.startswith("/approve/"):
+    if not DEMO_PASSWORD or request.url.path in OPEN_PATHS or request.url.path.startswith(("/approve/", "/buyers/")):
         # /approve/... is reachable without signing in: it only works with a signed, single-use approval link.
         return await call_next(request)
     auth = request.headers.get("authorization", "")
@@ -157,6 +159,16 @@ def traps():
     return json.loads(f.read_text()) if f.exists() else {"results": []}
 
 
+@app.get("/api/scoreboard", tags=["demo"])
+def scoreboard():
+    """Latest scripts/scoreboard.py run: the same requests through an AI agent with and without the buyer's rules
+    in its prompt, on Valio's raw API and through this gateway."""
+    import json
+    from .config import STATE_DIR
+    f = STATE_DIR / "scoreboard.json"
+    return json.loads(f.read_text()) if f.exists() else {"rows": []}
+
+
 @app.get("/concepts", response_class=HTMLResponse, include_in_schema=False)
 def concepts_page():
     """Design mockups of the process visualisation (docs/visuals), for the team."""
@@ -232,7 +244,9 @@ def dashboard():
         "recent": [{"id": o["id"], "created": o["created"], "status": o["status"],
                     "agent": o["record"].get("agent") or mandates.get(o["mandate_id"], {}).get("agent"),
                     "total": o["total"], "lines": [f"{l['units']} × {l['name']}" for l in o["record"]["offer"]["lines"]],
-                    "failed": [r["rule"] for r in o["policy"]["rules"] if not r["ok"]]} for o in orders[:25]],
+                    "failed": [r["rule"] for r in o["policy"]["rules"] if not r["ok"]],
+                    "buyer": mandates.get(o["mandate_id"], {}).get("buyer", "").replace(" (demo)", ""),
+                    "approver": (o["policy"].get("approver") or {}).get("name")} for o in orders[:25]],
         "chain": store.verify_chain(),
     }
 
@@ -275,8 +289,12 @@ def quote(body: dict = Body(..., examples=[{"mandate_id": "mnd_hotel_helsinki", 
 
 @app.post("/v1/orders", tags=["v1: order"])
 def order(body: dict = Body(...), idempotency_key: str = Header(...)):
-    """Commit a signed offer. The gateway verifies the signature, re-checks prices and applies the mandate."""
-    o, err = agent.order_from_jws(body["jws"], idempotency_key, body.get("rationale", ""), body.get("requested_units"))
+    """Commit a signed offer, by `offer_id` or the full `jws`. The gateway verifies the signature, re-checks
+    prices and applies the mandate."""
+    jws = body.get("jws") or (store.get_offer(body.get("offer_id") or "") or {}).get("jws")
+    if not jws:
+        raise HTTPException(422, "give offer_id or jws")
+    o, err = agent.order_from_jws(jws, idempotency_key, body.get("rationale", ""), body.get("requested_units"))
     if not o:
         raise HTTPException(409, err)
     return o
@@ -449,6 +467,53 @@ def verify_offer(body: dict = Body(...)):
 def well_known_jwks():
     """Public key for verifying offer signatures."""
     return signing.jwks()
+
+
+@app.get("/v1/orders/{order_id}/peppol.xml", tags=["v1: standards"])
+def peppol_xml(request: Request, order_id: str):
+    """The placed order as a Peppol BIS Ordering 3 document (UBL 2.1 Order), ready for an ERP or access point."""
+    o = store.get_order(order_id)
+    if not o:
+        raise HTTPException(404, "unknown order")
+    if o["status"] != "placed":
+        raise HTTPException(409, f"order is {o['status']}: a Peppol order is only issued once it is placed")
+    xml = standards.peppol_order(o, policy.mandates()[o["mandate_id"]], _public_base(request))
+    return Response(xml, media_type="application/xml",
+                    headers={"Content-Disposition": f'inline; filename="{order_id}.xml"'})
+
+
+@app.get("/v1/mandates/{mandate_id}/credential", tags=["v1: standards"])
+def mandate_credential(mandate_id: str):
+    """The buyer-signed mandate as a W3C Verifiable Credential (vc+jwt), plus its decoded form."""
+    m = policy.mandates().get(mandate_id)
+    if not m:
+        raise HTTPException(404, "unknown mandate")
+    token = standards.credential(m)
+    ok, vc = standards.verify(token, m)
+    return {"credential": token, "verified": ok, "reason": None if ok else vc, "decoded": vc if ok else None}
+
+
+@app.post("/v1/mandates/verify", tags=["v1: standards"])
+def verify_mandate(body: dict = Body(..., examples=[{"credential": "eyJhbGciOiJFZERTQSIs..."}])):
+    """Verify a mandate credential: buyer's signature (did:web), expiry, and that it matches the registered
+    mandate. Open to anyone, like the offer key."""
+    ok, vc = standards.verify(body.get("credential", ""))
+    if ok:
+        mid = vc["credentialSubject"]["mandate"].get("mandate_id")
+        registered = policy.mandates().get(mid)
+        if registered and not standards.verify(body["credential"], registered)[0]:
+            ok, vc = False, "signed, but not the mandate registered with this gateway (outdated or altered)"
+    if not ok:
+        store.log("security", "verifier", "security.invalid_mandate_credential", {"error": vc})
+    return {"valid": ok, "issuer": vc["issuer"]["id"] if ok else None, "error": None if ok else vc}
+
+
+@app.get("/buyers/{slug}/did.json", tags=["v1: standards"], include_in_schema=False)
+def buyer_did_document(slug: str):
+    mid = f"mnd_{slug}"
+    if mid not in policy.mandates():
+        raise HTTPException(404, "unknown buyer")
+    return standards.did_document(mid)
 
 
 # MCP over streamable HTTP at /mcp. Mounted last so the routes above take precedence.

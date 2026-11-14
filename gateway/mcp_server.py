@@ -7,7 +7,7 @@ agents exactly as to everyone else.
 from mcp.server.mcpserver import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
 
-from . import agent, ai, catalog, policy, store
+from . import agent, ai, catalog, policy, standards, store
 
 mcp = MCPServer(
     name="valio-aimo-trade-gateway",
@@ -24,8 +24,10 @@ mcp = MCPServer(
 
 @mcp.tool()
 def get_mandate(mandate_id: str = "mnd_hotel_helsinki") -> dict:
-    """The buyer's purchasing mandate: what the agent may decide alone, hard limits, allergen bans, approvers."""
-    return policy.load(mandate_id)
+    """The buyer's purchasing mandate: what the agent may decide alone, hard limits, allergen bans, approvers.
+    Also returns the buyer-signed W3C Verifiable Credential (vc+jwt) the gateway enforces it from."""
+    m = policy.load(mandate_id)
+    return dict(m, signed_credential=standards.credential(m), issuer=standards.buyer_did(mandate_id))
 
 
 @mcp.tool()
@@ -71,10 +73,16 @@ def request_offer(lines: list[dict], deliver_by: str, mandate_id: str = "mnd_hot
 
 
 @mcp.tool()
-def place_order(jws: str, idempotency_key: str, rationale: str, requested_units: float | None = None) -> dict:
-    """Commit a signed offer. The gateway verifies the signature, re-checks live prices and applies the
-    mandate: the order is placed, sent for human approval, or blocked. Explain your choice in rationale.
-    Reusing an idempotency_key returns the original order instead of ordering twice."""
+def place_order(idempotency_key: str, rationale: str, offer_id: str | None = None, jws: str | None = None,
+                requested_units: float | None = None) -> dict:
+    """Commit a signed offer, by its offer_id (simplest) or the full jws. The gateway verifies the signature,
+    re-checks live prices and applies the mandate: the order is placed, sent for human approval, or blocked.
+    Explain your choice in rationale. Reusing an idempotency_key returns the original order instead of ordering twice."""
+    if not jws and offer_id:
+        stored = store.get_offer(offer_id)
+        jws = stored["jws"] if stored else None
+    if not jws:
+        return {"error": "give the offer_id (or jws) from request_offer"}
     order, err = agent.order_from_jws(jws, idempotency_key, rationale, requested_units)
     if not order:
         return {"error": err}

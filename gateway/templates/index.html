@@ -480,7 +480,10 @@ async function showRecord(id) {
     <table><thead><tr><th>Time (UTC)</th><th>Who</th><th>What</th><th class="r">Hash</th></tr></thead><tbody>
     ${d.events.sort((a, b) => a.seq - b.seq).map(e => `<tr><td>${e.ts.slice(11, 19)}</td><td>${esc(e.actor)}</td><td>${esc(e.type)}</td><td class="r faint mono" style="background:none;border:0;padding:10px">${e.hash.slice(0, 10)}…</td></tr>`).join('')}</tbody></table>
     <p class="small muted" style="margin:12px 0 0">${d.chain.valid ? `<span class="chip ok">Audit chain intact · ${d.chain.events} events</span>` : '<span class="chip bad">Audit chain broken</span>'}
-    &nbsp;Each event's hash covers the one before, so edits to history show. Buyer and Valio see the same record.</p></details>`;
+    &nbsp;Each event's hash covers the one before, so edits to history show. Buyer and Valio see the same record.</p>
+    <div class="chips" style="margin-top:12px">${o.status === 'placed' ? `<a class="chip navy" href="/v1/orders/${o.id}/peppol.xml" target="_blank">Peppol order · UBL XML</a>` : ''}
+      <a class="chip navy" href="/v1/mandates/${o.mandate_id}/credential" target="_blank">Buyer-signed mandate · W3C VC</a>
+      <a class="chip navy" href="/.well-known/jwks.json" target="_blank">Offer signing key</a></div></details>`;
 }
 
 init();

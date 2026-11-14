@@ -9,7 +9,7 @@ import re
 from datetime import date
 from pathlib import Path
 
-from . import gates
+from . import gates, standards
 from .catalog import ALLERGENS, get
 
 MANDATE_DIR = Path(__file__).parent / "mandates"
@@ -57,6 +57,15 @@ def allergen_problem(mandate, p):
     return None
 
 
+def mandate_signature(mandate):
+    """Check the mandate against the buyer-signed credential (standards.py). Demo overrides from the buyer
+    page (e.g. the auto-approve slider) are checked against the registered mandate they adjust."""
+    registered = mandates().get(mandate["mandate_id"])
+    if not registered:
+        return False, "mandate not registered"
+    return standards.verify(standards.credential(registered), registered)
+
+
 def evaluate(mandate, offer, context):
     """Return {outcome, approver, rules, ladder}. outcome: auto_approve | needs_approval | blocked.
 
@@ -74,8 +83,10 @@ def evaluate(mandate, offer, context):
     hard = mandate["hard_limits"]
     auto = mandate["auto_approve"]
 
-    rule("Mandate valid", date.fromisoformat(mandate["valid_until"]) >= date.today(), "block",
-         f"valid until {mandate['valid_until']}")
+    signed_ok, signed = mandate_signature(mandate)
+    rule("Mandate valid", date.fromisoformat(mandate["valid_until"]) >= date.today() and signed_ok, "block",
+         (f"signed by the buyer ({standards.buyer_did(mandate['mandate_id'])}), " if signed_ok
+          else f"buyer's signature fails: {signed}; ") + f"valid until {mandate['valid_until']}")
     rule("Hard spend limit", total <= hard["max_order_total_eur"], "block",
          f"€{total:,.2f} vs hard limit €{hard['max_order_total_eur']:,}")
 

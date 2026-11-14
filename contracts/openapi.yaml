@@ -63,8 +63,9 @@ paths:
           application/json:
             schema:
               type: object
-              required: [jws]
+              description: "Give offer_id (the gateway keeps the signed offer) or the full jws"
               properties:
+                offer_id: {type: string, description: "offer_id from /v1/quotes"}
                 jws: {type: string, description: Signed offer from /v1/quotes}
                 rationale: {type: string, description: "The agent's explanation, stored in the decision record"}
                 requested_units: {type: number, description: "What the buyer asked for, in the request unit; orders far above it are blocked"}
@@ -107,6 +108,31 @@ paths:
       requestBody: {required: true, content: {application/json: {schema: {type: object, required: [jws], properties: {jws: {type: string}}}}}}
       responses:
         "200": {description: "{valid, payload, error}"}
+  /v1/orders/{order_id}/peppol.xml:
+    get:
+      summary: The placed order as a Peppol BIS Ordering 3 document (UBL 2.1 Order)
+      parameters: [{name: order_id, in: path, required: true, schema: {type: string}}]
+      responses:
+        "200": {description: UBL 2.1 Order XML, content: {application/xml: {}}}
+        "409": {description: Order not placed (pending, blocked or rejected)}
+  /v1/mandates/{mandate_id}/credential:
+    get:
+      summary: The buyer-signed mandate as a W3C Verifiable Credential (vc+jwt, EdDSA, did:web issuer)
+      parameters: [{name: mandate_id, in: path, required: true, schema: {type: string}}]
+      responses:
+        "200": {description: "{credential, verified, reason, decoded}"}
+  /v1/mandates/verify:
+    post:
+      summary: Verify a mandate credential (signature, expiry, matches the registered mandate). No auth needed
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [credential], properties: {credential: {type: string}}}}}}
+      responses:
+        "200": {description: "{valid, issuer, error}"}
+  /buyers/{buyer}/did.json:
+    get:
+      summary: The buyer's did:web document (public key for its mandate credential). No auth needed
+      parameters: [{name: buyer, in: path, required: true, schema: {type: string}}]
+      responses:
+        "200": {description: DID document}
   /.well-known/jwks.json:
     get:
       summary: Public key (Ed25519, JWK) for verifying offers. No auth.

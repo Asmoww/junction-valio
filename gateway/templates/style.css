@@ -241,3 +241,13 @@ details.fold > summary { font-size: 12.5px; }
 .page-head p { margin-top: 2px; }
 .qr { display: grid; grid-template-columns: 170px 1fr; gap: 18px; align-items: center; margin-top: 14px; background: #fff; border-radius: 12px; padding: 12px; }
 .qrimg svg { width: 170px; height: 170px; display: block; }
+
+.scoretiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.scoretile { border: 1px solid var(--line, #e4e7ec); border-radius: 10px; padding: 14px; }
+.scoretile.ours { border-color: var(--navy-2); }
+.scoretile .big { font-size: 30px; font-weight: 700; color: var(--ok); line-height: 1.1; margin-bottom: 4px; }
+.scoretile .big.bad { color: var(--bad); } .scoretile .big span { font-size: 15px; font-weight: 500; }
+.scoretable th { font-size: 11px; white-space: normal; max-width: 120px; }
+@media (max-width: 760px) { .scoretiles { grid-template-columns: repeat(2, 1fr); } }
+.waitrow { display: flex; align-items: center; gap: 14px; padding: 10px 0; border-bottom: 1px solid #eef0f4; }
+.waitrow > div { flex: 1; } .waitrow:last-child { border-bottom: 0; }

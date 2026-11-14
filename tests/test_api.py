@@ -50,3 +50,13 @@ def test_an_agent_cannot_raise_its_own_auto_limit(monkeypatch):
     c.post("/api/run", json={"request": "x", "mandate_id": "mnd_hotel_helsinki", "auto_limit": 1200},
            headers={"Authorization": f"Bearer {main.AGENT_TOKEN}"})
     assert seen["auto_approve.max_order_total_eur"] == 500
+
+
+def test_an_agent_can_order_by_offer_id():
+    """A live Claude Code agent mangled the long JWS when copying it; the offer id is enough."""
+    offer, _, _ = agent.quote("mnd_hotel_helsinki", "2026-11-16", [{"productId": "464306", "units": 5}], FakeValio())
+    c = TestClient(main.app, base_url="https://testserver")
+    auth = {"Authorization": f"Bearer {main.AGENT_TOKEN}", "Idempotency-Key": "k-by-offer-id"}
+    r = c.post("/v1/orders", json={"offer_id": offer["offer_id"]}, headers=auth)
+    assert r.status_code == 200 and r.json()["offer_id"] == offer["offer_id"]
+    assert c.post("/v1/orders", json={"offer_id": "ofr_nope"}, headers=auth | {"Idempotency-Key": "k2"}).status_code == 422

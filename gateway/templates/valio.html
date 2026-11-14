@@ -23,7 +23,11 @@
     </div>
   </div>
 
+  <div class="card" id="waitCard" hidden><h2>Waiting for a person</h2><div id="waiting"></div><div id="waitQr"></div></div>
+
   <div class="metrics" id="metrics"></div>
+
+  <div class="card" id="scoreCard" hidden><h2>Rules in a prompt hold only while the agent obeys them <span id="scoreWhen" style="float:right"></span></h2><div id="score"></div></div>
 
   <div class="card" id="readyCard"><h2>Agent readiness · how much of the catalog an agent may decide on alone</h2><div id="ready"></div></div>
 
@@ -79,6 +83,13 @@ async function load() {
       <td class="small muted" style="white-space:nowrap">${esc((o.agent || '').replace('-agent', ''))}</td><td><span class="chip ${c}">${l}</span></td><td class="r">${eur(o.total)}</td></tr>`; }).join('')}</tbody></table>`
     : '<p class="muted">No orders yet.</p>';
 
+  const waiting = d.recent.filter(o => o.status === 'pending_approval' && o.approver);
+  $('#waitCard').hidden = !waiting.length && !$('#waitQr').innerHTML;
+  $('#waiting').innerHTML = waiting.slice(0, 3).map(o => `<div class="waitrow"><div><div class="name">${esc(o.lines.join(' + '))}</div>
+      <div class="small faint">${esc(o.buyer)} · ${esc((o.agent || '').replace('-agent', ''))} · ${ago(o.created)} · ${esc(o.failed.join(', ').toLowerCase())}</div></div>
+      <b>${eur(o.total)}</b><button class="btn btn-soft" onclick="phoneQr('${o.id}', '${esc(o.approver)}')">Approve on a phone · ${esc(o.approver)}</button></div>`).join('') + (waiting.length > 3 ? `<p class="small faint" style="margin:8px 0 0">${waiting.length - 3} older orders also waiting</p>` : '');
+  if (qrFor && !waiting.some(o => o.id === qrFor)) { $('#waitQr').innerHTML = ''; qrFor = null; }
+
   $('#security').innerHTML = d.security.length ? `<table><tbody>${d.security.map(e => `<tr><td><div class="name">${esc(SEC[e.type] || e.type)}</div>
       <div class="small faint">${esc(e.actor)} · ${ago(e.ts)}${e.data.productId ? ' · product ' + esc(e.data.productId) : ''}${e.data.findings ? ' · ' + esc(e.data.findings.join(', ')) : ''}${e.data.reason ? ' · ' + esc(e.data.reason) : ''}</div></td>
       <td class="r"><span class="chip ${e.type === 'order.rejected' ? 'warn' : 'bad'}">${e.type === 'order.rejected' ? 'caught' : 'flagged'}</span></td></tr>`).join('')}</tbody></table>
@@ -113,8 +124,35 @@ async function loadTraps() {
     <td class="r"><span class="chip ${r.result === 'pass' ? 'ok' : r.result === 'fail' ? 'bad' : ''}">${r.result === 'pass' ? '✓ safe' : r.result === 'fail' ? '✕ failed' : 'skipped'}</span></td></tr>`).join('')}</tbody></table>
     <p class="small muted" style="margin:12px 0 0">Live API and the real product file. Every case is a request where a buying agent can go wrong; the result is what our gateway did.</p>`;
 }
-load(); loadReadiness(); loadTraps();
-setInterval(load, 10000);
+let qrFor = null;
+async function phoneQr(id, who) {
+  const r = await (await fetch(`/api/approval-link/${id}?approver=${encodeURIComponent(who)}`)).json();
+  qrFor = id;
+  $('#waitQr').innerHTML = `<div class="qr"><div class="qrimg">${r.svg}</div><div><b>Scan to approve as ${esc(who)}</b>
+    <p class="small muted" style="margin:6px 0 0">A signed link for this order and this approver only. Works once, expires in 30 minutes.</p>
+    <p class="small" style="margin:8px 0 0"><a href="${esc(r.url)}" target="_blank">open the link</a></p></div></div>`;
+}
+
+async function loadScore() {
+  const t = await (await fetch('/api/scoreboard')).json();
+  if (!t.rows.length || !t.columns) return;
+  const cols = Object.keys(t.columns);
+  const MARK = {ok: ['ok', '✓'], wrong: ['bad', '✕ wrong order'], no_approval: ['bad', '✕ skipped sign-off'], missed: ['warn', 'gave up']};
+  $('#scoreCard').hidden = false;
+  $('#scoreWhen').innerHTML = `<span class="faint small" style="text-transform:none;letter-spacing:0;font-weight:400">${t.cases} requests · run ${ago(t.run_at)}</span>`;
+  $('#score').innerHTML = `<div class="scoretiles">${cols.map(c => { const n = t.counts[c], bad = n.wrong + n.no_approval;
+      return `<div class="scoretile ${c === 'gateway' || c === 'no_rules_gw' ? 'ours' : ''}"><div class="big ${bad ? 'bad' : ''}">${bad ? bad : n.ok}<span>${bad ? ' unsafe' : '/' + t.cases}</span></div>
+        <div class="small">${esc(t.columns[c])}</div>${n.missed ? `<div class="small faint">${n.missed} gave up</div>` : ''}</div>`; }).join('')}</div>
+    <details style="margin-top:14px"><summary class="small muted">Every request and what each one did</summary>
+    <table class="scoretable"><thead><tr><th>Request</th>${cols.map(c => `<th class="r">${esc(t.columns[c].split(',').slice(-2).join(',').trim())}</th>`).join('')}</tr></thead><tbody>
+    ${t.rows.map(r => `<tr><td><div class="name">${esc(r.request)}</div><div class="small faint">${esc(r.buyer)} · right answer: ${esc(r.correct)}</div></td>
+      ${cols.map(c => { const [cls, txt] = MARK[r[c].verdict] || ['', r[c].verdict];
+        return `<td class="r"><span class="chip ${cls}" title="${esc(r[c].reason)}">${txt}</span></td>`; }).join('')}</tr>`).join('')}</tbody></table></details>
+    <p class="small muted" style="margin:12px 0 0">Same Claude model in every column, Valio's live API, the same judge on product data. With the buyer's rules
+      in its prompt a strong model behaves; Valio can't choose which agents connect. Rules in the gateway hold for every agent, and leave a signed offer and an audit record.</p>`;
+}
+load(); loadReadiness(); loadTraps(); loadScore();
+setInterval(load, 3000);
 </script>
 </body>
 </html>

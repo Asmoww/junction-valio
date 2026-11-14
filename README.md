@@ -45,12 +45,18 @@ hostile agent can't skip them. Only a signed-in person named in the buyer's mand
 - **Audit trail:** a plain-English decision record per order on a hash-chained log, the same for buyer and Valio.
 - **Valio view** (`/valio`): agent traffic, escalations, security events, agent readiness of the catalog, and
   the trap-suite results.
-- **Open interfaces:** REST with OpenAPI ([contracts/openapi.yaml](contracts/openapi.yaml)) and an MCP server at `/mcp`.
+- **Approve on your own phone:** a QR with a signed, single-use link for one order and one approver named in the mandate.
+- **Open standards:** REST with OpenAPI ([contracts/openapi.yaml](contracts/openapi.yaml)), an MCP server at `/mcp`,
+  every placed order as a **Peppol BIS Ordering 3** document (UBL 2.1, checked against the official XSD), and the
+  mandate as a buyer-signed **W3C Verifiable Credential** (`did:web`), which the gateway checks before every order.
 
 ## Proof
 - **Trap suite** ([tests/traps/cases.py](tests/traps/cases.py)): 25 real-data cases where buying agents go
   wrong, run against the live Valio mock API. Results are shown in the Valio view.
-- **100 offline tests** (fake catalog and fake Valio, no keys needed), run in CI on every push.
+- **Scoreboard** ([scripts/scoreboard.py](scripts/scoreboard.py)): 16 requests through a Claude agent with the buyer's
+  rules in its prompt, the same agent without them (raw API and through the gateway), and our agent. Reported as it
+  came out: a strong model with good rules in its prompt does well; the gateway holds for every agent.
+- **171 offline tests** (fake catalog and fake Valio, no keys needed), run in CI on every push.
 - Every quirk of the mock data and how we handle it: [docs/ASSUMPTIONS.md](docs/ASSUMPTIONS.md).
 
 ## Run it

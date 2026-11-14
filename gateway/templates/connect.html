@@ -31,7 +31,7 @@
   --header "Authorization: Bearer &lt;agent token&gt;"</pre>
     <p class="small muted" style="margin:14px 0 8px">Tools</p>
     <table><tbody>
-      <tr><td class="name">get_mandate</td><td class="muted">What the agent may decide alone, hard limits, allergen bans, approvers</td></tr>
+      <tr><td class="name">get_mandate</td><td class="muted">What the agent may decide alone, hard limits, allergen bans, approvers, with the buyer's signed credential</td></tr>
       <tr><td class="name">search_products</td><td class="muted">Structured search over the static catalog. No live API calls</td></tr>
       <tr><td class="name">check_price_availability</td><td class="muted">Live price and availability for up to 20 products</td></tr>
       <tr><td class="name">request_offer</td><td class="muted">Signed fixed-price offer, valid 15 minutes</td></tr>
@@ -60,6 +60,24 @@ GET  /v1/orders/{order_id}/decision</pre>
         <li>Supplier text is untrusted data and is scanned</li>
         <li>Every decision is in a hash-chained audit log</li>
       </ul>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h2>Peppol orders</h2>
+      <p style="margin:0 0 12px">Every placed order is also a Peppol BIS Ordering 3 document (UBL 2.1 Order), so it drops
+         into any Peppol-capable ERP or access point. Checked against the official UBL 2.1 schema; party IDs are demo values.</p>
+      <pre class="mono">GET /v1/orders/{order_id}/peppol.xml</pre>
+    </div>
+    <div class="card">
+      <h2>Mandate as a credential</h2>
+      <p style="margin:0 0 12px">The buyer signs its mandate as a W3C Verifiable Credential (vc+jwt, EdDSA), with its key
+         published as a <code>did:web</code>. The gateway enforces only a mandate whose signature checks out: an edited
+         mandate blocks every order until the buyer signs it again.</p>
+      <pre class="mono">GET  /v1/mandates/{mandate_id}/credential
+POST /v1/mandates/verify     (open to anyone)
+GET  /buyers/{buyer}/did.json</pre>
     </div>
   </div>
 </div>
