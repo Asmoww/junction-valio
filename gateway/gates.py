@@ -49,12 +49,14 @@ RULE_GATE = {
     "Required claims": "allowed",
     "Substitutions allowed": "allowed",
     "Matches the buyer's request": "allowed",
+    "Not recalled": "allowed",
     # 4 Proven: the order relies on something the data can't confirm.
     "Allergens verifiable from data": "proven",
     "Claims verified in product data": "proven",
     "Stock confirmed by Valio": "proven",
     "Delivery history known": "proven",
     "Pack contents known": "proven",
+    "Recall status checked": "proven",
     # 5 Authority: allowed and proven, but a compromise or a size the agent may not decide alone.
     "Substitutions within preferences": "authority",
     "Delivery on time": "authority",

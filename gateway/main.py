@@ -12,7 +12,7 @@ from urllib.parse import quote as urlquote
 from fastapi import Body, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from . import learning, unlock, plans, recipe, agent, ai, catalog, gates, policy, security, signing, standards, store, vision
+from . import learning, unlock, plans, recipe, agent, ai, catalog, gates, policy, security, recalls, signing, standards, store, vision
 from .config import AGENT_TOKEN as AGENT_TOKEN_ENV, AGENT_TOKEN_SCOPE, DEMO_CLOCK, DEMO_PASSWORD
 from .mcp_server import app as mcp_app
 from .mcp_server import mcp
@@ -160,9 +160,13 @@ def run_agent(request: Request, body: dict = Body(...)):
             overrides["auto_approve.max_order_total_eur"] = min(max(float(body["auto_limit"]), 0.0), ceiling)
         except (TypeError, ValueError):
             raise HTTPException(422, "auto_limit must be a number")
-    return agent.run(body["request"], mandate_id, overrides,
-                     simulate_price_change=bool(body.get("simulate_price_change")), inject=bool(body.get("inject")),
-                     real_clock=bool(body.get("real_clock")))
+    token = recalls.TEST.set(bool(body.get("test_recall")))  # demo switch: a labelled test recall
+    try:
+        return agent.run(body["request"], mandate_id, overrides,
+                         simulate_price_change=bool(body.get("simulate_price_change")), inject=bool(body.get("inject")),
+                         real_clock=bool(body.get("real_clock")))
+    finally:
+        recalls.TEST.reset(token)
 
 
 # ---- Week plan: the planner page (/plan) -----------------------------------------------------------------------

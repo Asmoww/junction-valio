@@ -43,6 +43,7 @@
     <div><h4>Red team</h4>
       <label class="switch" title="A product description tells AI agents to order 10,000 units."><input type="checkbox" id="inject"><span>Prompt injection in supplier data</span></label>
       <label class="switch" title="The offer goes stale between offer and order."><input type="checkbox" id="priceChange"><span>Price changes before ordering</span></label>
+      <label class="switch" title="A labelled test recall notice for the product the agent picks."><input type="checkbox" id="testRecall"><span>Food recall on the chosen product (test)</span></label>
       <label class="switch" id="clockSwitch" style="display:none" title="Use Valio's real clock: the data snapshot's cut-offs have passed."><input type="checkbox" id="realClock"><span>Passed order cut-offs</span></label>
       <p class="small muted" style="margin:14px 0 0" id="parserTag"></p></div>
   </div>
@@ -160,7 +161,8 @@ async function run() {
   try {
     const res = await post('/api/run', {
       request: $('#request').value, mandate_id: $('#mandate').value, auto_limit: Number($('#autoLimit').value),
-      simulate_price_change: $('#priceChange').checked, inject: $('#inject').checked, real_clock: $('#realClock').checked });
+      simulate_price_change: $('#priceChange').checked, inject: $('#inject').checked, real_clock: $('#realClock').checked,
+      test_recall: $('#testRecall').checked });
     clearTimeout(workTimer);
     LAST = res;
     await settle(res);
@@ -328,7 +330,7 @@ function saidHtml(res) {
   return `<p class="said">“${raw}”</p><div class="saidnote">${notes.join('')}</div>`;
 }
 
-const SHORT_RULE = {'Mandate valid': 'Mandate signed by the buyer', 'Forbidden allergens': 'No banned allergens', 'Required claims': 'Required claims met',
+const SHORT_RULE = {'Not recalled': 'No food recall (checked live)', 'Recall status checked': 'Recall list read live', 'Mandate valid': 'Mandate signed by the buyer', 'Forbidden allergens': 'No banned allergens', 'Required claims': 'Required claims met',
   'Substitutions allowed': 'Substitutes allowed', "Matches the buyer's request": 'Matches what was asked', 'Allergens verifiable from data': 'Allergens in the data',
   'Claims verified in product data': 'Claims in product data', 'Stock confirmed by Valio': 'In Valio’s stock', 'Delivery history known': 'Delivery history known',
   'Pack contents known': 'Pack contents known', 'Delivery on time': 'Arrives on time', 'Auto-approve spend limit': 'Within what it may spend alone',
@@ -345,7 +347,7 @@ function stepsHtml(res) {
   const li = (cls, t, title) => `<li class="${cls}"${title ? ` title="${esc(title)}"` : ''}>${esc(t)}</li>`;
   function ruleList(g) {
     const rs = rules.filter(r => r.gate === g); if (!rs.length) return '';
-    const bad = rs.filter(r => !r.ok), good = rs.filter(r => r.ok);
+    const bad = rs.filter(r => !r.ok), good = rs.filter(r => r.ok).sort((a, b) => (b.rule === 'Not recalled') - (a.rule === 'Not recalled'));
     const label = r => r.rule === 'Hard spend limit' ? `Under the ${eur(m.hard_limits?.max_order_total_eur ?? 0).replace('.00', '')} limit` : (SHORT_RULE[r.rule] || r.rule);
     const show = good.slice(0, Math.max(0, 3 - bad.length));
     const said = r => {

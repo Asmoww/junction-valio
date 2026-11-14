@@ -86,3 +86,11 @@ def no_twin_check(request, monkeypatch):
     if not request.node.get_closest_marker("twin_check"):
         monkeypatch.setattr(agent, "_waiting_twin", lambda offer: None)
         monkeypatch.setattr(agent, "_placed_twin", lambda order: None)
+
+
+@pytest.fixture(autouse=True)
+def no_recall_lookup(request, monkeypatch):
+    """Offline tests never fetch the Food Authority's recall list (tested on its own in test_recalls.py)."""
+    if not request.node.get_closest_marker("recalls"):
+        from gateway import recalls
+        monkeypatch.setattr(recalls, "check", lambda p, today=None: {"status": "clear", "checked": 0, "via": "test"})

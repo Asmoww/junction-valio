@@ -9,7 +9,7 @@ import re
 from datetime import date
 from pathlib import Path
 
-from . import gates, standards
+from . import gates, recalls, standards
 from .catalog import ALLERGENS, get
 
 MANDATE_DIR = Path(__file__).parent / "mandates"
@@ -103,6 +103,23 @@ def evaluate(mandate, offer, context, lookup=None):
     if hard.get("forbidden_allergens"):
         rule("Allergens verifiable from data", not unverified, "approve",
              "; ".join(unverified) or "allergen data present for every line")
+
+    # Live recall check against the Finnish Food Authority (recalls.py): a recall stops the order; an unreachable
+    # source sends it to a person.
+    recalled, unchecked, looked = [], [], 0
+    for line in offer["lines"]:
+        r = recalls.check(get(line["productId"]))
+        if r["status"] == "recalled":
+            recalled.append(f"{'TEST RECALL (demo): ' if r.get('test') else ''}{line['name']}: {r['title']} ({r['source']})")
+        elif r["status"] == "possible":
+            unchecked.append(f"{line['name']}: a recall notice names this brand and product type, check whether this "
+                             f"product is included: {r['title']} ({r['source']})")
+        elif r["status"] == "unknown":
+            unchecked.append(f"{line['name']}: recall list unreachable ({r['source']})")
+        looked += r.get("checked", 0)
+    rule("Not recalled", not recalled, "block", "; ".join(recalled) or
+         f"no current recall notice at the Finnish Food Authority ({looked} checked, {recalls.via()})")
+    rule("Recall status checked", not unchecked, "approve", "; ".join(unchecked) or "Food Authority's recall list read live")
 
 
     missing, name_only = [], []
