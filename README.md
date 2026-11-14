@@ -50,6 +50,8 @@ hostile agent can't skip them. Only a signed-in person named in the buyer's mand
   the notice link is in the decision record.
 - **Data stays in Europe:** one switch moves the gateway's language model to an open model (Gemma) on Verda.
   See [docs/PARTNERS.md](docs/PARTNERS.md).
+- **Agents find Vahti on open standards:** an A2A agent card and JSON-RPC endpoint; every offer also as an AP2-style
+  ES256 merchant checkout. See [docs/STANDARDS.md](docs/STANDARDS.md).
 - **Approve on your own phone:** a QR with a signed, single-use link for one order and one approver named in the mandate.
 - **Open standards:** REST with OpenAPI ([contracts/openapi.yaml](contracts/openapi.yaml)), an MCP server at `/mcp`,
   every placed order as a **Peppol BIS Ordering 3** document (UBL 2.1, checked against the official XSD), and the

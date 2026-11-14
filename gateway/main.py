@@ -13,7 +13,7 @@ from fastapi import Body, FastAPI, File, Form, Header, HTTPException, Request, S
 from fastapi.security import HTTPBearer
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from . import learning, unlock, plans, recipe, agent, ai, catalog, gates, policy, security, recalls, signing, standards, store, vision, preplanner, game, receipt, trust
+from . import learning, unlock, plans, recipe, agent, ai, catalog, gates, policy, security, recalls, signing, standards, store, vision, preplanner, game, receipt, trust, a2a, ap2
 from .config import AGENT_TOKEN as AGENT_TOKEN_ENV, AGENT_TOKEN_SCOPE, DEMO_CLOCK, DEMO_PASSWORD
 from .mcp_server import app as mcp_app
 from .mcp_server import mcp
@@ -62,7 +62,8 @@ def _bound_mandate(token):
     return False, None
 
 
-OPEN_PATHS = {"/login", "/healthz", "/.well-known/jwks.json", "/v1/mandates/verify", "/static/style.css"}
+OPEN_PATHS = {"/login", "/healthz", "/.well-known/jwks.json", "/v1/mandates/verify", "/static/style.css",
+              "/.well-known/agent-card.json"}
 if not DEMO_PASSWORD:
     logging.getLogger("uvicorn.error").warning(
         "DEMO_PASSWORD is not set: the whole gateway, including approvals, is open. Local development only.")
@@ -95,7 +96,7 @@ async def password_gate(request: Request, call_next):
             return await call_next(request)
         finally:
             agent.CALLER.reset(reset)
-    if request.url.path.startswith(("/v1", "/api", "/mcp")):
+    if request.url.path.startswith(("/v1", "/api", "/mcp", "/a2a")):
         return JSONResponse({"detail": "authentication required"}, status_code=401)
     return RedirectResponse(f"/login?next={urlquote(request.url.path)}", status_code=303)
 
@@ -813,8 +814,33 @@ def verify_offer(body: dict = Body(...)):
 
 @app.get("/.well-known/jwks.json", tags=["v1: trust"])
 def well_known_jwks():
-    """Public key for verifying offer signatures."""
-    return signing.jwks()
+    """Public keys: Ed25519 for offer signatures, ES256 for AP2-style checkout JWTs."""
+    return {"keys": signing.jwks()["keys"] + [ap2.jwk()]}
+
+
+@app.get("/.well-known/agent-card.json", include_in_schema=False)
+def agent_card(request: Request):
+    """A2A Agent Card: how other agents discover Vahti (public)."""
+    return a2a.card(_public_base(request))
+
+
+@app.post("/a2a", tags=["v1: A2A"])
+def a2a_rpc(request: Request, body: dict = Body(...)):
+    """A2A JSON-RPC 2.0 (SendMessage, GetTask; v0.3 names too). Text is answered as an inquiry and never orders;
+    quoting and ordering take data parts and run the same checks as REST and MCP. Bearer agent token."""
+    if getattr(request.state, "principal", None) != "agent":
+        raise HTTPException(403, "A2A is for agents: use a per-buyer agent token from /connect")
+    return a2a.handle(body, getattr(request.state, "mandate", None))
+
+
+@app.get("/v1/offers/{offer_id}/ap2", tags=["v1: standards"])
+def offer_ap2(request: Request, offer_id: str):
+    """The offer as an AP2-style merchant-signed checkout JWT (ES256) with its checkout_hash."""
+    stored = store.get_offer(offer_id)
+    bound = getattr(request.state, "mandate", None)
+    if not stored or (bound and stored["mandate_id"] != bound):
+        raise HTTPException(404, "unknown offer")
+    return ap2.checkout_jwt(stored["payload"])
 
 
 @app.get("/v1/orders/{order_id}/peppol.xml", tags=["v1: standards"])
