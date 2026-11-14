@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>Week plan · Trusted Trade Agents</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  .res{display:grid;grid-template-columns:1fr auto;gap:6px 12px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+  .res:first-child{border-top:0}
+  .res .nm{font-weight:600;font-size:14px}
+  .res .sub{font-size:12px;color:var(--mute)}
+  .ptable{width:100%;border-collapse:collapse;font-size:14px}
+  .ptable th{text-align:left;font-size:12px;color:var(--mute);font-weight:600;padding:6px 6px;border-bottom:1px solid var(--line)}
+  .ptable td{padding:8px 6px;border-bottom:1px solid var(--line);vertical-align:middle}
+  .ptable input{width:90px;padding:6px}
+  .num{text-align:right;font-variant-numeric:tabular-nums}
+  .tot{display:flex;justify-content:space-between;align-items:baseline;margin-top:14px;font-size:15px}
+  .tot b{font-size:22px}
+  .ok{color:#1b7a3a}.warn{color:#9a6a00}.bad{color:#b00020}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .planbox{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-top:10px}
+  .bar{height:6px;background:var(--line);border-radius:4px;overflow:hidden;margin-top:6px}
+  .bar i{display:block;height:100%;background:#1F5FBF}
+  input[type=date]{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:8px;font:inherit;background:#fff;box-sizing:border-box}
+  .err{color:#b00020;font-size:13px;margin-top:8px;min-height:1em}
+  @media (max-width:800px){.row2{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header class="topbar"><div class="inner">
+  <div class="brand"><span class="dot">A</span>Trusted Trade Agents <small>Valio Aimo · Junction 2026</small></div>
+  <nav class="tabs"><a href="/">Buyer agent</a><a href="/plan" class="on">Week plan</a><a href="/valio">Valio view</a><a href="/connect">Connect an agent</a></nav>
+  <div class="right">Synthetic data · demo</div>
+</div></header>
+
+<div class="page">
+  <div class="page-head">
+    <div>
+      <h1>Plan the week, sign it once</h1>
+      <p>The chef picks what the kitchen needs this week. An approver signs the plan once. After that the agent orders inside it alone, and only exceptions reach a person.</p>
+    </div>
+  </div>
+
+  <div class="layout">
+    <aside>
+      <div class="card">
+        <h2>1 · Buyer and week</h2>
+        <select id="mandate" onchange="loadPlans(); clearResults()"></select>
+        <div class="row2" style="margin-top:10px">
+          <div><label class="field" for="start">From</label><input type="date" id="start"></div>
+          <div><label class="field" for="end">To</label><input type="date" id="end"></div>
+        </div>
+        <div id="mandateNote" class="small muted" style="margin-top:10px"></div>
+      </div>
+      <div class="card">
+        <h2>2 · Find products</h2>
+        <input type="text" id="q" placeholder="e.g. lactose-free milk, butter, oat drink" onkeydown="if(event.key==='Enter')search()">
+        <div class="chips" id="attrs" style="margin-top:10px"></div>
+        <button class="btn btn-soft" style="margin-top:10px" onclick="search()">Search the catalog</button>
+        <div class="small muted" style="margin-top:8px">Searches Valio's product file only; no live calls until you price the plan.</div>
+        <div id="results" style="margin-top:10px"></div>
+      </div>
+    </aside>
+
+    <main>
+      <div class="card">
+        <h2>3 · This week's plan</h2>
+        <table class="ptable">
+          <thead><tr><th>Product</th><th class="num">Units / week</th><th class="num">Price</th><th class="num">Line</th><th>Valio</th><th></th></tr></thead>
+          <tbody id="lines"><tr><td colspan="6" class="muted">Add products from the search.</td></tr></tbody>
+        </table>
+        <div class="tot"><span>Priced total <span class="small muted" id="priceNote"></span></span><b id="total">€0.00</b></div>
+        <div class="row2" style="margin-top:12px">
+          <div><label class="field" for="budget">Budget the approver signs (€)</label><input type="number" id="budget" min="1" step="10"></div>
+          <div><label class="field" for="who">Planned by</label><input type="text" id="who" value="Head chef"></div>
+        </div>
+        <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-soft" onclick="price()">Price with Valio</button>
+          <button class="btn btn-primary" onclick="draft()">Send to the approver</button>
+        </div>
+        <div class="err" id="err"></div>
+      </div>
+
+      <div class="card">
+        <h2>4 · Plans for this buyer</h2>
+        <div id="plans" class="muted">No plans yet.</div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+const eur = n => '€' + Number(n || 0).toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+const ATTRS = [['FREE_FROM_LACTOSE', 'lactose-free'], ['FREE_FROM_GLUTEN', 'gluten-free'], ['VEGAN', 'vegan'], ['ORGANIC', 'organic'], ['FINNISH', 'Finnish']];
+let mandates = {}, lines = [], priced = {}, attrs = new Set();
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.detail || r.statusText);
+  return j;
+}
+const post = (path, body) => api(path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+const mid = () => $('#mandate').value;
+const iso = d => d.toISOString().slice(0, 10);
+
+async function init() {
+  const list = await api('/api/mandates');
+  list.forEach(m => mandates[m.mandate_id] = m);
+  $('#mandate').innerHTML = list.map(m => `<option value="${m.mandate_id}">${esc(m.buyer)}</option>`).join('');
+  const d = new Date(); const monday = new Date(d); monday.setDate(d.getDate() + ((8 - d.getDay()) % 7 || 7));
+  const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6);
+  $('#start').value = iso(d); $('#end').value = iso(sunday);
+  $('#attrs').innerHTML = ATTRS.map(([k, l]) => `<button class="chip" data-a="${k}" onclick="toggleAttr(this)">${l}</button>`).join('');
+  loadPlans();
+}
+
+function toggleAttr(el) {
+  const a = el.dataset.a;
+  attrs.has(a) ? attrs.delete(a) : attrs.add(a);
+  el.classList.toggle('navy', attrs.has(a));
+}
+
+function mandateNote() {
+  const m = mandates[mid()];
+  const banned = (m.hard_limits.forbidden_allergens || []).length;
+  const top = m.approvers.map(a => `${esc(a.name)} (${esc(a.role)}, up to ${eur(a.up_to_eur)})`).join(' · ');
+  $('#mandateNote').innerHTML = `Agent alone: up to ${eur(m.auto_approve.max_order_total_eur)} per order. ` +
+    (banned ? `${banned} banned allergen(s) checked on every product. ` : '') + `Approvers: ${top}.`;
+}
+
+function clearResults() { $('#results').innerHTML = ''; lines = []; priced = {}; renderLines(); mandateNote(); }
+
+async function search() {
+  const q = $('#q').value.trim(); if (!q) return;
+  $('#results').innerHTML = '<span class="muted small">Searching…</span>';
+  try {
+    const r = await api(`/api/planner/search?q=${encodeURIComponent(q)}&mandate_id=${mid()}&attributes=${[...attrs].join(',')}`);
+    $('#results').innerHTML = r.products.map(p => {
+      const c = p.mandate_check, cls = c.level === 'block' ? 'bad' : c.level === 'check' ? 'warn' : 'ok';
+      const al = [...p.allergens, ...p.mayContain.map(x => 'may contain ' + x)].join(', ') || (p.allergenDataComplete ? 'no allergens listed' : 'no allergen data');
+      return `<div class="res"><div><div class="nm">${esc(p.name)}</div>
+        <div class="sub">${esc(p.productId)} · sold per ${esc(p.salesUnit)} · ${esc(al)}</div>
+        <div class="sub ${cls}">${c.level === 'block' ? 'Not allowed: ' : c.level === 'check' ? 'A person checks: ' : ''}${esc(c.why)}</div></div>
+        <button class="btn btn-soft" ${c.level === 'block' ? 'disabled title="The mandate forbids it"' : ''} onclick='add(${JSON.stringify({id: p.productId, name: p.name, unit: p.salesUnit})})'>Add</button></div>`;
+    }).join('') || '<span class="muted small">Nothing found. Try fewer words.</span>';
+  } catch (e) { $('#results').innerHTML = `<span class="bad small">${esc(e.message)}</span>`; }
+}
+
+function add(p) {
+  if (!lines.find(l => l.productId === p.id)) lines.push({productId: p.id, name: p.name, unit: p.unit, units: 10});
+  renderLines();
+}
+
+function renderLines() {
+  if (!lines.length) { $('#lines').innerHTML = '<tr><td colspan="6" class="muted">Add products from the search.</td></tr>'; $('#total').textContent = eur(0); return; }
+  let total = 0, allPriced = true;
+  $('#lines').innerHTML = lines.map((l, i) => {
+    const pr = priced[l.productId];
+    const line = pr && pr.unitPrice ? pr.unitPrice * l.units : null;
+    if (line == null) allPriced = false; else total += line;
+    const v = !pr ? '<span class="muted small">not priced</span>' : pr.salesBlock ? '<span class="bad small">sales block</span>' :
+      pr.deadlinePassed ? '<span class="warn small">cut-off passed</span>' : pr.available >= l.units ? `<span class="ok small">${pr.stockConfirmed ? 'in stock' : 'supplier stock, unconfirmed'}</span>` :
+      `<span class="warn small">${Number(pr.available).toLocaleString()} available</span>`;
+    return `<tr><td>${esc(l.name)}<div class="small muted">${esc(l.productId)} · per ${esc(l.unit)}</div></td>
+      <td class="num"><input type="number" min="1" step="1" value="${l.units}" onchange="lines[${i}].units=Math.max(1, Number(this.value)||1); renderLines()"></td>
+      <td class="num">${pr && pr.unitPrice ? eur(pr.unitPrice) : '–'}</td><td class="num">${line == null ? '–' : eur(line)}</td><td>${v}</td>
+      <td><button class="chip" onclick="lines.splice(${i},1); renderLines()">Remove</button></td></tr>`;
+  }).join('');
+  $('#total').textContent = eur(total);
+  $('#priceNote').textContent = allPriced ? '(live Valio prices)' : '(price the plan to see the total)';
+  if (allPriced && !$('#budget').dataset.touched) $('#budget').value = Math.ceil(total * 1.05 / 10) * 10;
+}
+
+async function price() {
+  $('#err').textContent = '';
+  if (!lines.length) return;
+  try {
+    const r = await post('/api/planner/prices', {mandate_id: mid(), deliver_by: $('#start').value, product_ids: lines.map(l => l.productId)});
+    priced = r.products; renderLines();
+  } catch (e) { $('#err').textContent = e.message; }
+}
+
+async function draft() {
+  $('#err').textContent = '';
+  try {
+    await post('/api/plans', {mandate_id: mid(), start: $('#start').value, end: $('#end').value, max_total_eur: Number($('#budget').value),
+      created_by: $('#who').value, lines: lines.map(l => ({productId: l.productId, units: l.units}))});
+    lines = []; priced = {}; renderLines(); loadPlans();
+  } catch (e) { $('#err').textContent = e.message; }
+}
+
+async function loadPlans() {
+  mandateNote();
+  const list = await api('/api/plans?mandate_id=' + mid());
+  const m = mandates[mid()];
+  $('#plans').innerHTML = list.map(p => {
+    const pct = Math.min(100, 100 * p.used_eur / p.max_total_eur);
+    const items = p.lines.map(l => `${esc(l.name)}: ${Number(l.used).toLocaleString()} of ${Number(l.units).toLocaleString()} ${esc(l.salesUnit)}`).join('<br>');
+    const approverOpts = m.approvers.filter(a => a.up_to_eur >= p.max_total_eur).map(a => `<option>${esc(a.name)}</option>`).join('');
+    const head = p.status === 'approved' ? `<span class="chip navy">Signed by ${esc(p.approved_by)} · ${esc(p.role)}</span>` :
+      p.status === 'draft' ? '<span class="chip">Waiting for the approver</span>' : `<span class="chip">${esc(p.status)}</span>`;
+    const act = p.status === 'draft' ? (approverOpts ? `<div class="row2" style="margin-top:10px"><select id="ap_${p.id}">${approverOpts}</select>
+        <input type="text" id="cm_${p.id}" placeholder="Comment (optional)"></div>
+        <button class="btn btn-ok" style="margin-top:8px" onclick="approve('${p.id}')">Sign the plan</button>` :
+        '<div class="bad small" style="margin-top:8px">No approver in the mandate has authority for this budget.</div>') :
+      p.status === 'approved' ? `<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap"><a class="btn btn-soft" href="/">Ask the agent to order</a>
+        <button class="chip" onclick="revoke('${p.id}')">Revoke</button></div>` : '';
+    return `<div class="planbox"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap">
+      <b>${esc(p.start)} to ${esc(p.end)}</b>${head}</div>
+      <div class="small" style="margin-top:6px">${items}</div>
+      <div class="small muted" style="margin-top:6px">${eur(p.used_eur)} of ${eur(p.max_total_eur)} used · ${esc(p.id)}</div>
+      <div class="bar"><i style="width:${pct}%"></i></div>${act}</div>`;
+  }).join('') || '<span class="muted">No plans yet.</span>';
+}
+
+async function approve(id) {
+  $('#err').textContent = '';
+  try { await post(`/api/plans/${id}/approve`, {approver: $('#ap_' + id).value, comment: $('#cm_' + id).value}); loadPlans(); }
+  catch (e) { $('#err').textContent = e.message; }
+}
+
+async function revoke(id) {
+  try { await post(`/api/plans/${id}/revoke`, {by: $('#who').value, reason: 'revoked on the plan page'}); loadPlans(); }
+  catch (e) { $('#err').textContent = e.message; }
+}
+
+$('#budget').addEventListener('input', () => $('#budget').dataset.touched = 1);
+init();
+</script>
+</body>
+</html>

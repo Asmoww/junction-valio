@@ -126,5 +126,6 @@ def test_malformed_plans_are_refused(args):
 
 def test_plan_orders_do_not_use_up_the_agents_own_24h_allowance():
     signed_plan()
+    before = store.auto_spend_since(HOTEL, "2000-01-01")
     assert order(900, "k-plan-big")[0]["status"] == "placed"
-    assert order(100, "k-plan-small", pid="464073")[0]["status"] == "placed"  # €164, outside plan, own limit
+    assert store.auto_spend_since(HOTEL, "2000-01-01") == before  # the plan's budget limits it, not the agent's own

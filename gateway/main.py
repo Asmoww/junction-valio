@@ -12,7 +12,7 @@ from urllib.parse import quote as urlquote
 from fastapi import Body, FastAPI, Form, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from . import agent, ai, catalog, gates, policy, security, signing, standards, store
+from . import plans, agent, ai, catalog, gates, policy, security, signing, standards, store
 from .config import AGENT_TOKEN as AGENT_TOKEN_ENV, AGENT_TOKEN_SCOPE, DEMO_CLOCK, DEMO_PASSWORD
 from .mcp_server import app as mcp_app
 from .mcp_server import mcp
@@ -163,6 +163,104 @@ def run_agent(request: Request, body: dict = Body(...)):
     return agent.run(body["request"], mandate_id, overrides,
                      simulate_price_change=bool(body.get("simulate_price_change")), inject=bool(body.get("inject")),
                      real_clock=bool(body.get("real_clock")))
+
+
+# ---- Week plan: the planner page (/plan) -----------------------------------------------------------------------
+
+def _human(request: Request):
+    if getattr(request.state, "principal", None) != "human":
+        raise HTTPException(403, "plans are made and signed by people, not agents")
+
+
+@app.get("/plan", response_class=HTMLResponse, include_in_schema=False)
+def plan_page():
+    return (TEMPLATES / "plan.html").read_text()
+
+
+@app.get("/api/planner/search", tags=["demo"])
+def planner_search(q: str, mandate_id: str = "mnd_hotel_helsinki", attributes: str = "", limit: int = 12):
+    """Catalog search for the planner, with each product checked against the buyer's mandate up front."""
+    if mandate_id not in policy.mandates():
+        raise HTTPException(404, "unknown mandate")
+    m = policy.load(mandate_id)
+    found, trace = catalog.search(q, [a for a in attributes.split(",") if a], min(limit, 20))
+    out = []
+    for p in found:
+        problem = policy.allergen_problem(m, p)
+        missing = [c for c in m["hard_limits"].get("required_claims", [])
+                   if c not in p["claims"] and not (c == "FREE_FROM_LACTOSE" and p.get("lactose") == 0)]
+        out.append(dict(catalog.describe(p), mandate_check=(
+            {"ok": False, "level": "block", "why": problem[0]} if problem and problem[1] == "block" else
+            {"ok": False, "level": "block", "why": "not " + ", ".join(c.lower().replace("_", " ") for c in missing)} if missing else
+            {"ok": True, "level": "check", "why": problem[0]} if problem else {"ok": True, "level": "ok", "why": "fits the mandate"})))
+    return {"trace": trace, "products": out}
+
+
+@app.post("/api/planner/prices", tags=["demo"])
+def planner_prices(body: dict = Body(...)):
+    """Live price and availability for the planned products (at most 20), so the budget is real."""
+    ids = [str(i) for i in (body.get("product_ids") or [])][:20]
+    mandate_id = body.get("mandate_id", "mnd_hotel_helsinki")
+    if mandate_id not in policy.mandates() or not ids:
+        raise HTTPException(422, "give mandate_id and product_ids")
+    m = policy.load(mandate_id)
+    c = agent.ValioClient()
+    try:
+        prices = c.prices(m["customer"], body.get("deliver_by") or "", ids)
+        now_s, avail = c.availability(m["customer"], body.get("deliver_by") or "", ids)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"Valio didn't answer ({type(e).__name__})")
+    rows = {}
+    for pid in ids:
+        av = avail.get(pid) or {}
+        rows[pid] = {"unitPrice": agent._price(prices.get(pid)), "salesBlock": bool(av.get("salesBlock")),
+                     "stockConfirmed": av.get("logisticModel") == "Stock",
+                     "available": sum(agent._amount(x) for x in av.get("scheduleLines", []) if not x.get("salesBlock")),
+                     "deadlinePassed": agent._passed(av.get("closingTime"), now_s)}
+    return {"serverTime": now_s, "products": rows}
+
+
+@app.get("/api/plans", tags=["demo"])
+def list_plans(mandate_id: str = "mnd_hotel_helsinki"):
+    return [plans.view(p) for p in store.plans_for(mandate_id)]
+
+
+@app.post("/api/plans", tags=["demo"])
+def create_plan(request: Request, body: dict = Body(...)):
+    _human(request)
+    plan, err = plans.create(body.get("mandate_id"), body.get("lines"), body.get("start"), body.get("end"),
+                             body.get("max_total_eur"), str(body.get("created_by") or "buyer"), str(body.get("note") or ""))
+    if err:
+        raise HTTPException(409, err)
+    return plans.view(plan)
+
+
+@app.post("/api/plans/{plan_id}/approve", tags=["demo"])
+def approve_plan(request: Request, plan_id: str, body: dict = Body(...)):
+    _human(request)
+    plan, err = plans.approve(plan_id, str(body.get("approver") or ""), str(body.get("comment") or ""))
+    if err:
+        raise HTTPException(409, err)
+    return plans.view(plan)
+
+
+@app.post("/api/plans/{plan_id}/revoke", tags=["demo"])
+def revoke_plan(request: Request, plan_id: str, body: dict = Body(...)):
+    _human(request)
+    plan, err = plans.revoke(plan_id, str(body.get("by") or ""), str(body.get("reason") or ""))
+    if err:
+        raise HTTPException(409, err)
+    return plans.view(plan)
+
+
+@app.get("/v1/plans", tags=["v1: lookup"])
+def agent_plans(request: Request, mandate_id: str):
+    """The buyer's signed week plans (read-only): what the agent may order without asking, and what's left."""
+    if mandate_id not in policy.mandates():
+        raise HTTPException(404, "unknown mandate")
+    if err := agent.caller_refusal(mandate_id):
+        raise HTTPException(403, err)
+    return [plans.view(p) for p in store.plans_for(mandate_id, "approved")]
 
 
 @app.get("/api/info", tags=["demo"])
