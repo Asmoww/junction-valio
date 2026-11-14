@@ -24,11 +24,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 os.environ.setdefault("GATEWAY_DB", str(ROOT / "state" / "scoreboard.db"))
+Path(os.environ["GATEWAY_DB"]).unlink(missing_ok=True)  # fresh per run: earlier runs' waiting orders would count as duplicates
 sys.path.insert(0, str(ROOT))
 
 import anthropic  # noqa: E402
 
-from gateway import agent, catalog, config, policy  # noqa: E402,F401
+from gateway import agent, catalog, config, policy, store  # noqa: E402,F401
 from gateway.valio import ValioClient  # noqa: E402
 
 MODEL = os.environ.get("BASELINE_MODEL", "claude-sonnet-5-5")
@@ -223,6 +224,10 @@ def _via_gateway(case, pid, units, delivery_date, client, out):
 
 def run_baseline(case, client, rules=True, gateway=False):
     m = policy.load(case["mandate"])
+    if gateway:  # each case starts with nothing waiting, or an earlier case's order counts as a duplicate
+        with store._lock:
+            store._db.execute("UPDATE orders SET status='expired' WHERE status='pending_approval'")
+            store._db.commit()
     out = {"orders": [], "asked_human": False, "calls": 0, "turns": 0, "gates": []}
     llm = anthropic.Anthropic()
     messages = [{"role": "user", "content": case["request"]}]
@@ -325,6 +330,13 @@ def main():
     if only:
         print(json.dumps(rows, indent=1, ensure_ascii=False)[:3000]); return
     out = ROOT / "state" / os.environ.get("SCOREBOARD_OUT", "scoreboard.json")
+    if os.environ.get("COLUMNS") and out.exists():  # rerun of some columns: keep the others from the last run
+        prev = json.loads(out.read_text())
+        by_id = {r["id"]: r for r in rows}
+        for r in prev["rows"]:
+            r.update({c: by_id[r["id"]][c] for c in cols if r["id"] in by_id})
+        prev["counts"].update(summary["counts"]); prev["run_at"] = summary["run_at"]
+        summary = prev
     out.write_text(json.dumps(summary, indent=2, ensure_ascii=False))
     print("\n" + "\n".join(f"{c:12} {summary['counts'][c]}" for c in cols))
 
