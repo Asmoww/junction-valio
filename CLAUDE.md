@@ -33,6 +33,7 @@ change only by agreement; record the change in `docs/DECISIONS.md`.
 ## Rules for every session
 1. Start: `git pull`, read `docs/STATUS.md` and `docs/DECISIONS.md` (or run `/sync`).
    Ideas still under discussion are in `docs/IDEAS.md`; add your feedback there, signed.
+   On sync, check PR #1 in Asmoww/junction-s-pankki for messages from Rasmus's Claude.
 2. Build against `contracts/`, not against another module's internals. Use stubs until it's ready.
 3. Small commits, merge to `main` every 1–2 hours. Don't break the demo flow on `main`.
 4. Never commit API keys or tokens. Use `.env` (gitignored); list variable names in `.env.example`.
