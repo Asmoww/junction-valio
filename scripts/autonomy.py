@@ -56,7 +56,7 @@ REQUESTS = [
     "Order 20 kg of frozen peas by Monday",
     "We need 100 litres of UHT milk by Monday",
 ]
-SPEND = {"Auto-approve spend limit", "Agent's own spend in 24 h"}
+SPEND = {"Auto-approve spend limit", "Agent's own spend in 24 h", "Earned trust"}  # the limits a signed plan lifts
 OUTCOME = {"order": "alone", "person_approves": "person", "person_checks": "person", "ask_back": "asked_back",
            "stop": "stopped", "decline": "stopped", "answer": "stopped"}
 
