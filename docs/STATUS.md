@@ -3,6 +3,11 @@
 Update at the end of every session. Newest first within each section.
 
 ## In progress
+- (Rasmus's Claude, branch `fix/benchmark-1000` off main 5a6b590) ChatGPT's 1,000-case benchmark: approval
+  re-checks everything, quote input validation, Valio errors fail closed, **agent tokens bound to one mandate**.
+  **On the server after merging:** the old `AGENT_TOKEN` now works only for `mnd_hotel_helsinki`
+  (`AGENT_TOKEN_SCOPE=all` restores the old behaviour); per-buyer tokens are listed on /connect. Update MCP client
+  configs. 188 offline tests here; `tests/test_api.py` needs fastapi: run `uv run pytest` before merging.
 - (Rasmus's Claude, branch `fix/break-it` = main + `fix/red-team-2` + this) 1,000-prompt "break the demo" run and ChatGPT's hostile review: fixes and `tests/test_break_it.py`. **On the server after merging:** agents now need `AGENT_TOKEN` (shown on /connect when signed in), not the password; update any MCP client config. 159 offline tests here; run `uv run pytest` (test_api.py needs fastapi) and the live traps.
 - (Rasmus's Claude, branch `fix/request-fidelity`, one commit ahead of `main`) Fixes from ChatGPT's red-team review: one order per signed offer, requested quantity sealed into the offer, fail-closed mandate defaults, stock recheck on late approval, CI workflow, `scripts/export_openapi.py`. 93 offline tests here; `tests/test_api.py` needs fastapi, so run `uv run pytest` before merging.
 - (Rasmus's Claude, branch `fix/request-fidelity`) Decision ladder as the backbone + fixes from the live
