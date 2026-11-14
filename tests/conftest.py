@@ -99,3 +99,13 @@ def no_recall_lookup(request, monkeypatch):
     if not request.node.get_closest_marker("recalls"):
         from gateway import recalls
         monkeypatch.setattr(recalls, "check", lambda p, today=None: {"status": "clear", "checked": 0, "via": "test"})
+
+
+@pytest.fixture(autouse=True)
+def fully_trusted(request, monkeypatch):
+    """Earned trust (trust.py) is tested on its own; elsewhere every agent is fully trusted so older tests keep
+    testing what they were written for."""
+    if not request.node.get_closest_marker("trust"):
+        from gateway import trust
+        monkeypatch.setattr(trust, "status", lambda m, ch: {"level": "Trusted", "share": 1.0, "clean": 99, "incidents": 0,
+                                                            "limit_eur": float(m["auto_approve"]["max_order_total_eur"])})

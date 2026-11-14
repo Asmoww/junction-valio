@@ -13,7 +13,7 @@ from fastapi import Body, FastAPI, File, Form, Header, HTTPException, Request, S
 from fastapi.security import HTTPBearer
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from . import learning, unlock, plans, recipe, agent, ai, catalog, gates, policy, security, recalls, signing, standards, store, vision, preplanner, game, receipt
+from . import learning, unlock, plans, recipe, agent, ai, catalog, gates, policy, security, recalls, signing, standards, store, vision, preplanner, game, receipt, trust
 from .config import AGENT_TOKEN as AGENT_TOKEN_ENV, AGENT_TOKEN_SCOPE, DEMO_CLOCK, DEMO_PASSWORD
 from .mcp_server import app as mcp_app
 from .mcp_server import mcp
@@ -436,6 +436,12 @@ def sim_events(since: int = 0):
     lines = open(path, encoding="utf-8").read().splitlines()
     return {"id": _SIM["id"], "events": [json.loads(x) for x in lines[since:] if x.strip()], "next": len(lines),
             "running": _SIM["proc"].poll() is None}
+
+
+@app.get("/api/trust", tags=["demo"])
+def trust_report():
+    """Earned trust per buyer and agent channel: level, clean orders, how far it may order alone."""
+    return trust.everyone(policy.mandates().values())
 
 
 @app.get("/api/info", tags=["demo"])

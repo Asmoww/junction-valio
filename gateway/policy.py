@@ -261,6 +261,13 @@ def evaluate(mandate, offer, context, lookup=None):
         rule("Agent's own spend in 24 h", before + total <= cap, "approve",
              f"€{before:,.2f} already ordered alone in 24 h + €{total:,.2f} vs €{cap:,} "
              "(splitting an order into small ones doesn't avoid approval)")
+        if t := context.get("trust"):
+            # Earned trust (trust.py): a new or misbehaving agent orders alone only up to part of the buyer's limit.
+            rule("Earned trust", total <= t["limit_eur"], "approve",
+                 (f"on hold: {t['why']}; a person decides every order" if t["level"] == "On hold" else
+                  f"{t['level']} {context.get('channel', '')} agent ({t['clean']} clean orders): may order alone up to "
+                  f"€{t['limit_eur']:,.0f} of the buyer's €{auto['max_order_total_eur']:,}"
+                  + (f"; {t['next_level']} after {t['next_at']}" if t.get("next_at") else "")))
 
     verdict = gates.from_rules(rules)
     if verdict["action"] == "stop":

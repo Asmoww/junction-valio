@@ -69,6 +69,7 @@ RULE_GATE = {
     "Unstated details within tolerance": "authority",
     "Auto-approve spend limit": "authority",
     "Agent's own spend in 24 h": "authority",
+    "Earned trust": "authority",
 }
 
 

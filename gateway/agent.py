@@ -14,7 +14,7 @@ from collections import Counter
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from . import ai, catalog, gates, plans, policy, request_checks, security, signing, store
+from . import ai, catalog, gates, plans, policy, request_checks, security, signing, store, trust
 from .config import DEMO_CLOCK, MAX_OFFER_LINES, OFFER_TTL_MINUTES, TIMEZONE, WEIGHT_SALES_UNITS
 from .valio import ValioClient
 
@@ -639,6 +639,9 @@ def _place_order(offer_jws, idempotency_key, mandate, context, client, actor):
     # over every order, not a scan of the latest few.
     since = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat(timespec="seconds")
     context["auto_spend_24h"] = store.auto_spend_since(mandate["mandate_id"], since)
+    # Earned trust: how far this buyer's agent channel may order alone, from its own record (trust.py).
+    context["channel"] = trust.channel(context)
+    context["trust"] = trust.status(mandate, context["channel"])
     # A week plan the approver signed covers this order? The gateway looks it up; an agent can't claim one.
     context.pop("plan", None)
     plan, why = plans.covering(mandate["mandate_id"], payload)
