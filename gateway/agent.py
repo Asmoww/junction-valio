@@ -918,6 +918,10 @@ def _run(text, mandate_id, overrides=None, simulate_price_change=False, inject=F
     # The deterministic checks read a normalised copy: invisible characters and look-alike letters removed,
     # "no lactose" read as "lactose-free", "12 dozen" as 144 (request_checks.normalise).
     text = request_checks.normalise(raw)
+    scan_text = text  # the injection scanner always reads everything the buyer wrote
+    # "Exactly 24 eggs, not 24 packs; ask me instead of rounding up": a limit, not a second quantity.
+    exact = request_checks.exact_quantity(text)
+    text = request_checks.drop_exact_clauses(text)
     if ai_intent and "_error" not in ai_intent:
         intent, parser = ai_intent, f"Claude ({ai.MODEL})"
         # Guard, whatever the model: if Claude's product is just a shortened version of the buyer's own words
@@ -971,7 +975,7 @@ def _run(text, mandate_id, overrides=None, simulate_price_change=False, inject=F
         return exit_at("purchase", "decline", "change_not_supported",
                        "Changing, cancelling or returning a placed order goes to a person; the agent only places new orders.")
     # Gate 1: do we know exactly what is wanted?
-    findings = security.scan_request(text)
+    findings = security.scan_request(scan_text)
     if gaming := request_checks.policy_gaming(text):
         findings.append({"pattern": "policy_gaming", "why": gaming})
     if findings:
@@ -996,6 +1000,8 @@ def _run(text, mandate_id, overrides=None, simulate_price_change=False, inject=F
                        f"request or the mandate rules out. Name a {catalog.ALLERGENS.get(code, code).lower()}-free "
                        "alternative (for example a plant-based spread or oat drink) if you want one.")
     problem, gate = request_checks.date_problem(text, intent.get("deliver_by"), date.today())
+    if problem and re.search(r"\byesterday\b", catalog.fold(text)):
+        intent["deliver_by"] = (date.today() - timedelta(days=1)).isoformat()  # show the date that failed, not a default
     if problem:
         return exit_at(gate, "ask_back", "invalid_date", f"Nothing was ordered: {problem}.")
     if problem := request_checks.quantity_problem(text):
@@ -1218,7 +1224,7 @@ def _run(text, mandate_id, overrides=None, simulate_price_change=False, inject=F
     steps.append({"step": "offer", "title": "Get a signed, fixed-price offer", "offer": offer, "jws": jws})
 
     context = {"deliver_by": intent["deliver_by"], "delivery_date": max(l["deliveryDate"] for l in chosen["lines"]),
-               "partial": chosen["partial"], "simulate_price_change": simulate_price_change,
+               "partial": chosen["partial"], "simulate_price_change": simulate_price_change, "exact_quantity": exact,
                "request": raw, "run_id": run_id, "options_considered": len(options),
                "requested_quantity": intent["quantity"], "required_attributes": intent.get("attributes") or [],
                "from_profile": intent.get("from_profile") or [],

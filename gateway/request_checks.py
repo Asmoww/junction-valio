@@ -33,12 +33,48 @@ def normalise(text):
     for pat, rep in _NEGATED:
         t = re.sub(pat, rep, t, flags=re.I)
     t = re.sub(r"\b(\d+)\s*dozen\b", lambda m: str(int(m.group(1)) * 12), t, flags=re.I)
+    t = re.sub(r"(?<=\d)\s+(?:individual|single|separate|loose)\s+(?=[A-Za-zåäö])", " ", t, flags=re.I)  # "24 individual eggs"
     t = re.sub(r"(?<=[A-Za-zåäöÅÄÖ])\s*(?:&|\+)\s*(?=[A-Za-zåäöÅÄÖ])", " and ", t)  # "milk & cream" is two products
     return t
 
 
+# ---- Exact quantities ("exactly 24 eggs, no overdelivery") ---------------------------------------------
+EXACT = re.compile(r"\b(exactly|precisely|no more than|not more than|at most|maximum|max\.?|no over-?deliver\w*"
+                   r"|over-?deliver\w*|don'?t round\w* up|instead of rounding|without rounding|not round\w* up|no rounding)\b", re.I)
+_EXACT_CLAUSE = re.compile(r"round\w* up|over-?deliver\w*|\bexceed\w*|\bmaximum quantity\b|\bnot \d+ (packs?|units?|boxes?)\b"
+                           r"|\bno more than\b|\bat most\b", re.I)
+
+
+def exact_quantity(text):
+    """Does the buyer rule out rounding up to whole packs? Then an order covering more needs a person."""
+    return bool(EXACT.search(catalog.fold(text)))
+
+
+def drop_exact_clauses(text):
+    """Remove sentences that only restate the quantity as a limit ("Maximum quantity is 24 eggs, not 24 packs.",
+    "If packs would exceed 24 eggs, ask me instead of rounding up."), so the restated number isn't read as a second
+    order line and the words aren't 'not understood'. Only sentences whose numbers all repeat the order quantity and
+    that order nothing new are dropped; the limit itself is kept as exact_quantity()."""
+    sentences = re.split(r"(?<=[.;!?])\s+", text)
+    if len(sentences) < 2:
+        return re.sub(r",?\s*(with )?no over-?deliver\w*", "", re.sub(r"\bexactly\s+(?=\d)", "", text, flags=re.I), flags=re.I)
+    # The first sentence is the order itself and is never dropped.
+    main = [sentences[0]] + [s for s in sentences[1:] if not _EXACT_CLAUSE.search(s)]
+    nums = set(re.findall(r"\d+(?:[.,]\d+)?", " ".join(main)))
+    keep = [sentences[0]]
+    for s in sentences[1:]:
+        if _EXACT_CLAUSE.search(s) and set(re.findall(r"\d+(?:[.,]\d+)?", s)) <= nums \
+                and not re.search(r"\b(and|also|plus|as well)\b[^.]{0,30}\d", s, re.I):
+            continue
+        keep.append(s)
+    out = " ".join(keep)
+    out = re.sub(r"\bexactly\s+(?=\d)", "", out, flags=re.I)
+    return re.sub(r",?\s*(with )?no over-?deliver\w*", "", out, flags=re.I)
+
+
 # ---- Gate 0: is it a purchase? ---------------------------------------------------------------------
 NO_BUY = re.compile(r"\b(do not|don'?t|dont|never|not)\s+(order|buy|purchase|place|commit|tilaa)\b"
+                    r"(?!\s+(?:only|just|half|part|partial\w*|one of|a single|less|fewer|more|anything else|without))"
                     r"|\b(don'?t|do not|no longer)\s+need\b|\bälä\s+(tilaa|osta|tee tilaus)"
                     r"|\bbeställ\s+inte\b|\binte\s+beställ|\bei\s+tarvita\b")
 CANCEL = re.compile(r"\b(cancel\w*|peruuta\w*|avbeställ\w*|annul\w*)\b|\bstop (all |the )?(recurring|standing|regular)\b"

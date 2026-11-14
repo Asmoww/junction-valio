@@ -194,3 +194,45 @@ def test_a_token_bound_to_the_hotel_works_for_the_hotel():
         assert offer and err is None
     finally:
         agent.CALLER.reset(t)
+
+
+# ---- Outside browser test of the live demo (14 Nov 05:23): reading exact limits and conditions ---------------------
+from datetime import date, timedelta  # noqa: E402
+
+from gateway import request_checks as rc  # noqa: E402
+
+EGGS_1 = ("Order exactly 24 individual eggs for Monday. Maximum quantity is 24 eggs, not 24 packs. "
+          "If the smallest available pack would exceed 24 eggs, ask me instead of rounding up.")
+EGGS_2 = ("Order exactly 24 individual eggs for Monday, with no overdelivery. If pack sizes would require more eggs, "
+          "ask me for approval instead of rounding up.")
+
+
+@pytest.mark.parametrize("text", [EGGS_1, EGGS_2])
+def test_a_restated_limit_is_one_quantity_not_a_shopping_list(text):
+    t = rc.drop_exact_clauses(rc.normalise(text))
+    assert rc.exact_quantity(text)
+    assert t.count("24") == 1 and "round" not in t and "individual" not in t  # one quantity left, limit kept as a flag
+
+
+def test_a_limit_sentence_that_orders_something_else_is_kept():
+    t = rc.drop_exact_clauses("Order 24 eggs for Monday. No more than 24 eggs, and also 10 kg butter.")
+    assert "butter" in t
+
+
+def test_do_not_order_only_one_item_is_not_do_not_order():
+    text = ("Order exactly 12 litres of lactose-free milk AND 24 eggs for Monday. Both items are required together; "
+            "do not order only one item.")
+    assert rc.request_type(text)[0] is None  # (with the real catalog it is then asked back as two lines)
+    assert rc.request_type("Do not order anything, just check the price of milk")[0] == "question"
+
+
+def test_exactly_means_a_person_decides_when_packs_round_up(valio):
+    r = agent.run("Order exactly 100 litres of lactose-free milk by Monday.", HOTEL)
+    rule = next(x for x in r["order"]["policy"]["rules"] if x["rule"] == "Exact quantity")
+    assert rule["ok"]
+
+
+def test_a_past_date_shows_the_date_that_failed(valio):
+    r = agent.run("Order 20 litres of lactose-free milk for delivery yesterday.", HOTEL)
+    assert r["ladder"]["action"] == "ask_back"
+    assert r["steps"][0]["intent"]["deliver_by"] == (date.today() - timedelta(days=1)).isoformat()

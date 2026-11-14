@@ -168,6 +168,12 @@ def evaluate(mandate, offer, context, lookup=None):
             rule("Full quantity", False, "approve",
                  f"order covers {covered:,.0f} of the {asked:,.0f} requested: a person decides whether part is enough")
 
+    if asked and context.get("exact_quantity"):
+        covered = sum(l["units"] * (l.get("perUnit") or 1) for l in offer["lines"])
+        rule("Exact quantity", abs(covered - asked) <= 1e-6 * max(asked, 1), "approve",
+             f"the buyer asked for exactly {asked:,.0f}; whole packs cover {covered:,.0f}: a person decides" if abs(covered - asked) > 1e-6 * max(asked, 1)
+             else f"exactly {asked:,.0f}, as asked")
+
     if context.get("partial"):
         rule("Full quantity", False, "approve", "only part of the requested quantity is covered")
 
