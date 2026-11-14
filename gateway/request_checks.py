@@ -115,6 +115,8 @@ def request_type(text):
         return "other", "the requester withdrew the request in the same message"
     if asks and QUESTION_FRAME.search(t):
         return "question", "it asks what ordering would cost or whether to order: a question, not an order"
+    if re.search(r"\bfor (my |our |the )?(cats?|kittens?|dogs?|puppies|pets?|animals?|horses?|birds?)\b", t):
+        return "other", "it's for animals: Valio's food-service catalog is food for people, so nothing was ordered"
     if OUT_OF_SCOPE.search(t):
         return "other", "it asks for something other than a purchase"
     if DRY_RUN.search(t):
