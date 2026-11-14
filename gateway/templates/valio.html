@@ -149,7 +149,9 @@ async function loadScore() {
   $('#scoreWhen').textContent = `The same 16 requests through four setups, run ${ago(t.run_at)}.`;
   $('#score').innerHTML = `<div class="nums">${cols.map(c => { const n = t.counts[c], bad = n.wrong + n.no_approval;
       return `<div class="num ${c === 'no_rules_gw' || c === 'gateway' ? 'blue' : ''}"><b>${bad ? bad + ' unsafe' : n.ok + ' / ' + t.cases}</b><span>${esc(NAMES[c] || t.columns[c])}</span></div>`; }).join('')}</div>
-    <p class="muted" style="margin:-14px 0 0">Valio can’t choose which agents connect. Rules in the gateway hold for all of them.</p>`;
+    <p class="muted" style="margin:-14px 0 0">Valio can’t choose which agents connect. Rules in the gateway hold for all of them.</p>
+    ${t.autonomy ? `<p class="small" style="margin:12px 0 0">And still useful: of ${t.autonomy.requests} everyday hotel orders, <b>${t.autonomy.without_plan.alone}</b> went through alone,
+      <b>${t.autonomy.with_plan.alone}</b> once the chef signed a week plan. <span class="muted">scripts/autonomy.py, run ${ago(t.autonomy.run_at)}</span></p>` : ''}`;
 }
 
 async function openReceipt(e, id) {
