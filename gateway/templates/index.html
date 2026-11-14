@@ -16,7 +16,7 @@
 
 <div class="page">
   <div class="composer">
-    <textarea id="request" rows="1" aria-label="What does the kitchen need?" placeholder="What does the kitchen need?" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();run()}">I need 1,000 litres of lactose-free milk by Monday.</textarea>
+    <textarea id="request" rows="1" aria-label="What does the kitchen need?" placeholder="What does the kitchen need?" oninput="fitRequest()" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();run()}">I need 1,000 litres of lactose-free milk by Monday.</textarea>
     <button class="btn btn-primary" id="runBtn" onclick="run()">Ask the agent</button>
   </div>
   <div class="underbar"><span id="presets" class="chips"></span><button class="gear" onclick="$('#settings').classList.toggle('open')">Settings and tests</button></div>
@@ -84,6 +84,7 @@ async function init() {
   $('#parserTag').textContent = info.ai_parser ? 'Requests are read by Claude; the gateway decides.' : 'Requests are read by rules (no Claude key).';
   renderMandate();
   $('#out').innerHTML = idleHtml();
+  fitRequest(); window.addEventListener('resize', fitRequest);
   bInit();
 }
 
@@ -105,9 +106,11 @@ function renderMandate() {
       ${prof.length ? `<div>Profile</div><div>${prof.map(esc).join('<br>')}</div>` : ''}
       <div>Approvers</div><div>${m.approvers.map(a => `${esc(a.role)} ≤ ${eur(a.up_to_eur).replace('.00', '')}`).join('<br>')}</div></div></details>`;
   $('#presets').innerHTML = (PRESETS[m.mandate_id] || []).map(([l, t]) =>
-    `<button class="chip" onclick='$("#request").value=${esc(JSON.stringify(t))}'>${esc(l)}</button>`).join('');
+    `<button class="chip" onclick='$("#request").value=${esc(JSON.stringify(t))}; fitRequest()'>${esc(l)}</button>`).join('');
 }
 
+// The request box grows with its text instead of scrolling.
+function fitRequest() { const t = $('#request'); t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; }
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // ---- Request builder: a structured way to write the request (same checks as a typed one) ----
@@ -137,6 +140,7 @@ function bWrite() {
   if (!product || !(qty > 0)) { $('#bResults').innerHTML = '<span class="bad">Give a product and a quantity.</span>'; return; }
   const attrs = [...bSel.attrs].join(' '), al = [...bSel.allergies];
   const allergy = al.length ? `, for guests allergic to ${al.length > 1 ? al.slice(0, -1).join(', ') + ' and ' + al.at(-1) : al[0]}` : '';
+  setTimeout(fitRequest);
   $('#request').value = `Order ${qty} ${$('#bUnit').value} of ${attrs ? attrs + ' ' : ''}${product} by ${$('#bDate').value}${allergy}.`;
   $('#request').focus();
 }
@@ -474,18 +478,21 @@ function setQuantity(q) {
   const t = $('#request');
   t.value = t.value.replace(/\d[\d,. ]*\d|\d/, Number(q).toLocaleString('en-US'));
   t.focus(); window.scrollTo({top: 0, behavior: 'smooth'});
+  fitRequest();
 }
 
 function switchUnit(to) {
   const t = $('#request'), word = {KG: 'kg', L: 'litres', PCS: 'pieces'}[to];
   t.value = t.value.replace(/\b(litres?|liters?|litroja|litraa|l|kg|kilos?|kilograms?|kiloa|pieces|pcs)\b/i, word);
   t.focus(); window.scrollTo({top: 0, behavior: 'smooth'});
+  fitRequest();
 }
 
 function useSuggestion(asked, phrase) {
   const t = $('#request'), re = new RegExp(asked.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
   t.value = re.test(t.value) ? t.value.replace(re, phrase) : `${t.value} (${phrase})`;
   t.focus(); window.scrollTo({top: 0, behavior: 'smooth'});
+  fitRequest();
 }
 
 // Hand the approval to a phone: a signed, single-use link as a QR code. The page updates when the phone decides.
