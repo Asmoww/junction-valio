@@ -919,15 +919,22 @@ def _recheck_before_approval(order, mandate, client):
     return None
 
 
-def run(text, mandate_id, overrides=None, simulate_price_change=False, inject=False, real_clock=False):
+def run(text, mandate_id, overrides=None, simulate_price_change=False, inject=False, real_clock=False,
+        purpose=None):
     """Run the whole buyer-agent flow and return a step-by-step trace for the demo UI.
 
     real_clock=True ignores the demo clock for this run, so the mock's passed cut-offs apply."""
+    if purpose not in (None, "purchase", "inquiry"):
+        raise ValueError("purpose must be purchase or inquiry")
+    if err := caller_refusal(mandate_id):
+        raise PermissionError(err)
     token = CLOCK.set("" if real_clock else DEMO_CLOCK)
     try:
-        res = _run(text, mandate_id, overrides, simulate_price_change, inject)
+        # Inquiry also disables the simulated compromised-order path.
+        res = _run(text, mandate_id, overrides, simulate_price_change, inject and purpose != "inquiry", purpose)
     finally:
         CLOCK.reset(token)
+    res["purpose"] = purpose
     res["clock"] = {"demo_clock": "" if real_clock else DEMO_CLOCK,
                     "note": ("Demo clock: the mock's availability snapshot is replayed as of "
                              f"{DEMO_CLOCK[:16].replace('T', ' ')}; every order cut-off is shifted by the same amount."
@@ -935,7 +942,7 @@ def run(text, mandate_id, overrides=None, simulate_price_change=False, inject=Fa
     return res
 
 
-def _run(text, mandate_id, overrides=None, simulate_price_change=False, inject=False):
+def _run(text, mandate_id, overrides=None, simulate_price_change=False, inject=False, purpose=None):
     mandate = policy.load(mandate_id, overrides)
     client = ValioClient()
     steps = []
@@ -987,7 +994,7 @@ def _run(text, mandate_id, overrides=None, simulate_price_change=False, inject=F
             ap["no_data"] = "needs_approval"
         intent["allergies"] = [catalog.ALLERGENS.get(a, a) for a in allergy_codes]
     store.log(run_id, f"agent:{mandate['agent']}", "request.received", {"text": raw, "mandate_id": mandate_id, "parser": parser,
-                                                                         "request_allergies": allergy_codes})
+                                                                         "request_allergies": allergy_codes, "purpose": purpose})
     steps.append({"step": "request", "title": "Understand the request", "intent": intent})
 
     def exit_at(gate, action, status, reason):
@@ -996,6 +1003,10 @@ def _run(text, mandate_id, overrides=None, simulate_price_change=False, inject=F
         return {"run_id": run_id, "steps": steps, "api_calls": client.calls, "mandate": mandate,
                 "result": {"status": status, "error": reason}, "ladder": gates.ladder(gate, action, reason)}
 
+    # Inquiry can only reduce authority. Purchase never converts a question/refusal into an order.
+    if purpose == "inquiry" and intent.get("request_type") not in ("other", "change"):
+        intent["request_type"] = "question"
+    intent["purpose"] = purpose
     # Gate 0: is it a purchase?
     rtype = intent.get("request_type") or "buy"
     if rtype == "other":
@@ -1384,3 +1395,4 @@ def explain_no_option(rows, intent):
     head = f"None of the {len(rows)} matching {intent['product']} products can be ordered as asked"
     tail = " A later delivery date may work." if why["deadline_passed"] or why["unavailable"] else ""
     return f"{head}: {'; '.join(parts)}. Nothing was ordered.{tail}"
+
