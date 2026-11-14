@@ -12,7 +12,7 @@ from urllib.parse import quote as urlquote
 from fastapi import Body, FastAPI, Form, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from . import plans, agent, ai, catalog, gates, policy, security, signing, standards, store
+from . import plans, recipe, agent, ai, catalog, gates, policy, security, signing, standards, store
 from .config import AGENT_TOKEN as AGENT_TOKEN_ENV, AGENT_TOKEN_SCOPE, DEMO_CLOCK, DEMO_PASSWORD
 from .mcp_server import app as mcp_app
 from .mcp_server import mcp
@@ -218,6 +218,17 @@ def planner_prices(body: dict = Body(...)):
                      "available": sum(agent._amount(x) for x in av.get("scheduleLines", []) if not x.get("salesBlock")),
                      "deadlinePassed": agent._passed(av.get("closingTime"), now_s)}
     return {"serverTime": now_s, "products": rows}
+
+
+@app.post("/api/planner/from-recipe", tags=["demo"])
+def planner_from_recipe(request: Request, body: dict = Body(...)):
+    """Turn a recipe + covers into candidate plan lines for the chef to edit. Nothing is ordered or signed."""
+    _human(request)
+    out, err = recipe.read(body.get("mandate_id"), body.get("text"), body.get("covers"), body.get("serves"),
+                           str(body.get("deliver_by") or ""), type_check=ai.type_check if ai.enabled() else None)
+    if err:
+        raise HTTPException(409, err)
+    return out
 
 
 @app.get("/api/plans", tags=["demo"])

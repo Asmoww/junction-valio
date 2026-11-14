@@ -62,6 +62,17 @@
         <div class="small muted" style="margin-top:8px">Searches Valio's product file only; no live calls until you price the plan.</div>
         <div id="results" style="margin-top:10px"></div>
       </div>
+      <div class="card">
+        <h2>Or start from a recipe</h2>
+        <textarea id="recipe" placeholder="Paste a recipe with amounts, e.g.&#10;Salmon soup (serves 4)&#10;400 g salmon fillet&#10;5 dl lactose-free milk&#10;30 g butter"></textarea>
+        <div class="row2" style="margin-top:10px">
+          <div><label class="field" for="covers">Covers this week</label><input type="number" id="covers" min="1" value="120"></div>
+          <div><label class="field" for="serves">Recipe serves (if not in the text)</label><input type="number" id="serves" min="1"></div>
+        </div>
+        <button class="btn btn-soft" style="margin-top:10px" onclick="readRecipe()">Read the recipe</button>
+        <div class="small muted" style="margin-top:8px">Amounts are scaled to your covers and packs counted from Valio's data. Everything it works out is a suggestion: check it before sending the plan.</div>
+        <div id="recipeOut" style="margin-top:10px"></div>
+      </div>
     </aside>
 
     <main>
@@ -166,7 +177,7 @@ function renderLines() {
     const v = !pr ? '<span class="muted small">not priced</span>' : pr.salesBlock ? '<span class="bad small">sales block</span>' :
       pr.deadlinePassed ? '<span class="warn small">cut-off passed</span>' : pr.available >= l.units ? `<span class="ok small">${pr.stockConfirmed ? 'in stock' : 'supplier stock, unconfirmed'}</span>` :
       `<span class="warn small">${Number(pr.available).toLocaleString()} available</span>`;
-    return `<tr><td>${esc(l.name)}<div class="small muted">${esc(l.productId)} · per ${esc(l.unit)}</div></td>
+    return `<tr><td>${esc(l.name)}<div class="small muted">${esc(l.productId)} · per ${esc(l.unit)}${l.fromRecipe ? ' · <span class="warn">from the recipe: check the amount</span>' : ''}</div></td>
       <td class="num"><input type="number" min="1" step="1" value="${l.units}" onchange="lines[${i}].units=Math.max(1, Number(this.value)||1); renderLines()"></td>
       <td class="num">${pr && pr.unitPrice ? eur(pr.unitPrice) : '–'}</td><td class="num">${line == null ? '–' : eur(line)}</td><td>${v}</td>
       <td><button class="chip" onclick="lines.splice(${i},1); renderLines()">Remove</button></td></tr>`;
@@ -227,6 +238,35 @@ async function approve(id) {
 async function revoke(id) {
   try { await post(`/api/plans/${id}/revoke`, {by: $('#who').value, reason: 'revoked on the plan page'}); loadPlans(); }
   catch (e) { $('#err').textContent = e.message; }
+}
+
+let recipeLines = [];
+async function readRecipe() {
+  $('#recipeOut').innerHTML = '<span class="muted small">Reading…</span>';
+  try {
+    const r = await post('/api/planner/from-recipe', {mandate_id: mid(), text: $('#recipe').value, covers: Number($('#covers').value),
+      serves: Number($('#serves').value) || null, deliver_by: $('#start').value});
+    recipeLines = r.lines;
+    $('#recipeOut').innerHTML = `<div class="small muted">Read by ${esc(r.reader)} · recipe serves ${r.serves} → ${r.covers} covers (×${r.factor})</div>` +
+      r.lines.map((l, i) => {
+        const opts = l.candidates.map((c, j) => `<option value="${j}">${esc(c.name)}${c.units ? ` · ${c.units} × ${esc(c.salesUnit)}` : ''}${c.check ? ' (a person checks: ' + esc(c.check) + ')' : ''}</option>`).join('');
+        return `<div class="res"><div><div class="nm">${esc(l.ingredient)} <span class="sub">${esc(l.recipeAmount)} in the recipe → ${l.need == null ? '?' : Number(l.need).toLocaleString()} ${esc(l.needUnit)} needed</span></div>
+          ${opts ? `<select id="rc_${i}" style="margin-top:6px">${opts}</select>` : '<div class="sub warn">Nothing in the catalog that fits the mandate</div>'}</div>
+          <label class="small"><input type="checkbox" id="ru_${i}" ${opts ? 'checked' : 'disabled'}> use</label></div>`;
+      }).join('') + `<div class="small warn" style="margin-top:8px">Assumed: amounts scaled from the recipe, packs from Valio's data. Units you can't see were left at 1: set them in the plan.</div>
+      <button class="btn btn-soft" style="margin-top:8px" onclick="useRecipe()">Add to this week's plan</button>`;
+  } catch (e) { $('#recipeOut').innerHTML = `<span class="bad small">${esc(e.message)}</span>`; }
+}
+
+function useRecipe() {
+  recipeLines.forEach((l, i) => {
+    if (!$('#ru_' + i) || !$('#ru_' + i).checked) return;
+    const c = l.candidates[Number($('#rc_' + i).value)];
+    const have = lines.find(x => x.productId === c.productId);
+    if (have) have.units += c.units || 1;
+    else lines.push({productId: c.productId, name: c.name, unit: c.salesUnit, units: c.units || 1, fromRecipe: true});
+  });
+  renderLines();
 }
 
 $('#budget').addEventListener('input', () => $('#budget').dataset.touched = 1);
