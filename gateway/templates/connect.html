@@ -20,7 +20,9 @@
   <div class="panel">
     <div class="fgrid">
       <div class="f span4"><label for="cbuyer">Your agent buys for</label><select id="cbuyer" onchange="fillCmd()"></select>
-        <span class="hint">Each buyer has its own token. It only works for that buyer.</span></div>
+        <span class="hint">Each buyer has its own token. It only works for that buyer.</span>
+        <label style="margin-top:10px" for="cpurpose">It may</label><select id="cpurpose" onchange="fillCmd()">
+          <option value="purchase">Buy (within the buyer's rules)</option><option value="inquiry">Only look up and price, never buy</option></select></div>
       <div class="f span8"><label>Add this to your agent <span class="faint" style="font-weight:400">(Claude Code shown; any MCP client works)</span></label>
         <pre class="mono" id="cmd">Sign in to see your agent's command.</pre>
         <div style="display:flex;gap:12px;align-items:center"><button class="btn btn-soft" onclick="copyCmd(this)">Copy</button>
@@ -73,7 +75,8 @@ const sel = document.querySelector('#cbuyer');
 sel.innerHTML = Object.entries(TOK).map(([id, t]) => `<option value="${id}">${t.buyer}</option>`).join('');
 function fillCmd() {
   const t = TOK[sel.value]; if (!t) return;
-  document.querySelector('#cmd').textContent = `claude mcp add --transport http valio ${location.origin}/mcp \\\n  --header "Authorization: Bearer ${t.token}"`;
+  const tok = document.querySelector('#cpurpose').value === 'inquiry' ? t.inquiry_token : t.token;
+  document.querySelector('#cmd').textContent = `claude mcp add --transport http valio ${location.origin}/mcp \\\n  --header "Authorization: Bearer ${tok}"`;
 }
 function copyCmd(b) { navigator.clipboard.writeText(document.querySelector('#cmd').textContent).then(() => { b.textContent = 'Copied'; setTimeout(() => b.textContent = 'Copy', 1500); }); }
 fillCmd();

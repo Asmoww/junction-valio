@@ -45,21 +45,31 @@ if AGENT_TOKEN and AGENT_TOKEN == DEMO_PASSWORD:
     raise SystemExit("AGENT_TOKEN must differ from DEMO_PASSWORD")
 
 
-def mandate_token(mandate_id):
-    """The agent token bound to one buyer's mandate (derived, so nothing new to store or leak)."""
-    return hmac.new(AGENT_TOKEN.encode(), b"tg-agent:" + mandate_id.encode(), hashlib.sha256).hexdigest()[:32]
+def mandate_token(mandate_id, purpose="purchase"):
+    """The agent token bound to one buyer's mandate (derived, so nothing new to store or leak). purpose "inquiry"
+    gives a token that can look up and price under that mandate but never order."""
+    salt = b"tg-agent:" if purpose == "purchase" else b"tg-agent-inquiry:"
+    return hmac.new(AGENT_TOKEN.encode(), salt + mandate_id.encode(), hashlib.sha256).hexdigest()[:32]
 
 
 def _bound_mandate(token):
     """(True, mandate it is bound to or None for unbound) for a valid agent token, else (False, None)."""
+    ok, mid, _ = _token_scope(token)
+    return ok, mid
+
+
+def _token_scope(token):
+    """(valid, mandate or None, read_only) for an agent token."""
     if not AGENT_TOKEN:
-        return False, None
+        return False, None, False
     if secrets.compare_digest(token, AGENT_TOKEN):
-        return True, (None if AGENT_TOKEN_SCOPE == "all" else AGENT_TOKEN_SCOPE)
+        return True, (None if AGENT_TOKEN_SCOPE == "all" else AGENT_TOKEN_SCOPE), False
     for mid in policy.mandates():
         if secrets.compare_digest(token, mandate_token(mid)):
-            return True, mid
-    return False, None
+            return True, mid, False
+        if secrets.compare_digest(token, mandate_token(mid, "inquiry")):
+            return True, mid, True
+    return False, None, False
 
 
 OPEN_PATHS = {"/login", "/healthz", "/.well-known/jwks.json", "/v1/mandates/verify", "/static/style.css",
@@ -84,17 +94,20 @@ async def password_gate(request: Request, call_next):
     if secrets.compare_digest(request.cookies.get(_COOKIE, ""), _token):
         request.state.principal = "human"
         return await call_next(request)
-    ok, bound = _bound_mandate(auth[7:]) if auth.startswith("Bearer ") else (False, None)
+    ok, bound, read_only = _token_scope(auth[7:]) if auth.startswith("Bearer ") else (False, None, False)
     if ok and request.url.path.startswith("/api"):
         # The /api endpoints serve the demo pages to signed-in people (and list every buyer's orders).
         return JSONResponse({"detail": "agents use /v1 or /mcp"}, status_code=403)
     if ok:
         request.state.principal = "agent"
         request.state.mandate = bound
+        request.state.read_only = read_only
         reset = agent.CALLER.set(bound)  # read by agent.quote/order_from_jws, so REST and MCP get the same check
+        reset_ro = agent.READ_ONLY.set(read_only)  # inquiry-only token: agent.place_order refuses
         try:
             return await call_next(request)
         finally:
+            agent.READ_ONLY.reset(reset_ro)
             agent.CALLER.reset(reset)
     if request.url.path.startswith(("/v1", "/api", "/mcp", "/a2a")):
         return JSONResponse({"detail": "authentication required"}, status_code=401)
@@ -560,7 +573,8 @@ def connect_page(request: Request):
     page = (TEMPLATES / "connect.html").read_text()
     if getattr(request.state, "principal", None) == "human" and AGENT_TOKEN:  # people hand these to their agent
         import json as _json
-        tokens = {mid: {"buyer": m["buyer"].replace(" (demo)", ""), "token": mandate_token(mid)} for mid, m in policy.mandates().items()}
+        tokens = {mid: {"buyer": m["buyer"].replace(" (demo)", ""), "token": mandate_token(mid),
+                        "inquiry_token": mandate_token(mid, "inquiry")} for mid, m in policy.mandates().items()}
         page = page.replace("<!--MANDATE_TOKENS-->", f"<script>window.TOKENS = {_json.dumps(tokens)};</script>")
     return page
 

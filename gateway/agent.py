@@ -60,6 +60,12 @@ CLOCK = contextvars.ContextVar("demo_clock", default=DEMO_CLOCK)
 CALLER = contextvars.ContextVar("caller_mandate", default=None)
 
 
+# An inquiry-only token (main.mandate_token(mid, "inquiry")) may look up, preplan and price, never order: the
+# token-wide version of the Inquiry purpose (PREPLANNER.md "Boundary"). Checked in place_order, which every
+# order path goes through (REST, MCP, A2A).
+READ_ONLY = contextvars.ContextVar("caller_read_only", default=False)
+
+
 def caller_refusal(mandate_id, ref="security"):
     """An error if the calling agent's token is bound to a different mandate, else None (and nothing logged)."""
     bound = CALLER.get()
@@ -597,6 +603,10 @@ _commit = store.commit_lock
 
 def place_order(offer_jws, idempotency_key, mandate, context, client=None, actor="agent"):
     """Gateway side of an order: verify the signed offer, re-check prices, apply the mandate."""
+    if READ_ONLY.get():
+        store.log("security", f"agent:{mandate.get('mandate_id')}", "security.read_only_order_refused",
+                  {"mandate_id": mandate.get("mandate_id")})
+        return None, "this agent token is for inquiries only: it can look up and price, never order"
     with _commit():
         return _place_order(offer_jws, idempotency_key, mandate, context, client, actor)
 
