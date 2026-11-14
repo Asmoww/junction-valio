@@ -19,7 +19,8 @@ ORDER = ["mnd_hotel_helsinki", "mnd_school_espoo", "mnd_hospital_ward"]
 
 
 def mandates():
-    ms = [json.loads(f.read_text()) for f in MANDATE_DIR.glob("*.json")]
+    from .config import STATE_DIR  # buyers signed from a policy document (onboard.py) live in the state folder
+    ms = [json.loads(f.read_text()) for f in [*MANDATE_DIR.glob("*.json"), *(STATE_DIR / "mandates").glob("*.json")]]
     ms.sort(key=lambda m: ORDER.index(m["mandate_id"]) if m["mandate_id"] in ORDER else len(ORDER))
     return {m["mandate_id"]: m for m in ms}
 

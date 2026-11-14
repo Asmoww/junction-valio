@@ -13,7 +13,7 @@ from fastapi import Body, FastAPI, File, Form, Header, HTTPException, Request, S
 from fastapi.security import HTTPBearer
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from . import learning, unlock, plans, recipe, agent, ai, catalog, gates, policy, security, recalls, signing, standards, store, vision, preplanner, game, receipt, trust, a2a, ap2
+from . import learning, unlock, plans, recipe, agent, ai, catalog, gates, policy, security, recalls, signing, standards, store, vision, preplanner, game, receipt, trust, a2a, ap2, onboard
 from .config import AGENT_TOKEN as AGENT_TOKEN_ENV, AGENT_TOKEN_SCOPE, DEMO_CLOCK, DEMO_PASSWORD
 from .mcp_server import app as mcp_app
 from .mcp_server import mcp
@@ -443,6 +443,43 @@ def sim_events(since: int = 0):
 def trust_report():
     """Earned trust per buyer and agent channel: level, clean orders, how far it may order alone."""
     return trust.everyone(policy.mandates().values())
+
+
+@app.get("/rules", response_class=HTMLResponse, include_in_schema=False)
+def rules_page():
+    return (TEMPLATES / "rules.html").read_text()
+
+
+@app.get("/api/rules/sample", tags=["demo"])
+def rules_sample():
+    return {"text": onboard.SAMPLE}
+
+
+@app.post("/api/rules/draft", tags=["demo"])
+async def rules_draft(request: Request, policy_file: UploadFile | None = File(None), text: str = Form("")):
+    """Claude drafts the rules from a policy document, quoting the source of each (people only)."""
+    if getattr(request.state, "principal", None) != "human":
+        raise HTTPException(403, "people only")
+    pdf = await policy_file.read() if policy_file else None
+    if pdf and not pdf.startswith(b"%PDF"):
+        text, pdf = pdf.decode("utf-8", "replace"), None
+    import asyncio
+    try:
+        return await asyncio.to_thread(onboard.draft, text or None, pdf)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+
+
+@app.post("/api/rules/sign", tags=["demo"])
+def rules_sign(request: Request, body: dict = Body(...)):
+    """A person signs the reviewed rules: the buyer exists from now on (people only)."""
+    if getattr(request.state, "principal", None) != "human":
+        raise HTTPException(403, "plans and rules are signed by people, not agents")
+    mandate, problems = onboard.sign(body.get("fields") or {}, body.get("signer"))
+    if problems:
+        raise HTTPException(422, "; ".join(problems))
+    store.log(mandate["mandate_id"], f"human:{mandate['signed_by']}", "mandate.signed_from_policy", {"buyer": mandate["buyer"]})
+    return {"mandate": mandate, "token": mandate_token(mandate["mandate_id"])}
 
 
 @app.get("/api/info", tags=["demo"])

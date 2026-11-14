@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>Rules from your policy · Vahti</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  .rtable { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  .rtable td { padding: 12px 10px; border-top: 1px solid var(--line); vertical-align: top; }
+  .rtable td:first-child { width: 220px; font-weight: 650; }
+  .rtable td:nth-child(2) { width: 400px; }
+  .rtable input, .rtable select { width: 100%; padding: 8px 10px; }
+  .src { font-size: 13.5px; color: var(--ink); border-left: 3px solid var(--valio); padding: 2px 0 2px 10px; font-style: italic; }
+  .src.none { border-color: var(--warn); color: var(--warn); font-style: normal; }
+  .chipset { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chipset label { display: inline-flex; gap: 5px; align-items: center; font-size: 13px; background: #f5f8fc; border-radius: 99px; padding: 3px 10px; cursor: pointer; }
+  .chipset input { width: auto; }
+  .appr { display: grid; grid-template-columns: 1.4fr 1.2fr 90px 22px; gap: 6px; margin-bottom: 6px; }
+  .signbar { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin-top: 22px; padding: 16px 20px; border-radius: 18px; background: #f5f8fc; }
+  .signbar input[type=text] { width: 220px; padding: 9px 12px; }
+  .done { margin-top: 22px; padding: 22px 26px; border-radius: 18px; background: var(--ok-soft); }
+  .done h2 { margin: 0 0 6px; color: var(--ok); font-size: 22px; }
+</style>
+</head>
+<body>
+<header class="topbar"><div class="inner">
+  <a class="brand" href="/" aria-label="Vahti, for Valio Aimo"><svg class="mark" viewBox="0 0 64 12" aria-hidden="true"><path d="M5 6H59" stroke="currentColor" stroke-width="2" opacity=".55"/><circle cx="5.0" cy="6" r="3.4" fill="currentColor"/><circle cx="15.8" cy="6" r="3.4" fill="currentColor"/><circle cx="26.6" cy="6" r="3.4" fill="currentColor"/><circle cx="37.4" cy="6" r="3.4" fill="currentColor"/><circle cx="48.2" cy="6" r="3.4" fill="currentColor"/><circle cx="59.0" cy="6" r="4.2" fill="#ffb02e"/></svg><span class="word">vahti</span><span class="for">for Valio Aimo</span></a>
+  <nav class="tabs"><a href="/">Buyer agent</a><a href="/plan">Week plan</a><a href="/rules" class="on">Rules</a><a href="/valio">Valio view</a><a href="/live">Live</a><a href="/connect">Connect an agent</a><a href="/play">Play</a></nav>
+  <div class="right"><span class="pill">Demo data</span></div>
+</div></header>
+
+<div class="page">
+  <div class="phead"><div><h1>Rules from your policy</h1><p>Give us your purchasing or dietary policy. Claude drafts the rules agents must follow; you check and sign them.</p></div></div>
+
+  <div class="panel">
+    <div class="fgrid">
+      <div class="f span12"><label for="policy">Your policy</label>
+        <textarea id="policy" style="min-height:160px" placeholder="Paste the policy text here, or upload a PDF below."></textarea></div>
+    </div>
+    <div class="pfoot">
+      <label class="btn btn-soft" style="cursor:pointer">Upload a PDF<input type="file" id="pdf" accept="application/pdf,text/plain" hidden onchange="$('#pdfName').textContent = this.files[0]?.name || ''"></label>
+      <span class="small muted" id="pdfName"></span>
+      <button class="linkbtn" onclick="sample()">Use a sample policy</button>
+      <span class="grow"></span>
+      <button class="btn btn-primary" id="draftBtn" style="width:auto;margin:0" onclick="draft()">Draft the rules</button>
+    </div>
+    <div class="err" id="err"></div>
+  </div>
+
+  <div id="review"></div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+const ALLERGENS = {AM: 'milk', ML: 'lactose', AE: 'egg', AP: 'peanuts', AN: 'tree nuts', SA: 'almond', SH: 'hazelnut', AS: 'sesame', AF: 'fish', AC: 'crustaceans', AW: 'gluten', AY: 'soy'};
+const POLICY = {block: 'stop the order', needs_approval: 'a person checks', allow: 'allow'};
+let D = null;
+
+async function sample() { $('#policy').value = (await (await fetch('/api/rules/sample')).json()).text; }
+
+async function draft() {
+  $('#err').textContent = ''; const btn = $('#draftBtn'); btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Reading your policy…';
+  const fd = new FormData(); fd.append('text', $('#policy').value);
+  if ($('#pdf').files[0]) fd.append('policy_file', $('#pdf').files[0]);
+  try {
+    const r = await fetch('/api/rules/draft', {method: 'POST', body: fd}); const j = await r.json();
+    if (!r.ok) throw new Error(j.detail || r.statusText);
+    D = j; render();
+  } catch (e) { $('#err').textContent = e.message; }
+  btn.disabled = false; btn.textContent = 'Draft the rules';
+}
+
+function src(k) {
+  const s = D[k]?.source;
+  return s ? `<div class="src">“${esc(s)}”</div>` : `<div class="src none">Not in your document: the strict default is used. Change it if you mean otherwise.</div>`;
+}
+function num(k, label, hint) {
+  return `<tr><td>${label}<div class="small muted" style="font-weight:400">${hint}</div></td><td><input type="number" id="f_${k}" value="${D[k]?.value ?? ''}" min="0" step="10"></td><td>${src(k)}</td></tr>`;
+}
+function sel(k, label) {
+  return `<tr><td>${label}</td><td><select id="f_${k}">${Object.entries(POLICY).map(([v, t]) => `<option value="${v}" ${(D[k]?.value || (k === 'may_contain' ? 'block' : 'needs_approval')) === v ? 'selected' : ''}>${t}</option>`).join('')}</select></td><td>${src(k)}</td></tr>`;
+}
+function render() {
+  const banned = new Set(D.forbidden_allergens?.value || []);
+  $('#review').innerHTML = `<h2 class="rhead" style="margin-top:36px">Check the rules</h2>
+    <table class="rtable"><tbody>
+      <tr><td>Buyer</td><td><input id="f_buyer" value="${esc(D.buyer?.value || '')}"></td><td>${src('buyer')}</td></tr>
+      ${num('agent_alone_per_order_eur', 'Agent orders alone up to (€)', 'per order, no person needed')}
+      ${num('agent_alone_per_day_eur', 'Agent alone per day (€)', 'all its orders in 24 h')}
+      ${num('hard_limit_per_order_eur', 'Hard limit per order (€)', 'nobody can approve more')}
+      <tr><td>Never buy</td><td><div class="chipset">${Object.entries(ALLERGENS).map(([c, n]) => `<label><input type="checkbox" value="${c}" class="alg" ${banned.has(c) ? 'checked' : ''}>${n}</label>`).join('')}</div></td><td>${src('forbidden_allergens')}</td></tr>
+      ${sel('may_contain', '“May contain” a banned allergen')}
+      ${sel('no_allergen_data', 'No allergen data')}
+      <tr><td>Approvers</td><td><div id="apprs">${(D.approvers?.value || []).map(apprRow).join('')}</div><button class="linkbtn" onclick="$('#apprs').insertAdjacentHTML('beforeend', apprRow({}))">Add an approver</button></td><td>${src('approvers')}</td></tr>
+      <tr><td>Valid until</td><td><input type="date" id="f_valid_until" value="${D.valid_until?.value || ''}"></td><td>${src('valid_until')}</td></tr>
+    </tbody></table>
+    <div class="signbar"><label><input type="checkbox" id="checked"> I've checked these rules against our policy</label>
+      <input type="text" id="signer" placeholder="Your name"><span class="grow" style="flex:1"></span>
+      <button class="btn btn-primary" style="width:auto;margin:0" onclick="sign()">Sign the rules</button></div>
+    <div class="err" id="err2"></div><div id="signed"></div>`;
+  $('#review').scrollIntoView({behavior: 'smooth', block: 'start'});
+}
+function apprRow(a) {
+  return `<div class="appr"><input placeholder="Name" value="${esc(a.name || '')}"><input placeholder="Role" value="${esc(a.role || '')}"><input type="number" placeholder="up to €" value="${a.up_to_eur ?? ''}"><button class="linkbtn" onclick="this.parentElement.remove()">×</button></div>`;
+}
+async function sign() {
+  $('#err2').textContent = '';
+  if (!$('#checked').checked) { $('#err2').textContent = 'Tick that you have checked the rules first.'; return; }
+  const val = k => ({value: $('#f_' + k).value === '' ? null : ($('#f_' + k).type === 'number' ? Number($('#f_' + k).value) : $('#f_' + k).value)});
+  const fields = {buyer: val('buyer'), agent_alone_per_order_eur: val('agent_alone_per_order_eur'), agent_alone_per_day_eur: val('agent_alone_per_day_eur'),
+    hard_limit_per_order_eur: val('hard_limit_per_order_eur'), may_contain: val('may_contain'), no_allergen_data: val('no_allergen_data'), valid_until: val('valid_until'),
+    forbidden_allergens: {value: [...document.querySelectorAll('.alg:checked')].map(x => x.value)},
+    approvers: {value: [...document.querySelectorAll('#apprs .appr')].map(r => { const i = r.querySelectorAll('input'); return {name: i[0].value, role: i[1].value, up_to_eur: Number(i[2].value)}; })}};
+  const r = await fetch('/api/rules/sign', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({fields, signer: $('#signer').value})});
+  const j = await r.json();
+  if (!r.ok) { $('#err2').textContent = j.detail || r.statusText; return; }
+  $('#signed').innerHTML = `<div class="done"><h2>Signed. ${esc(j.mandate.buyer)} can buy now.</h2>
+    <p style="margin:0">Agents order under these rules from this moment, checked on every order. Signed by ${esc(j.mandate.signed_by)} as a W3C credential.</p>
+    <p class="small" style="margin:10px 0 0">Agent token for this buyer: <code>${esc(j.token)}</code> · <a href="/">Try it on the buyer page</a> · <a href="/v1/mandates/${esc(j.mandate.mandate_id)}/credential" target="_blank">The signed credential</a></p></div>`;
+}
+</script>
+</body>
+</html>
