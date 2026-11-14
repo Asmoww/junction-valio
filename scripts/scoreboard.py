@@ -104,7 +104,7 @@ def _deliverable(pid, units, deliver_by, client):
              and s["availableDate"] <= deliver_by]
     if a.get("closingTime") and a["closingTime"] < now_s:
         return False, f"order deadline passed ({a['closingTime'][:16].replace('T', ' ')})"
-    if not lines or sum(s["availableAmount"] for s in lines) < units:
+    if not lines or sum(agent._qty(s) for s in lines) < units:
         return False, "can't arrive in that quantity by the date"
     return True, ""
 

@@ -54,7 +54,7 @@ for p in products:
         "category": p.get("category"),
         "salesUnit": p.get("salesUnit"),
         "baseUnit": p.get("baseUnit"),
-        "lot": p.get("allowedLotSize") or 1,
+        "lot": max(p.get("allowedLotSize") or 1, 1),  # Valio: treat 0.01 as 1
         "units": {u["unitId"]: u.get("sizeInBaseUnits") for u in p.get("units") or []},
         "origin": p.get("countryOfOrigin"),
         "contains": sorted({v["id"] for v in groups.get("allergen", []) if v.get("unit") == "CONTAINS"}),

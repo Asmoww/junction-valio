@@ -20,7 +20,13 @@ from .valio import ValioClient
 
 # Valio's availability API uses 999999 for supplier-warehouse ("Terminal") stock it can't see, and the
 # mock also returns huge placeholder numbers. None of these are real, confirmed quantities.
-STOCK_PLACEHOLDERS = {999999, 666666666, 9999999999}
+UNKNOWN_STOCK = 999999  # Valio: availableAmount >= 999999 means "quantity unknown, any quantity may be ordered"
+
+
+def _qty(line):
+    """availableAmount of a schedule line. Valio: empty means not available."""
+    v = line.get("availableAmount")
+    return float(v) if v not in (None, "") else 0.0
 
 
 def _when(s):
@@ -314,7 +320,7 @@ def _assess(p, price, avail, intent, now_s):
     a = avail or {}
     lines = [s for s in a.get("scheduleLines", []) if not s.get("salesBlock") and s.get("availableDate")
              and s["availableDate"] <= intent["deliver_by"]]
-    available = sum(s["availableAmount"] for s in lines)
+    available = sum(_qty(s) for s in lines)
     row["closing_time"] = a.get("closingTime")
     row["logistic_model"] = a.get("logisticModel")
     # Valio stocks "Stock" products itself (the docs say it knows their quantities, even when the mock shows
@@ -332,7 +338,7 @@ def _assess(p, price, avail, intent, now_s):
         # A later delivery is a compromise only a person may accept (gate 5), so remember the earliest one.
         later = [s for s in a.get("scheduleLines", []) if not s.get("salesBlock") and s.get("availableDate")
                  and s["availableDate"] > intent["deliver_by"]]
-        if later and sum(s["availableAmount"] for s in later) >= need:
+        if later and sum(_qty(s) for s in later) >= need:
             row["late_date"] = min(s["availableDate"] for s in later)
     elif available < need:
         row["status"] = "partial"
@@ -356,7 +362,7 @@ def trust_flags(p, price, avail, available, now_s):
     model = avail.get("logisticModel")
     if model == "Terminal":
         stock = "unknown: supplier warehouse, Valio can't see the quantity"
-    elif available in STOCK_PLACEHOLDERS:
+    elif available >= UNKNOWN_STOCK:
         stock = "in stock: exact quantity not given (placeholder value)"
     elif model == "Stock":
         stock = f"confirmed: {available:g} {p['salesUnit']} in Valio stock"
@@ -582,7 +588,7 @@ def _line_problem(line, av, now_s, deliver_by):
         return f"{pid}: the order deadline (cut-off) passed at {av.get('closingTime')}"
     sched = [x for x in av.get("scheduleLines", []) if not x.get("salesBlock") and x.get("availableDate")
              and x["availableDate"] <= deliver_by]
-    if not sched or sum(x.get("availableAmount", 0) for x in sched) < line["units"]:
+    if not sched or sum(_qty(x) for x in sched) < line["units"]:
         return f"{pid} is no longer available in that quantity by {deliver_by}"
     return ""
 
@@ -626,7 +632,7 @@ def quote(mandate_id, deliver_by, lines, client=None, requested_quantity=None, r
                     "substitution": l.get("substitution"), "orderDeadline": av.get("closingTime"),
                     "priceValidTo": (pr["catalogPrice"].get("validTo") or "")[:10] or None,
                     "stockConfirmed": av.get("logisticModel") == "Stock",
-                    "trust": trust_flags(p, pr, av, sum(x["availableAmount"] for x in sched), now_s),
+                    "trust": trust_flags(p, pr, av, sum(_qty(x) for x in sched), now_s),
                     "evidence": catalog.evidence(p)})
     option = {"lines": out, "total_eur": round(sum(x["lineTotal"] for x in out), 2)}
     offer, jws = create_offer(mandate, option, {"deliver_by": deliver_by, "quantity": requested_quantity,
