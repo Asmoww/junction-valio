@@ -77,3 +77,11 @@ def no_network(monkeypatch):
 @pytest.fixture
 def valio():
     return FakeValio()
+
+
+@pytest.fixture(autouse=True)
+def no_twin_check(request, monkeypatch):
+    """Tests share one database, so earlier tests leave identical orders waiting. The duplicate-order check is
+    tested on its own (marker twin_check)."""
+    if not request.node.get_closest_marker("twin_check"):
+        monkeypatch.setattr(agent, "_waiting_twin", lambda offer: None)

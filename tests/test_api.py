@@ -60,3 +60,16 @@ def test_an_agent_can_order_by_offer_id():
     r = c.post("/v1/orders", json={"offer_id": offer["offer_id"]}, headers=auth)
     assert r.status_code == 200 and r.json()["offer_id"] == offer["offer_id"]
     assert c.post("/v1/orders", json={"offer_id": "ofr_nope"}, headers=auth | {"Idempotency-Key": "k2"}).status_code == 422
+
+
+@pytest.mark.twin_check
+def test_an_identical_order_is_refused_while_the_first_waits_for_approval():
+    """Scoreboard finding: an agent ordered, 'asked a person', then ordered the same again."""
+    lines = [{"productId": "464073", "units": 777}]
+    _, jws1, _ = agent.quote("mnd_hotel_helsinki", "2026-11-16", lines, FakeValio())
+    first, _ = agent.order_from_jws(jws1, "k-twin-1")
+    assert first["status"] == "pending_approval"
+    _, jws2, _ = agent.quote("mnd_hotel_helsinki", "2026-11-16", lines, FakeValio())
+    second, err = agent.order_from_jws(jws2, "k-twin-2")
+    assert second is None and first["id"] in err
+    assert agent.order_from_jws(jws1, "k-twin-1")[0]["id"] == first["id"]  # same key still returns the original

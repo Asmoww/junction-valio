@@ -680,7 +680,24 @@ def order_from_jws(jws, idempotency_key, rationale="", requested_units=None):
                   {"signed": payload["requested_quantity"], "claimed": requested_units})
         return None, (f"the order claims {requested_units:g} requested, but the signed offer says "
                       f"{payload['requested_quantity']:g}: request a new offer")
+    if not store.order_by_key(idempotency_key) and (twin := _waiting_twin(payload)):
+        store.log(payload["offer_id"], f"agent:{mandate['agent']}", "order.duplicate_refused", {"waiting": twin["id"]})
+        return None, (f"an identical order ({twin['id']}) is already waiting for "
+                      f"{(twin['policy'].get('approver') or {}).get('name', 'a person')}'s approval: don't order twice")
     return place_order(jws, idempotency_key, mandate, ctx, actor=f"agent:{mandate['agent']}")
+
+
+def _waiting_twin(offer):
+    """A pending order from the last hour with the same mandate and the same lines, if there is one.
+    Why: a scoreboard agent ordered, "asked a person", then ordered again, leaving two identical orders
+    for the approver."""
+    lines = sorted((l["productId"], l["units"]) for l in offer["lines"])
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    for o in store.list_orders(200):
+        if (o["status"] == "pending_approval" and o["mandate_id"] == offer["mandate_id"] and o["created"] >= cutoff
+                and sorted((l["productId"], l["units"]) for l in o["record"]["offer"]["lines"]) == lines):
+            return o
+    return None
 
 
 def decide(order_id, decision, approver, comment="", client=None):

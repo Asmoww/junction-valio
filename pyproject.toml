@@ -22,5 +22,5 @@ dev = ["pytest>=8", "pytest-asyncio>=0.23"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["live: calls the live Valio mock API (trap suite)"]
+markers = ["live: calls the live Valio mock API (trap suite)", "twin_check: keep the duplicate-order check on (tests share one database)"]
 addopts = "-m 'not live'"
