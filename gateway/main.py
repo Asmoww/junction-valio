@@ -435,7 +435,9 @@ def dashboard():
                     "total": o["total"], "lines": [f"{l['units']} × {l['name']}" for l in o["record"]["offer"]["lines"]],
                     "failed": [r["rule"] for r in o["policy"]["rules"] if not r["ok"]],
                     "buyer": mandates.get(o["mandate_id"], {}).get("buyer", "").replace(" (demo)", ""),
-                    "approver": (o["policy"].get("approver") or {}).get("name")} for o in orders[:25]],
+                    "approver": (o["policy"].get("approver") or {}).get("name"),
+                    "gate": (o["policy"].get("ladder") or {}).get("decided_by"),
+                    "why": next((r["detail"] for r in o["policy"]["rules"] if not r["ok"]), "")} for o in orders[:25]],
         "chain": store.verify_chain(),
     }
 

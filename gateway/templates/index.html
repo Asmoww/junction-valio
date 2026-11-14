@@ -9,68 +9,38 @@
 </head>
 <body>
 <header class="topbar"><div class="inner">
-  <div class="brand"><span class="dot">A</span>Trusted Trade Agents <small>Valio Aimo · Junction 2026</small></div>
+  <div class="brand">Trusted Trade Agents</div>
   <nav class="tabs"><a href="/" class="on">Buyer agent</a><a href="/plan">Week plan</a><a href="/valio">Valio view</a><a href="/connect">Connect an agent</a></nav>
-  <div class="right">Synthetic data · demo</div>
+  <div class="right"><select id="mandate" class="pill" onchange="renderMandate()" aria-label="Buyer"></select></div>
 </div></header>
 
 <div class="page">
-  <div class="page-head">
-    <div>
-      <h1>An outside AI agent buys from Valio Aimo</h1>
-      <p>Six checks on every request. The first “no” decides who acts next.</p>
-    </div>
+  <div class="composer">
+    <textarea id="request" rows="1" aria-label="What does the kitchen need?" placeholder="What does the kitchen need?" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();run()}">I need 1,000 litres of lactose-free milk by Monday.</textarea>
+    <button class="btn btn-primary" id="runBtn" onclick="run()">Ask the agent</button>
+  </div>
+  <div class="underbar"><span id="presets" class="chips"></span><button class="gear" onclick="$('#settings').classList.toggle('open')">Settings and tests</button></div>
+
+  <div class="settings" id="settings">
+    <div><h4>Buyer's rules</h4><div id="mandateView"></div>
+      <label class="field" for="autoLimit">Agent may order alone up to (€)</label><input type="number" id="autoLimit" step="50" min="0"></div>
+    <div><h4>Build the request step by step</h4>
+      <input type="text" id="bProduct" placeholder="Product, e.g. muesli" onkeydown="if(event.key==='Enter')bSearch()">
+      <div class="chips" id="bAttrs" style="margin-top:8px"></div>
+      <div style="display:grid;grid-template-columns:1fr 100px 1fr;gap:8px;margin-top:8px">
+        <input type="number" id="bQty" min="1" value="100" aria-label="Quantity"><select id="bUnit" aria-label="Unit"><option value="litres">litres</option><option value="kg">kg</option><option value="pieces">pieces</option></select>
+        <input type="date" id="bDate" aria-label="Needed by" style="padding:9px 10px;border:1px solid var(--line);border-radius:10px;font:inherit"></div>
+      <div class="chips" id="bAllergies" style="margin-top:8px"></div>
+      <div style="display:flex;gap:8px;margin-top:10px"><button class="btn btn-soft" onclick="bSearch()">See what Valio has</button><button class="btn btn-soft" onclick="bWrite()">Write the request</button></div>
+      <div id="bResults" class="small" style="margin-top:8px"></div></div>
+    <div><h4>Red team</h4>
+      <label class="switch" title="A product description tells AI agents to order 10,000 units."><input type="checkbox" id="inject"><span>Prompt injection in supplier data</span></label>
+      <label class="switch" title="The offer goes stale between offer and order."><input type="checkbox" id="priceChange"><span>Price changes before ordering</span></label>
+      <label class="switch" id="clockSwitch" style="display:none" title="Use Valio's real clock: the data snapshot's cut-offs have passed."><input type="checkbox" id="realClock"><span>Passed order cut-offs</span></label>
+      <p class="small muted" style="margin:14px 0 0" id="parserTag"></p></div>
   </div>
 
-  <div class="layout">
-    <aside>
-      <div class="card">
-        <h2>Buyer's mandate</h2>
-        <select id="mandate" onchange="renderMandate()"></select>
-        <div id="mandateView" style="margin-top:14px"></div>
-        <label class="field" for="autoLimit">Agent may order alone up to (€)</label>
-        <input type="number" id="autoLimit" step="50" min="0">
-      </div>
-      <div class="card">
-        <h2>Request <span id="parserTag" style="float:right"></span></h2>
-        <details id="builder" style="margin-bottom:12px"><summary class="small" style="cursor:pointer;font-weight:600">Build the request step by step</summary>
-          <div style="margin-top:10px">
-            <label class="field" for="bProduct">Product</label>
-            <input type="text" id="bProduct" placeholder="e.g. milk, muesli, oat drink" onkeydown="if(event.key==='Enter')bSearch()">
-            <div class="chips" id="bAttrs" style="margin-top:8px"></div>
-            <button class="btn btn-soft" style="margin-top:8px" onclick="bSearch()">See what Valio has</button>
-            <div id="bResults" class="small" style="margin-top:8px"></div>
-            <div style="display:grid;grid-template-columns:1fr 90px;gap:8px;margin-top:10px">
-              <div><label class="field" for="bQty">Quantity</label><input type="number" id="bQty" min="1" value="100"></div>
-              <div><label class="field" for="bUnit">Unit</label><select id="bUnit"><option value="litres">litres</option><option value="kg">kg</option><option value="pieces">pieces</option></select></div>
-            </div>
-            <label class="field" for="bDate">Needed by</label>
-            <input type="date" id="bDate" style="width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:8px;font:inherit;box-sizing:border-box">
-            <label class="field">Allergies to avoid</label>
-            <div class="chips" id="bAllergies"></div>
-            <button class="btn btn-soft" style="margin-top:10px" onclick="bWrite()">Write the request</button>
-            <p class="small muted" style="margin:6px 0 0">Writes a plain request below, which goes through the same six checks as a typed one.</p>
-          </div>
-        </details>
-        <textarea id="request">I need 1,000 litres of lactose-free milk by Monday. Find an option that meets our requirements based on price and availability.</textarea>
-        <div class="chips" id="presets" style="margin-top:10px"></div>
-        <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--line)">
-          <div class="eyebrow" style="margin-bottom:4px">Red team</div>
-          <label class="switch" title="A product description tells AI agents to order 10,000 units."><input type="checkbox" id="inject"><span>Prompt injection in supplier data</span></label>
-          <label class="switch" title="The offer goes stale between offer and order."><input type="checkbox" id="priceChange"><span>Price changes before ordering</span></label>
-          <label class="switch" id="clockSwitch" style="display:none" title="Use Valio's real clock: the data snapshot's cut-offs have passed."><input type="checkbox" id="realClock"><span>Passed order cut-offs</span></label>
-        </div>
-        <button class="btn btn-primary" id="runBtn" onclick="run()">Run purchasing agent</button>
-      </div>
-    </aside>
-
-    <section id="out">
-      <div class="card empty">
-        <h2>Describe what the kitchen needs, then run the agent</h2>
-        <div class="flow"><span>Purchase?</span><i>→</i><span>Clear?</span><i>→</i><span>Possible?</span><i>→</i><span>Allowed?</span><i>→</i><span>Proven?</span><i>→</i><span>Agent’s call?</span></div>
-      </div>
-    </section>
-  </div>
+  <section id="out"></section>
 </div>
 
 <script>
@@ -110,9 +80,10 @@ async function init() {
   const [list, info] = await Promise.all([api('/api/mandates'), api('/api/info')]);
   if (info.demo_clock) $('#clockSwitch').style.display = '';
   list.forEach(m => mandates[m.mandate_id] = m);
-  $('#mandate').innerHTML = list.map(m => `<option value="${m.mandate_id}">${esc(m.buyer)}</option>`).join('');
-  $('#parserTag').innerHTML = info.ai_parser ? `<span class="chip navy">read by Claude</span>` : `<span class="chip">rule-based reading</span>`;
+  $('#mandate').innerHTML = list.map(m => `<option value="${m.mandate_id}">${esc(m.buyer.replace(" (demo)", ""))}</option>`).join('');
+  $('#parserTag').textContent = info.ai_parser ? 'Requests are read by Claude; the gateway decides.' : 'Requests are read by rules (no Claude key).';
   renderMandate();
+  $('#out').innerHTML = idleHtml();
   bInit();
 }
 
@@ -172,45 +143,177 @@ function bWrite() {
 
 async function run() {
   const btn = $('#runBtn');
-  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Agent working…';
-  $('#out').innerHTML = '';
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Working…';
+  $('#out').innerHTML = idleHtml(true);
   try {
     const res = await post('/api/run', {
       request: $('#request').value, mandate_id: $('#mandate').value, auto_limit: Number($('#autoLimit').value),
       simulate_price_change: $('#priceChange').checked, inject: $('#inject').checked, real_clock: $('#realClock').checked });
-    $('#out').insertAdjacentHTML('beforeend', requestCard(res) + '<div id="tl"></div>');
-    const st = {}; res.steps.forEach(x => st[x.step] = x);
-    const alerts = res.steps.filter(x => ['injection_scan', 'attack_result', 'order_rejected'].includes(x.step));
-    if (alerts.length) $('#tl').insertAdjacentHTML('beforeend', `<div class="card redteam"><div class="eyebrow">Red team</div>${alerts.map(stepBody).join('<hr>')}</div>`);
-    renderOutcome(res);
+    LAST = res;
+    $('#out').innerHTML = saidHtml(res) + stepsHtml(res) + alertHtml(res) + `<div id="decision">${decisionHtml(res)}</div>` + linksHtml(res);
   } catch (e) {
-    $('#out').insertAdjacentHTML('beforeend', `<div class="card"><div class="banner bad"><h3>Something went wrong</h3>${esc(e.message)}</div></div>`);
+    $('#out').innerHTML = `<div class="decision red"><div class="what"><h2>Something went wrong</h2><p>${esc(e.message)}</p></div></div>`;
   }
-  btn.disabled = false; btn.textContent = 'Run purchasing agent';
+  btn.disabled = false; btn.textContent = 'Ask the agent';
 }
 
-function requestCard(res) {
+let LAST = null;
+const GATE_NAMES = {purchase: 'A purchase', clear: 'Clear', possible: 'Valio has it', allowed: 'Safe', proven: 'Proven', authority: "Agent's call"};
+const GATE_HINT = {purchase: 'An order, not a question', clear: 'Amount, product and date known', possible: 'Real products, priced, in time',
+                   allowed: 'Hard rules no one can override', proven: 'Facts backed by Valio data', authority: 'Within what the agent may spend'};
+
+function idleHtml(working) {
+  return `<div class="steps idle" style="margin-top:44px">${Object.entries(GATE_NAMES).map(([k, n], i) =>
+    `<div class="s"><div class="dot">${i + 1}</div><h3>${n}${k === 'allowed' ? '<span class="tag">hard rules</span>' : ''}</h3><ul><li class="more">${GATE_HINT[k]}</li></ul></div>`).join('')}</div>
+    <p class="idlehint">${working ? 'The agent is reading the request and checking Valio’s catalog…' : 'Every request goes through six checks. The first “no” decides who acts next.'}</p>`;
+}
+
+// The request in the buyer's own words, with what the agent understood highlighted.
+function saidHtml(res) {
   const i = res.steps[0]?.intent || {};
-  const unit = ({L: 'L', KG: 'kg', PCS: 'pcs'})[i.unit] || i.unit || '';
-  const attrs = (i.attributes || []).map(a => a.startsWith('FREE_FROM_') ? a.slice(10).toLowerCase() + '-free' : a.toLowerCase());
-  const date = i.deliver_by ? new Date(i.deliver_by + 'T12:00').toLocaleDateString('en-GB', {weekday: 'short', day: 'numeric', month: 'short'}) : '';
-  const slot = (label, value, cls = '') => `<div class="slot ${cls}"><span>${esc(label)}</span><b>${esc(value)}</b></div>`;
-  const slots = [
-    slot('how much', i.quantity != null ? `${Number(i.quantity).toLocaleString('en-US')} ${unit}` : '?', i.quantity == null ? 'missing' : ''),
-    ...attrs.map(a => slot('must be', a)),
-    slot('what', i.product || '?', 'what' + (i.product ? '' : ' missing')),
-    ...(i.fat_pct != null && !(i.from_profile || []).some(x => x.startsWith('fat')) ? [slot('fat', i.fat_pct + ' %')] : []),
-    ...(i.shelf_life ? [slot('kind', i.shelf_life === 'long_life' ? 'long-life' : 'fresh')] : []),
-    slot('by when', date),
-    ...(i.from_profile || []).map(x => slot('buyer profile', x, 'profile')),
-    ...(i.allergies || []).map(a => slot('allergy', 'no ' + a, 'allergy')),
+  let raw = esc(i.raw || $('#request').value);
+  const unitWords = '(?:litres?|liters?|l|kg|kilos?|kilograms?|pieces|pcs|eggs?|packs?|cartons?|boxes|bottles)';
+  const marks = [];
+  if (i.quantity != null) marks.push(new RegExp(`\\d[\\d,. ]*\\s*${unitWords}?\\b`, 'i'));
+  (i.attributes || []).forEach(a => { const w = a.startsWith('FREE_FROM_') ? a.slice(10).toLowerCase() + '[- ]?free' : a.toLowerCase(); marks.push(new RegExp(w, 'i')); });
+  if (i.product) marks.push(new RegExp(i.product.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+'), 'i'));
+  marks.push(/\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|today|next week|\d{4}-\d\d-\d\d|\d{1,2}\.\d{1,2}\.?)\b/i);
+  marks.forEach(re => { raw = raw.replace(re, m => `\u0001${m}\u0002`); });
+  raw = raw.replace(/\u0001/g, '<mark>').replace(/\u0002/g, '</mark>');
+  const notes = [
+    ...(i.from_profile || []).map(x => `<span>${esc(x)} from the buyer’s profile</span>`),
+    ...(i.allergies || []).map(x => `<span class="bad">no ${esc(x)}</span>`),
+    ...(i.ignored_terms || []).length ? [`<span class="warn">not understood: ${esc(i.ignored_terms.join(', '))}</span>`] : [],
+    ...(i.product_note ? [`<span class="warn">${esc(i.product_note)}</span>`] : []),
   ];
-  return `<div class="reqcard"><div class="reqhead"><span>The request, as the agent read it</span>
-      <span>${esc((i.parser || '').startsWith('Claude') ? 'read by Claude' : 'rule-based reading')}</span></div>
-    <div class="slots">${slots.join('')}</div>
-    <div class="reqraw">“${esc(i.raw || '')}”</div>
-    ${i.product_note ? `<div class="reqnote">${esc(i.product_note)}</div>` : ''}
-    ${(i.ignored_terms || []).length ? `<div class="reqnote">Not understood: ${esc(i.ignored_terms.join(', '))}</div>` : ''}</div>`;
+  return `<p class="said">“${raw}”</p><div class="saidnote">${notes.join('')}</div>`;
+}
+
+const SHORT_RULE = {'Mandate valid': 'Mandate signed by the buyer', 'Forbidden allergens': 'No banned allergens', 'Required claims': 'Required claims met',
+  'Substitutions allowed': 'Substitutes allowed', "Matches the buyer's request": 'Matches what was asked', 'Allergens verifiable from data': 'Allergens in the data',
+  'Claims verified in product data': 'Claims in product data', 'Stock confirmed by Valio': 'In Valio’s stock', 'Delivery history known': 'Delivery history known',
+  'Pack contents known': 'Pack contents known', 'Delivery on time': 'Arrives on time', 'Auto-approve spend limit': 'Within what it may spend alone',
+  "Agent's own spend in 24 h": 'Within its 24 h allowance', 'Full quantity': 'Full quantity', 'Delivery reliability': 'Reliable supplier'};
+
+function stepsHtml(res) {
+  const l = res.ladder; if (!l) return '';
+  const st = {}; res.steps.forEach(x => st[x.step] = x);
+  const lk = st.lookup, pa = st.price_availability, intent = st.request?.intent || res.steps[0]?.intent || {};
+  const rules = res.order?.policy?.rules || [];
+  const m = mandates[$('#mandate').value] || {};
+  const tone = {person_approves: 'person', person_checks: 'person', stop: 'stop', decline: 'stop', ask_back: 'back', answer: 'back'}[l.action] || 'stop';
+  const short = t => { t = String(t || '').replace(/^Nothing was ordered: /, '').split(/\. |; /)[0]; return t.length > 110 ? t.slice(0, 107).replace(/\s\S*$/, '') + '…' : t; };
+  const li = (cls, t, title) => `<li class="${cls}"${title ? ` title="${esc(title)}"` : ''}>${esc(t)}</li>`;
+  function ruleList(g) {
+    const rs = rules.filter(r => r.gate === g); if (!rs.length) return '';
+    const bad = rs.filter(r => !r.ok), good = rs.filter(r => r.ok);
+    const label = r => r.rule === 'Hard spend limit' ? `Under the ${eur(m.hard_limits?.max_order_total_eur ?? 0).replace('.00', '')} limit` : (SHORT_RULE[r.rule] || r.rule);
+    const show = good.slice(0, Math.max(0, 3 - bad.length));
+    const said = r => {
+      const tot = eur(res.order?.total ?? 0).replace('.00', '');
+      if (r.rule === 'Auto-approve spend limit') return `${tot} is over the ${eur(m.auto_approve?.max_order_total_eur ?? 0).replace('.00', '')} it may spend alone`;
+      if (r.rule === "Agent's own spend in 24 h") return `Over its ${eur(m.auto_approve?.max_auto_eur_per_24h ?? 0).replace('.00', '')} allowance for 24 h`;
+      return g === 'authority' || g === 'proven' ? r.detail.replace(/\.0\b/, '') : `${label(r)}: ${r.detail}`;
+    };
+    return bad.map(r => li(r.level === 'block' ? 'n' : 'x', cap(said(r)), r.detail)).join('')
+      + show.map(r => li('', label(r), r.detail)).join('')
+      + (good.length > show.length ? `<li class="more" title="${esc(good.slice(show.length).map(r => r.rule).join(', '))}">+ ${good.length - show.length} more passed</li>` : '');
+  }
+  function facts(key, state) {
+    const fail = state === 'fail';
+    if (fail && !rules.some(r => r.gate === key && !r.ok)) return li(tone === 'person' ? 'x' : tone === 'back' ? 'q' : 'n', cap(short(l.reason || res.result.error)));
+    if (key === 'purchase') return li('', intent.request_type === 'question' ? 'A question' : 'An order, not a question');
+    if (key === 'clear') return li('', 'Amount, product, date') + (intent.from_profile || []).slice(0, 2).map(x => li('', `${x[0].toUpperCase() + x.slice(1)} from the profile`)).join('');
+    if (key === 'possible' && lk) {
+      const ok = pa ? pa.rows.filter(r => r.status === 'ok').length : lk.candidates.length;
+      const when = intent.deliver_by ? new Date(intent.deliver_by + 'T12:00').toLocaleDateString('en-GB', {weekday: 'long'}) : 'in time';
+      return `<div class="count"><b>17,546</b><i>→</i><b>${ok}</b><br>products that fit and arrive ${esc(when)}</div><ul>${li('', `${res.api_calls.length} live Valio calls`)}</ul>`;
+    }
+    if (key === 'allowed') return ruleList('allowed') + (st.offer && !fail ? '' : '');
+    if (key === 'proven') {
+      const ev = (res.order?.record?.offer?.lines?.[0]?.evidence || []).filter(e => !e.startsWith('contains')).slice(0, 2);
+      return ruleList('proven') || ev.map(e => li('', e[0].toUpperCase() + e.slice(1))).join('');
+    }
+    if (key === 'authority') return ruleList('authority');
+    return '';
+  }
+  return `<div class="steps go">${l.gates.map((g, i) => {
+    const state = g.state, cls = state === 'pass' ? (l.action === 'order' && !l.decided_by ? 'done' : '') : state === 'fail' ? 'fail ' + tone : 'off';
+    const icon = state === 'pass' ? '✓' : state === 'fail' ? (tone === 'stop' ? '×' : tone === 'back' ? '?' : '!') : i + 1;
+    const body = state === 'not_reached' ? '' : facts(g.key, state);
+    return `<div class="s ${cls}" style="animation-delay:${i * 90}ms"><div class="dot">${icon}</div>
+      <h3>${GATE_NAMES[g.key]}${g.key === 'allowed' ? '<span class="tag">hard rules</span>' : ''}</h3>${body.startsWith('<div') ? body : `<ul>${body}</ul>`}</div>`;
+  }).join('')}</div>`;
+}
+
+// Red-team results shown as one line above the decision.
+function alertHtml(res) {
+  const a = res.steps.find(x => x.step === 'attack_result'), inj = res.steps.find(x => x.step === 'injection_scan'), rej = res.steps.find(x => x.step === 'order_rejected');
+  const parts = [];
+  if (inj) parts.push(`<b>Hidden instructions</b> in the supplier text of ${esc(inj.product.name)}: treated as data, not followed.`);
+  if (a) parts.push(`<b>A hijacked agent</b> tried to order ${a.units.toLocaleString('en-US')} × ${esc(a.product)}${a.total_eur ? ` (${eur(a.total_eur)})` : ''}: ${a.order ? 'blocked by the gateway' : 'refused before an offer'}.`);
+  if (rej) parts.push(`<b>Price changed</b> after the offer: the stale order was refused and the agent took a fresh offer.`);
+  return parts.length ? `<div class="alertline">${parts.join('<br>')}</div>` : '';
+}
+
+const cap = t => { t = String(t || ''); return t ? t[0].toUpperCase() + t.slice(1) : t; };
+const shortName = n => String(n || '').replace(/®/g, '').replace(/Hyvä suomalainen Arki /, '').replace(/\s+/g, ' ').trim();
+const firstName = n => String(n || '').split(' ')[0];
+function lineText(o) { return o.record.offer.lines.map(l => `${l.units.toLocaleString('en-US')} × ${esc(shortName(l.name))}`).join(' + '); }
+
+function decisionHtml(res) {
+  const o = res.order, r = res.result, l = res.ladder || {};
+  const bar = (tone, title, text, right = '') => `<div class="decision ${tone}"><div class="what"><h2>${title}</h2>${text ? `<p>${text}</p>` : ''}</div>${right}</div>`;
+  const fixChip = (label, call) => `<div class="chips"><button class="chip" onclick='${call}'>${esc(label)}</button></div>`;
+  if (!o) {
+    if (r.status === 'not_in_catalog') {
+      const sg = r.suggestions || [];
+      return bar('', 'Not in Valio’s catalog', esc(r.error), sg.length ? `<div class="chips">${sg.map(x => `<button class="chip" onclick='useSuggestion(${esc(JSON.stringify(res.steps[0].intent.product))}, ${esc(JSON.stringify(x.phrase))})'>${esc(x.phrase)}</button>`).join('')}</div>` : '');
+    }
+    if (r.status === 'unit_mismatch') return bar('', 'The unit doesn’t fit the product', esc(r.error), fixChip(r.fix.label, `switchUnit(${JSON.stringify(r.fix.to)})`));
+    if (r.status === 'over_hard_limit') return bar('red', 'Over the buyer’s hard limit', esc(r.error), r.fix ? fixChip(r.fix.label, `setQuantity(${JSON.stringify(r.fix.quantity)})`) : '');
+    if (r.status === 'answered') return bar('', 'Answered, nothing ordered', esc(l.reason || ''));
+    if (l.action === 'ask_back') return bar('', 'Back to you: nothing ordered', esc(r.error));
+    if (l.action === 'decline') return bar('red', 'Declined', esc(r.error));
+    if (l.action === 'stop' && /oat drink/.test(r.error || '')) return bar('red', 'Not ordered: a hard rule stops it', esc(cap(String(r.error).replace(/^Nothing was ordered: /, ''))),
+      `<div class="acts"><button class="btn btn-primary" style="width:auto;margin:0" onclick="tryInstead('oat drink')">Ask for oat drink instead</button></div>`);
+    if (r.status === 'no_safe_product') return bar('red', 'No safe product: nothing ordered', esc(r.error));
+    if (r.status === 'no_option') return bar('', 'Nothing can be ordered as asked', esc(r.error));
+    return bar('red', 'Not ordered', esc(cap(String(r.error || String(r.status).replace('_', ' ')).replace(/^Nothing was ordered: /, ''))));
+  }
+  const price = `<span class="eur">${eur(o.total).replace('.00', '')}</span>`;
+  if (o.status === 'placed') return bar('green', 'Ordered by the agent', `${lineText(o)} <span>within its own authority</span>`, price);
+  if (o.status === 'blocked') {
+    const why = o.policy.rules.filter(x => !x.ok && x.level === 'block').map(x => (SHORT_RULE[x.rule] || x.rule) + ': ' + x.detail);
+    return bar('red', 'Not ordered: a hard rule stops it', esc(why.join('; ')), price);
+  }
+  if (o.status === 'rejected') return bar('red', 'Rejected', lineText(o), price);
+  const ap = o.policy.approver, fact = o.policy.ladder?.decided_by === 'proven';
+  return bar('amber', fact ? `Waiting for ${esc(firstName(ap.name))} to check a fact` : `Waiting for ${esc(firstName(ap.name))}’s approval`,
+    `${lineText(o)} <span>${esc(ap.role)}, may approve up to ${eur(ap.up_to_eur).replace('.00', '')}</span>`,
+    `${price}<div class="acts"><button class="btn btn-bad" onclick="decide('${o.id}','reject','${esc(ap.name)}')">Reject</button>
+      <button class="btn btn-soft" onclick="phoneApprove('${o.id}','${esc(ap.name)}')">Approve on phone</button>
+      <button class="btn btn-primary" style="width:auto;margin:0" onclick="decide('${o.id}','approve','${esc(ap.name)}')">${fact ? 'Confirm checked' : 'Approve'}</button></div>
+      ${fact ? `<input id="fc-${o.id}" class="field" placeholder="What did you check? e.g. Valio confirmed 1,000 in stock by phone">` : ''}<div id="qrbox" style="flex-basis:100%"></div>`);
+}
+
+function linksHtml(res) {
+  const has = k => res.steps.some(x => x.step === k);
+  const L = [has('price_availability') && ['products', 'Products compared'], has('offer') && ['offer', 'Signed offer'], res.order && ['record', 'Audit trail'],
+             res.steps.some(x => ['injection_scan', 'attack_result', 'order_rejected'].includes(x.step)) && ['redteam', 'Red team details']].filter(Boolean);
+  return L.length ? `<div class="dlinks">${L.map(([k, t]) => `<button data-k="${k}" onclick="openDetail('${k}', this)">${t}</button>`).join('')}</div><div class="dpanel" id="dpanel"></div>` : '';
+}
+
+async function openDetail(k, btn) {
+  const on = btn.classList.contains('on');
+  document.querySelectorAll('.dlinks button').forEach(b => b.classList.remove('on'));
+  if (on) { $('#dpanel').innerHTML = ''; return; }
+  btn.classList.add('on');
+  const st = {}; LAST.steps.forEach(x => st[x.step] = x);
+  if (k === 'products') $('#dpanel').innerHTML = stepBody(st.price_availability) + (st.options ? '<hr style="border:0;border-top:1px solid var(--line);margin:18px 0">' + stepBody(st.options) : '');
+  if (k === 'offer') $('#dpanel').innerHTML = LAST.steps.filter(x => x.step === 'offer').map(stepBody).join('<hr>');
+  if (k === 'redteam') $('#dpanel').innerHTML = LAST.steps.filter(x => ['injection_scan', 'attack_result', 'order_rejected'].includes(x.step)).map(stepBody).join('<hr style="border:0;border-top:1px solid var(--line);margin:18px 0">');
+  if (k === 'record') { $('#dpanel').innerHTML = '<p class="muted">Loading…</p>'; await showRecord(LAST.order.id); }
 }
 
 function chip(s) {
@@ -360,53 +463,11 @@ async function verify(btn, jws) {
     ? `<span class="chip ok">Valid · ${eur(r.payload.total_eur)}</span>` : `<span class="chip bad">Rejected · signature doesn't match</span>`;
 }
 
-function renderOutcome(res) {
-  const o = res.order;
-  let body;
-  if (!o && res.result.status === 'not_in_catalog') {
-    const sg = res.result.suggestions || [];
-    body = `<div class="banner info"><h3>Reality check: not in Valio's catalog</h3>${esc(res.result.error)}
-      ${sg.length ? `<div style="margin-top:10px" class="small">What does exist (nothing is ordered until you ask):</div>
-        <div class="chips" style="margin-top:6px">${sg.map(x => `<button class="chip" onclick='useSuggestion(${esc(JSON.stringify(res.steps[0].intent.product))}, ${esc(JSON.stringify(x.phrase))})'>${esc(x.phrase)} · ${x.count} products</button>`).join('')}</div>` : ''}
-      <div class="small muted" style="margin-top:8px">Stopped before any price or availability call.</div></div>`;
-  }
-  else if (!o && res.result.status === 'unit_mismatch') {
-    const f = res.result.fix;
-    body = `<div class="banner info"><h3>Unit doesn't fit the product</h3>${esc(res.result.error)}
-      <div class="chips" style="margin-top:10px"><button class="chip" onclick='switchUnit(${JSON.stringify(f.to)})'>${esc(f.label)}</button></div>
-      <div class="small muted" style="margin-top:8px">Stopped before any price or availability call. Nothing is ordered until you run it again.</div></div>`;
-  }
-  else if (!o && res.result.status === 'over_hard_limit') {
-    const f = res.result.fix;
-    body = `<div class="banner bad"><h3>Over the buyer's hard limit</h3>${esc(res.result.error)}
-      ${f ? `<div class="chips" style="margin-top:10px"><button class="chip" onclick='setQuantity(${JSON.stringify(f.quantity)})'>${esc(f.label)}</button></div>` : ''}
-      <div class="small muted" style="margin-top:8px">Raising the limit is the purchasing manager's call, not the agent's.</div></div>`;
-  }
-  else if (!o && res.result.status === 'no_option') body = `<div class="banner info"><h3>Nothing can be ordered as asked</h3>${esc(res.result.error)}</div>`;
-  else if (res.result.status === 'answered') body = `<div class="banner info"><h3>Answered: nothing ordered</h3>${esc(res.ladder.reason)}. It was a question, so the agent only looked up prices and availability.</div>`;
-  else if (!o && res.ladder?.action === 'ask_back') body = `<div class="banner info"><h3>Back to the requester: nothing ordered</h3>${esc(res.result.error)}</div>`;
-  else if (!o && res.ladder?.action === 'decline') body = `<div class="banner bad"><h3>Declined</h3>${esc(res.result.error)}</div>`;
-  else if (!o && res.result.status === 'no_safe_product') body = `<div class="banner bad"><h3>No safe product: nothing ordered</h3>${esc(res.result.error)}</div>`;
-  else if (!o) body = `<div class="banner bad"><h3>No order</h3>${esc(res.result.error || res.result.status.replace('_', ' '))}</div>`;
-  else if (o.status === 'placed') body = `<div class="banner ok"><h3>Order placed automatically</h3>Within the agent's own authority · ${o.id} · ${eur(o.total)}</div>`;
-  else if (o.status === 'blocked') body = `<div class="banner bad"><h3>Blocked by the mandate</h3>The gateway refused the order:
-    <ul class="rules" style="margin-top:6px">${o.policy.rules.filter(r => !r.ok && r.level === 'block').map(r => `<li><span class="ic block">✕</span>${esc(r.rule)}<span class="detail">${esc(r.detail)}</span></li>`).join('')}</ul></div>`;
-  else {
-    const ap = o.policy.approver;
-    const fact = o.policy.ladder?.decided_by === 'proven';  // gate 4: a person checks a fact, not just signs
-    body = `<div class="banner warn"><h3>${fact ? 'Waiting for a fact check' : `Waiting for ${esc(ap.role.toLowerCase())} sign-off`}</h3>
-      Sent to <b>${esc(ap.name)}</b>, who can approve up to ${eur(ap.up_to_eur)}.
-      ${fact ? `<div class="small" style="margin-top:6px">The data can't prove: ${o.policy.rules.filter(r => !r.ok && r.gate === 'proven').map(r => esc(r.rule)).join(', ')}.
-        Approving means you checked it.</div><input id="fc-${o.id}" class="field" style="margin-top:8px;width:100%" placeholder="What did you check? e.g. Valio confirmed 1,000 in stock by phone">` : ''}
-      <div class="actions"><button class="btn btn-ok" onclick="decide('${o.id}','approve','${esc(ap.name)}')">${fact ? 'Confirm checked' : 'Approve'} as ${esc(ap.name.split(' ')[0])}</button>
-      <button class="btn btn-bad" onclick="decide('${o.id}','reject','${esc(ap.name)}')">Reject</button>
-      <button class="btn btn-soft" onclick="phoneApprove('${o.id}','${esc(ap.name)}')">Approve on a phone</button></div>
-      <div id="qrbox"></div></div>`;
-  }
-  $('#tl').insertAdjacentHTML('beforeend', `<div id="outcome"><div class="card railcard">
-    ${railHtml(res, body)}</div></div>`);
-  if (o) { $('#out').insertAdjacentHTML('beforeend', '<div id="record"></div>'); showRecord(o.id); }
-  $('#outcome').scrollIntoView({behavior: 'smooth', block: 'center'});
+function tryInstead(product) {
+  const i = LAST?.steps[0]?.intent || {}, t = $('#request');
+  const asked = [...(i.attributes || []).map(a => a.startsWith('FREE_FROM_') ? a.slice(10).toLowerCase() + '[- ]?free ' : ''), i.product || ''].join('');
+  t.value = t.value.replace(new RegExp(asked || i.product, 'i'), product);
+  run();
 }
 
 function setQuantity(q) {
@@ -427,82 +488,20 @@ function useSuggestion(asked, phrase) {
   t.focus(); window.scrollTo({top: 0, behavior: 'smooth'});
 }
 
-// The decision ladder as a rail (concept A): every gate with its evidence; the first "no" decides who acts next.
-function railHtml(res, body) {
-  const l = res.ladder;
-  if (!l) return `<div id="outcomeBody">${body}</div>`;
-  const st = {}; res.steps.forEach(x => st[x.step] = x);
-  const lk = st.lookup, pa = st.price_availability, intent = st.request?.intent || {};
-  const rules = res.order?.policy?.rules || [];
-  const who = {person_approves: 'a-person', person_checks: 'a-person', stop: 'a-stop', decline: 'a-stop', ask_back: 'a-back', answer: 'a-back'};
-  const ok = pa ? pa.rows.filter(r => r.status === 'ok').length : null;
-  const fold = (label, html) => html ? `<details class="fold"><summary>${esc(label)}</summary><div class="foldbody">${html}</div></details>` : '';
-  function shortReason(t) {
-    t = t.replace(/^Nothing was ordered: /, '').replace(/ \([^)]*\)/g, '').split(/\. |; /)[0];
-    if (t.length <= 90) return t;
-    const cut = t.slice(0, 90); return cut.slice(0, cut.lastIndexOf(' ')) + '…';
-  }
-  function ruleSummary(g) {
-    const rs = rules.filter(r => r.gate === g); if (!rs.length) return '';
-    const bad = rs.filter(r => !r.ok), good = rs.filter(r => r.ok);
-    return `<div class="rail-ev">${bad.map(r => `<span class="chip ${r.level === 'block' ? 'bad' : 'warn'}" title="${esc(r.detail)}">${r.level === 'block' ? '✕' : '!'} ${esc(r.rule)}</span>`).join('')}
-      ${good.length ? `<span class="chip pass" title="${esc(good.map(r => r.rule).join(' · '))}">✓ ${good.length} ${good.length === 1 ? 'check' : 'checks'} passed</span>` : ''}</div>`;
-  }
-  function evidence(key) {
-    if (key === 'possible' && lk) {
-      const t = lk.search, rejected = Object.values(t.failed_checks || {}).reduce((a, b) => a + b, 0);
-      const subs = (lk.official_substitutes_added || []).length;
-      const seq = [['catalog', 17546], [`say “${t.query}”`, t.text_matches], ['pass data checks', t.text_matches - rejected],
-                   ['plain', t.shortlisted], ...((intent.from_profile || []).length ? [['profile', lk.candidates.length - subs]] : []),
-                   ...(subs ? [['with Valio substitutes', lk.candidates.length]] : []),
-                   ...(ok != null ? [['arrive in full', ok]] : [])];
-      return `<div class="countline">${seq.map(([k, v], n) => `<span class="${n === seq.length - 1 ? 'last' : ''}"><b>${Number(v).toLocaleString('en-US')}</b>${esc(k)}</span>`).join('<i>→</i>')}</div>
-        <div class="rail-ev"><span class="chip pass">${res.api_calls.length} live Valio API calls</span></div>
-        ${pa ? fold(`Price and availability · ${pa.rows.length} products`, stepBody(pa)) : ''}
-        ${st.options ? fold(`Options compared · ${st.options.options.length}`, stepBody(st.options)) : ''}`;
-    }
-    if (key === 'allowed') return ruleSummary('allowed') + res.steps.filter(x => x.step === 'offer').map(o => fold(`Signed offer · ${eur(o.offer.total_eur)}`, stepBody(o))).join('');
-    if (key === 'proven' || key === 'authority') return ruleSummary(key);
-    return '';
-  }
-  let html = '', k = 0;
-  for (const g of l.gates) {
-    const state = g.state, fail = state === 'fail';
-    const ans = state === 'pass' ? '<span class="yes">Yes</span>'
-      : fail ? `<span class="no">No</span>${['person_approves', 'person_checks', 'answer'].includes(l.action)
-          ? `<span class="why">${esc(l.action === 'answer' ? 'it’s a question, so the agent answers it' : shortReason(l.reason || res.result.error || ''))}</span>` : ''}`
-      : '';
-    const ev = state === 'not_reached' ? '' : evidence(g.key);
-    html += `<div class="rail-g ${state === 'pass' ? '' : fail ? 'fail ' + (who[l.action] || '') : 'skip'}" style="animation-delay:${k++ * 110}ms">
-      <div class="rail-n">${state === 'pass' ? '✓' : g.n}</div><div class="rail-b">
-        <div class="rail-t"><b>${esc(g.question)}</b>${ans}</div>${ev}
-        ${fail ? `<div class="rail-who"><div class="k">Next: ${esc(l.action_text)}</div><div id="outcomeBody">${body}</div></div>` : ''}</div></div>`;
-  }
-  const done = !l.decided_by && l.action === 'order';
-  html += `<div class="rail-g ${done ? 'done' : 'skip'}" style="animation-delay:${k * 110}ms"><div class="rail-n">€</div><div class="rail-b">
-    <div class="rail-t"><b>Order placed by the agent</b>${done ? '<span class="yes">Done</span>' : ''}</div>
-    ${done ? `<div class="rail-who"><div id="outcomeBody">${body}</div></div>` : ''}</div></div>`;
-  return html;
-}
-
 // Hand the approval to a phone: a signed, single-use link as a QR code. The page updates when the phone decides.
 let qrPoll = null;
 async function phoneApprove(id, who) {
   const r = await api(`/api/approval-link/${id}?approver=${encodeURIComponent(who)}`);
   $('#qrbox').innerHTML = `<div class="qr"><div class="qrimg">${r.svg}</div><div><b>Scan to approve as ${esc(who)}</b>
-    <p class="small muted" style="margin:6px 0 0">A signed link for this order and this approver only. Works once, expires in 30 minutes,
-    no sign-in needed.</p><p class="small" style="margin:8px 0 0"><a href="${esc(r.url)}" target="_blank">open the link</a></p>
-    <p class="small muted" style="margin:8px 0 0">Waiting for the phone…</p></div></div>`;
+    <p class="small muted" style="margin:6px 0 0">Works once, for this order only, for 30 minutes. No sign-in needed.</p>
+    <p class="small" style="margin:8px 0 0"><a href="${esc(r.url)}" target="_blank">Open the link</a></p></div></div>`;
   clearInterval(qrPoll);
   qrPoll = setInterval(async () => {
     const o = await api(`/v1/orders/${id}`).catch(() => null);
     if (!o || o.status === 'pending_approval') return;
     clearInterval(qrPoll);
     const a = (o.record.approvals || []).slice(-1)[0] || {};
-    $('#outcomeBody').innerHTML = o.status === 'placed'
-      ? `<div class="banner ok"><h3>Approved on a phone by ${esc(a.approver || who)} · order placed</h3>${o.id} · ${eur(o.total)}</div>`
-      : `<div class="banner bad"><h3>${o.status === 'rejected' ? 'Rejected on a phone by ' + esc(a.approver || who) : esc(o.status)}</h3>No order was placed.</div>`;
-    showRecord(id);
+    decided(o, `${o.status === 'placed' ? 'Approved' : 'Rejected'} on a phone by ${a.approver || who}`);
   }, 2000);
 }
 
@@ -511,11 +510,23 @@ async function decide(id, decision, who) {
   let o;
   const fc = document.getElementById(`fc-${id}`);
   try { o = await post(`/v1/approvals/${id}`, {decision, approver: who, comment: fc && fc.value.trim() ? fc.value.trim() : `${decision}d in demo UI`}); }
-  catch (e) { $('#outcomeBody').innerHTML = `<div class="banner bad"><h3>Not placed</h3>${esc(e.message)}</div>`; showRecord(id); return; }
-  $('#outcomeBody').innerHTML = o.status === 'placed'
-    ? `<div class="banner ok"><h3>Approved by ${esc(who)} · order placed</h3>${o.id} · ${eur(o.total)}</div>`
-    : `<div class="banner bad"><h3>Rejected by ${esc(who)}</h3>No order was placed.</div>`;
-  showRecord(id);
+  catch (e) {
+    const p = document.querySelector('#decision .what p');
+    if (p) p.innerHTML = `<b style="color:var(--bad)">${esc(e.message)}</b>`;
+    return;
+  }
+  decided(o, `${decision === 'approve' ? 'Approved' : 'Rejected'} by ${who}`);
+}
+
+// After a person decides: the bar becomes the receipt, and the last check turns green or red.
+function decided(o, title) {
+  const placed = o.status === 'placed';
+  $('#decision').innerHTML = `<div class="decision ${placed ? 'green' : 'red'}"><div class="what"><h2>${esc(title)}${placed ? ': ordered' : ''}</h2>
+    <p>${lineText(o)} <span>${placed ? 'placed at the signed price' : 'nothing was ordered'}</span></p></div><span class="eur">${eur(o.total).replace('.00', '')}</span></div>`;
+  const last = document.querySelector('.steps .s.fail');
+  if (last) { last.className = 's ' + (placed ? 'done' : 'fail stop'); last.querySelector('.dot').textContent = placed ? '✓' : '×';
+    last.querySelector('ul')?.insertAdjacentHTML('beforeend', `<li class="${placed ? '' : 'n'}">${esc(title)}</li>`); }
+  if (placed) document.querySelectorAll('.steps .s:not(.fail):not(.off)').forEach(s => { s.classList.add('done'); });
 }
 
 async function showRecord(id) {
@@ -526,7 +537,7 @@ async function showRecord(id) {
     for <b>${eur(off.total_eur)}</b> (${esc((o.record.context.rationale || '').replace(/\.$/, ''))}).
     ${failed.length ? `It needed sign-off because of: ${failed.map(r => esc(r.rule.toLowerCase())).join(', ')}.` : 'It was within the agent\'s own authority.'}
     ${(o.record.approvals || []).map(a => `${esc(a.approver)} ${a.decision === 'approve' ? 'approved' : 'rejected'} it.`).join(' ')}`;
-  $('#record').innerHTML = `<details class="card recordcard"><summary><b>Decision record</b> · ${o.id} · audit trail</summary>
+  $('#dpanel').innerHTML = `<div>
     <p style="margin:0 0 14px">${story}</p>
     <table><thead><tr><th>Time (UTC)</th><th>Who</th><th>What</th><th class="r">Hash</th></tr></thead><tbody>
     ${d.events.sort((a, b) => a.seq - b.seq).map(e => `<tr><td>${e.ts.slice(11, 19)}</td><td>${esc(e.actor)}</td><td>${esc(e.type)}</td><td class="r faint mono" style="background:none;border:0;padding:10px">${e.hash.slice(0, 10)}…</td></tr>`).join('')}</tbody></table>
@@ -534,7 +545,7 @@ async function showRecord(id) {
     &nbsp;Each event's hash covers the one before, so edits to history show. Buyer and Valio see the same record.</p>
     <div class="chips" style="margin-top:12px">${o.status === 'placed' ? `<a class="chip navy" href="/v1/orders/${o.id}/peppol.xml" target="_blank">Peppol order · UBL XML</a>` : ''}
       <a class="chip navy" href="/v1/mandates/${o.mandate_id}/credential" target="_blank">Buyer-signed mandate · W3C VC</a>
-      <a class="chip navy" href="/.well-known/jwks.json" target="_blank">Offer signing key</a></div></details>`;
+      <a class="chip navy" href="/.well-known/jwks.json" target="_blank">Offer signing key</a></div></div>`;
 }
 
 init();
