@@ -148,11 +148,13 @@ function bWrite() {
 async function run() {
   const btn = $('#runBtn');
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Working…';
-  $('#out').innerHTML = idleHtml(true);
+  $('#out').innerHTML = idleHtml(true); animateWork();
+  $('#out').scrollIntoView({behavior: 'smooth', block: 'start'});
   try {
     const res = await post('/api/run', {
       request: $('#request').value, mandate_id: $('#mandate').value, auto_limit: Number($('#autoLimit').value),
       simulate_price_change: $('#priceChange').checked, inject: $('#inject').checked, real_clock: $('#realClock').checked });
+    clearTimeout(workTimer);
     LAST = res;
     $('#out').innerHTML = saidHtml(res) + stepsHtml(res) + alertHtml(res) + `<div id="decision">${decisionHtml(res)}</div>` + linksHtml(res);
   } catch (e) {
@@ -166,10 +168,44 @@ const GATE_NAMES = {purchase: 'A purchase', clear: 'Clear', possible: 'Valio has
 const GATE_HINT = {purchase: 'An order, not a question', clear: 'Amount, product and date known', possible: 'Real products, priced, in time',
                    allowed: 'Hard rules no one can override', proven: 'Facts backed by Valio data', authority: 'Within what the agent may spend'};
 
+const EXAMPLES = [
+  ['mnd_hotel_helsinki', 'I need 1,000 litres of lactose-free milk by Monday.', 'Hotel', 'More than the agent may buy alone'],
+  ['mnd_hotel_helsinki', 'We need 100 litres of lactose-free milk by Monday.', 'Hotel', 'A small, routine order'],
+  ['mnd_hospital_ward', 'We need 100 litres of lactose-free milk by Monday.', 'Hospital ward', 'On a ward where milk is banned'],
+  ['mnd_hotel_helsinki', 'We need 100 litres of chicken nugget milk by Monday.', 'Hotel', 'Something that doesn’t exist'],
+];
+const WORK = ['Reading the request', 'Making sure it’s clear', 'Searching 17,546 products and asking Valio for prices', 'Checking the hard rules', 'Checking the facts', 'Checking the agent’s limits'];
+
+function stepsIdle(cls = '') {
+  return `<div class="steps idle ${cls}">${Object.entries(GATE_NAMES).map(([k, n], i) =>
+    `<div class="s" data-i="${i}"><div class="dot">${i + 1}</div><h3>${n}${k === 'allowed' ? '<span class="tag">hard rules</span>' : ''}</h3><ul><li class="more">${GATE_HINT[k]}</li></ul></div>`).join('')}</div>`;
+}
+
 function idleHtml(working) {
-  return `<div class="steps idle" style="margin-top:44px">${Object.entries(GATE_NAMES).map(([k, n], i) =>
-    `<div class="s"><div class="dot">${i + 1}</div><h3>${n}${k === 'allowed' ? '<span class="tag">hard rules</span>' : ''}</h3><ul><li class="more">${GATE_HINT[k]}</li></ul></div>`).join('')}</div>
-    <p class="idlehint">${working ? 'The agent is reading the request and checking Valio’s catalog…' : 'Every request goes through six checks. The first “no” decides who acts next.'}</p>`;
+  if (working) return `<p class="said working">“${esc($('#request').value)}”</p>` + stepsIdle('live');
+  return `<div class="intro"><h1>Every request passes six checks</h1><p>The first “no” decides who acts next: the agent, a person, or nobody.</p></div>
+    ${stepsIdle()}
+    <div class="tries"><h2>Try one</h2><div class="trygrid">${EXAMPLES.map(([m, t, who, what], i) =>
+      `<button class="try" onclick="tryExample(${i})"><span class="who">${esc(who)}</span><b>${esc(what)}</b><span class="q">“${esc(t)}”</span></button>`).join('')}</div></div>`;
+}
+
+function tryExample(i) {
+  const [m, t] = EXAMPLES[i];
+  $('#mandate').value = m; renderMandate(); $('#request').value = t; fitRequest(); run();
+}
+
+// While the agent works: each check lights up in turn. The real result replaces this when it arrives.
+let workTimer = null;
+function animateWork() {
+  let i = 0;
+  const tick = () => {
+    document.querySelectorAll('.steps.live .s').forEach((el, j) => {
+      el.classList.toggle('passing', j < i); el.classList.toggle('now', j === i);
+      el.querySelector('ul').innerHTML = `<li class="more">${j === i ? esc(WORK[j]) + '…' : esc(GATE_HINT[Object.keys(GATE_NAMES)[j]])}</li>`;
+    });
+    if (i < 2) { i++; workTimer = setTimeout(tick, 700); }   // the search and Valio's prices take most of the time: wait there
+  };
+  tick();
 }
 
 // The request in the buyer's own words, with what the agent understood highlighted.
