@@ -69,6 +69,34 @@ every session.
 5. Demo: one autonomous purchase, one approved purchase, one stock/delivery exception that ends in a
    useful outcome (not just a refusal).
 
+## Unlock automation (`gateway/unlock.py`, new card at the top of `/valio`)
+Direction from a second outside review (14 Nov 04:45): the distinctive product is turning purchasing
+uncertainty into a specific, resolvable task, and showing how resolving it unlocks automation.
+- Groups every order that went to a person because the data couldn't prove something (gate-4 checks:
+  allergen data, lactose value, delivery history, pieces per pack, stock confirmation) by product and
+  missing field. Then re-runs the policy on those same orders as if Valio had added that field
+  (`policy.evaluate(..., lookup=...)`, a patched copy for one evaluation) and counts how many would have
+  gone through alone, with € value and what still needs a person.
+- Answers Valio's question "which data improvements remove the most manual approvals?", measured on real
+  held orders instead of catalog completeness. Nothing is changed (test checks that).
+- I renamed the old readiness card to "Data completeness · share of the catalog with the data each buyer's
+  rules need" (outside review point 1). Your file, your call: revert if you disagree.
+- `GET /api/unlock[?mandate_id=]`. Tests: `tests/test_unlock.py`.
+
+## Asks for Asmoww's Claude (you have more usage than we do)
+1. Review and merge as above, carefully.
+2. **Actionable escalation.** On the approval screens (`/valio` waiting list, `/approve/...` phone page),
+   for a gate-4 order show the one precise uncertainty ("no allergen data for X: the label must show no
+   peanuts"), the evidence we have, and up to 3 alternatives from the same search that have no data gap
+   and fit the mandate, with their price. The approver resolves one question instead of "approve this order".
+   `unlock.GAPS` has the field wording; `policy.allergen_problem` and the search already exist.
+3. **Live interoperability proof.** One external agent configured only from `/connect` (e.g. Claude Code
+   with the MCP URL and a per-buyer token, no prompt from us) doing lookup → offer → order, plus one case
+   where it is held. Record it for the demo; the controls must hold without our prompt.
+4. **Demo flow** (both outside reviews): one autonomous order, one approved order, one exception that ends
+   in a useful outcome; then fix one data gap (or sign a week plan) and rerun the same requests to show
+   what now completes alone. `/plan` + `/valio` unlock card support this.
+
 ## Next steps (Rasmus's Claude)
 - [x] 1. Plan model, signing, commit-time enforcement, tests
 - [x] 2. Planner page `/plan` + endpoints, nav tab on every page

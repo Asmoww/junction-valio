@@ -29,7 +29,9 @@
 
   <div class="card" id="scoreCard" hidden><h2>Rules in a prompt hold only while the agent obeys them <span id="scoreWhen" style="float:right"></span></h2><div id="score"></div></div>
 
-  <div class="card" id="readyCard"><h2>Agent readiness · how much of the catalog an agent may decide on alone</h2><div id="ready"></div></div>
+  <div class="card" id="unlockCard"><h2>Unlock automation · which missing data held real orders for a person</h2><div id="unlock"></div></div>
+
+  <div class="card" id="readyCard"><h2>Data completeness · share of the catalog with the data each buyer's rules need</h2><div id="ready"></div></div>
 
   <div class="card" id="trapCard"><h2>Trap suite · where buying agents go wrong <span id="trapSummary" style="float:right"></span></h2><div id="traps"></div></div>
 
@@ -97,6 +99,15 @@ async function load() {
     : '<p class="muted">No security events. Try the red-team switches on the Buyer agent tab.</p>';
   $('#updated').textContent = 'Updated ' + new Date().toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'});
 }
+async function loadUnlock() {
+  const r = await (await fetch('/api/unlock')).json();
+  if (!r.held_for_missing_data) { $('#unlock').innerHTML = `<p class="muted">No order has waited for a person because of missing data yet (${r.held_orders} held for other reasons).</p>`; return; }
+  $('#unlock').innerHTML = `<p style="margin:0 0 10px"><b>${r.held_for_missing_data} of ${r.held_orders} orders</b> that went to a person waited because the data couldn't prove something. With the data below added, <b>${r.unlocked_if_all_fixed}</b> of them would have gone through alone.</p>
+    <table><tbody>${r.gaps.map(g => `<tr><td><div class="name">${esc(g.product)}</div>
+      <div class="small faint">Add ${esc(g.add)} · held: ${esc(g.requests[0] || '')}${g.still_needs_a_person_because.length ? ' · still needs a person for: ' + esc(g.still_needs_a_person_because.join(', ')) : ''}</div></td>
+      <td class="r small" style="white-space:nowrap">${g.unlocked} of ${g.held_orders} orders<br><span class="faint">€${g.unlocked_eur.toLocaleString('en-US')} of €${g.value_eur.toLocaleString('en-US')}</span></td></tr>`).join('')}</tbody></table>
+    <p class="small muted" style="margin:10px 0 0">What-if on the real held orders: the gateway's rules re-run as if Valio had added the data. Nothing is changed.</p>`;
+}
 async function loadReadiness() {
   const r = await (await fetch('/api/readiness')).json();
   const bar = (pct, color) => `<div class="track"><div class="fill" style="width:${pct}%;background:${color}"></div></div>`;
@@ -151,7 +162,7 @@ async function loadScore() {
     <p class="small muted" style="margin:12px 0 0">Same Claude model in every column, Valio's live API, the same judge on product data. With the buyer's rules
       in its prompt a strong model behaves; Valio can't choose which agents connect. Rules in the gateway hold for every agent, and leave a signed offer and an audit record.</p>`;
 }
-load(); loadReadiness(); loadTraps(); loadScore();
+load(); loadReadiness(); loadUnlock(); loadTraps(); loadScore();
 setInterval(load, 3000);
 </script>
 </body>

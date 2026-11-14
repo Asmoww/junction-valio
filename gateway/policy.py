@@ -66,11 +66,13 @@ def mandate_signature(mandate):
     return standards.verify(standards.credential(registered), registered)
 
 
-def evaluate(mandate, offer, context):
+def evaluate(mandate, offer, context, lookup=None):
     """Return {outcome, approver, rules, ladder}. outcome: auto_approve | needs_approval | blocked.
 
     Every rule belongs to one gate of the decision ladder (gates.py): 3 Allowed, 4 Proven, 5 Agent's call.
-    The first gate with a failed rule decides the action."""
+    The first gate with a failed rule decides the action. lookup replaces the catalog for a what-if
+    ("would this order go through if Valio added the missing data?", unlock.py); it never changes the catalog."""
+    get = lookup or globals()["get"]
     rules = []
 
     def rule(name, ok, level, detail):

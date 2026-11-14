@@ -12,7 +12,7 @@ from urllib.parse import quote as urlquote
 from fastapi import Body, FastAPI, Form, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from . import learning, plans, recipe, agent, ai, catalog, gates, policy, security, signing, standards, store
+from . import learning, unlock, plans, recipe, agent, ai, catalog, gates, policy, security, signing, standards, store
 from .config import AGENT_TOKEN as AGENT_TOKEN_ENV, AGENT_TOKEN_SCOPE, DEMO_CLOCK, DEMO_PASSWORD
 from .mcp_server import app as mcp_app
 from .mcp_server import mcp
@@ -229,6 +229,12 @@ def planner_from_recipe(request: Request, body: dict = Body(...)):
     if err:
         raise HTTPException(409, err)
     return out
+
+
+@app.get("/api/unlock", tags=["demo"])
+def unlock_report(mandate_id: str = ""):
+    """Which missing product data, if Valio added it, would let the most held orders through alone (what-if)."""
+    return unlock.report(mandate_id or None)
 
 
 @app.get("/api/learning", tags=["demo"])
