@@ -74,3 +74,24 @@ def test_an_identical_order_is_refused_while_the_first_waits_for_approval():
     second, err = agent.order_from_jws(jws2, "k-twin-2")
     assert second is None and first["id"] in err
     assert agent.order_from_jws(jws1, "k-twin-1")[0]["id"] == first["id"]  # same key still returns the original
+
+
+def test_inquiry_token_prices_but_gets_insufficient_scope_on_order(monkeypatch):
+    """Codex review (inquiry wasn't token-wide) + MCP authorization spec: an inquiry token has no orders:place."""
+    monkeypatch.setattr(agent, "ValioClient", lambda: FakeValio())
+    c = TestClient(main.app, base_url="https://testserver")
+    inquiry = {"Authorization": f"Bearer {main.mandate_token('mnd_hotel_helsinki', 'inquiry')}"}
+    r = c.post("/v1/quotes", json={"mandate_id": "mnd_hotel_helsinki", "deliver_by": "2026-11-16",
+                                   "lines": [{"productId": "464306", "units": 10}]}, headers=inquiry)
+    assert r.status_code == 200, r.text
+    r = c.post("/v1/orders", json={"offer_id": r.json()["offer"]["offer_id"]},
+               headers={**inquiry, "Idempotency-Key": "k-api-inquiry"})
+    assert r.status_code == 403 and 'error="insufficient_scope"' in r.headers["www-authenticate"]
+
+
+def test_protected_resource_metadata_and_401_challenge():
+    c = TestClient(main.app, base_url="https://testserver")
+    meta = c.get("/.well-known/oauth-protected-resource").json()
+    assert "orders:place" in meta["scopes_supported"] and meta["resource"].endswith("/mcp")
+    r = c.get("/v1/products/search?q=milk")
+    assert r.status_code == 401 and "resource_metadata=" in r.headers["www-authenticate"]

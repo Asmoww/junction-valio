@@ -52,6 +52,12 @@ separate call to place_order remains an explicit purchase operation under its ma
 low-level quote/order API does not carry the preplanner's purpose or all its request-only constraints.
 Do not claim that selecting inquiry disables the token's order capability.
 
+**Inquiry-only tokens (14 Nov):** for an agent that should never buy, give it the buyer's *inquiry* token
+(Connect page, "It may: only look up and price"). It can search, preplan, read the mandate and get signed
+quotes, but every order path (REST `/v1/orders`, MCP `place_order`, A2A) is refused in `agent.place_order` and
+logged as `security.read_only_order_refused`. That is the token-wide restriction; the `purpose` field above
+still only describes one preplan call.
+
 The built-in buyer page sends purpose separately to /api/run. Inquiry there is forced onto the
 non-ordering path even when its text sounds like an order, and cannot run the simulated malicious
 order path. Purchase does not override a textual refusal or question. /api remains human-only;
