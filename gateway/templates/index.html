@@ -292,7 +292,7 @@ async function settle(res) {
   fresh.innerHTML = stepsHtml(res);
   const next = fresh.querySelector('.steps');
   if (!live || !next) {  // nothing to continue from (e.g. no ladder): show the result directly
-    $('#out').innerHTML = saidHtml(res) + stepsHtml(res) + alertHtml(res) + `<div id="decision">${decisionHtml(res)}</div>` + linksHtml(res);
+    $('#out').innerHTML = saidHtml(res) + stepsHtml(res) + alertHtml(res) + choiceHtml(res) + `<div id="decision">${decisionHtml(res)}</div>` + linksHtml(res);
     return;
   }
   const said = document.querySelector('.said.working');
@@ -303,7 +303,7 @@ async function settle(res) {
     olds[i].className = news[i].className; olds[i].innerHTML = news[i].innerHTML; olds[i].style.animationDelay = '';
     if (i >= 2 && i < olds.length - 1 && !news[i].classList.contains('off')) await sleep(140);
   }
-  live.insertAdjacentHTML('afterend', alertHtml(res) + `<div id="decision">${decisionHtml(res)}</div>` + linksHtml(res));
+  live.insertAdjacentHTML('afterend', alertHtml(res) + choiceHtml(res) + `<div id="decision">${decisionHtml(res)}</div>` + linksHtml(res));
 }
 const GATE_NAMES = {purchase: 'A purchase', clear: 'Clear', possible: 'Valio has it', allowed: 'Safe', proven: 'Proven', authority: "Agent's call"};
 const GATE_HINT = {purchase: 'An order, not a question', clear: 'Amount, product and date known', possible: 'Real products, priced, in time',
@@ -393,6 +393,7 @@ function stepsHtml(res) {
       const tot = eur(res.order?.total ?? 0).replace('.00', '');
       if (r.rule === 'Auto-approve spend limit') return `${tot} is over the ${eur(m.auto_approve?.max_order_total_eur ?? 0).replace('.00', '')} it may spend alone`;
       if (r.rule === "Agent's own spend in 24 h") return `Over its ${eur(m.auto_approve?.max_auto_eur_per_24h ?? 0).replace('.00', '')} allowance for 24 h`;
+      if (r.rule === 'Delivery on time') return lateText(r.detail);
       return g === 'authority' || g === 'proven' ? r.detail.replace(/\.0\b/, '') : `${label(r)}: ${r.detail}`;
     };
     return bad.map(r => li(r.level === 'block' ? 'n' : 'x', cap(said(r)), r.detail)).join('')
@@ -407,6 +408,7 @@ function stepsHtml(res) {
     if (key === 'possible' && lk) {
       const ok = pa ? pa.rows.filter(r => r.status === 'ok').length : lk.candidates.length;
       const when = intent.deliver_by ? new Date(intent.deliver_by + 'T12:00').toLocaleDateString('en-GB', {weekday: 'long'}) : 'in time';
+      if (!ok) return `<div class="count">None of the products arrives ${esc(when)}: later deliveries are compared below</div><ul>${li('', `${res.api_calls.length} live Valio calls`)}</ul>`;
       return `<div class="count"><b>17,546</b><i>→</i><b>${ok}</b><br>products that fit and arrive ${esc(when)}</div><ul>${li('', `${res.api_calls.length} live Valio calls`)}</ul>`;
     }
     if (key === 'allowed') return ruleList('allowed') + (st.offer && !fail ? '' : '');
@@ -457,7 +459,66 @@ const shortName = n => String(n || '').replace(/®/g, '').replace(/Hyvä suomala
 const firstName = n => String(n || '').split(' ')[0];
 function lineText(o) { return o.record.offer.lines.map(l => `${l.units.toLocaleString('en-US')} × ${esc(shortName(l.name))}`).join(' + '); }
 
+// ---- Where it stopped and why: one check, one plain sentence ----
+const GATE_NO = {purchase: 1, clear: 2, possible: 3, allowed: 4, proven: 5, authority: 6};
+function ruleSentence(r, o) {
+  const tot = eur(o?.total ?? 0).replace('.00', ''), m = mandates[o?.mandate_id] || mandates[$('#mandate').value] || {};
+  const lim = eur(m.auto_approve?.max_order_total_eur ?? 0).replace('.00', '');
+  return ({'Auto-approve spend limit': `${tot} is over the ${lim} the agent may spend alone`,
+    "Agent's own spend in 24 h": 'The agent has used its spending allowance for today',
+    'Earned trust': 'A new agent may spend only part of the limit alone until it has a record of clean orders',
+    'Delivery on time': lateText(r.detail),
+    'Stock confirmed by Valio': 'Valio can’t confirm the stock: it ships from a supplier’s warehouse',
+    'Allergens verifiable from data': 'The product has no allergen data, so the ban can’t be checked',
+    'Substitutions within preferences': 'It is Valio’s substitute, not the product that was asked for',
+    'Delivery date stated': 'No delivery date was given, so the agent assumed one',
+    'Unstated details within tolerance': 'A detail the request didn’t state changes the price',
+    'Pack contents known': 'The pack size isn’t in Valio’s data, so the count can’t be checked',
+    'Full quantity': 'Valio can supply only part of the quantity',
+    'Hard spend limit': `${tot} is over the buyer’s hard limit`,
+  })[r.rule] || cap((SHORT_RULE[r.rule] || r.rule) + ': ' + String(r.detail || '').split(/[;(]/)[0].trim());
+}
+function reasonOf(res) {
+  const o = res.order, l = res.ladder || {};
+  const bad = (o?.policy?.rules || []).filter(r => !r.ok).sort((a, b) => (b.level === 'block') - (a.level === 'block'));
+  if (bad.length) return ruleSentence(bad[0], o) + '.';
+  const raw = String(l.reason || res.result?.error || '').replace(/^Nothing was ordered:?\s*/, '');
+  const banned = raw.match(/\(([^)]+)\) is ([\w ]+?), which this request or the mandate rules out/);
+  if (banned) return `${cap(banned[2])} is ruled out for this buyer.`;
+  return cap(raw.split(/(?<=[.!?])\s/)[0]);
+}
+function whereLine(res) {
+  const l = res.ladder || {}, o = res.order;
+  if (o?.status === 'placed' || !l.decided_by) return '';
+  const n = GATE_NO[l.decided_by], name = GATE_NAMES[l.decided_by];
+  const verb = o?.status === 'pending_approval' ? 'Waiting at' : l.action === 'stop' || o?.status === 'blocked' ? 'Stopped at'
+    : l.action === 'ask_back' ? 'Sent back at' : 'Ended at';
+  return `<span class="where">${verb} check ${n} · ${esc(name)}</span><p class="why">${esc(reasonOf(res))}</p>`;
+}
+
+// ---- What the agent chose, and the two alternatives it compared ----
+function choiceHtml(res) {
+  const st = [...res.steps].reverse().find(x => x.step === 'options'); if (!st || !st.options?.length || res.basket) return '';
+  const offer = res.order?.record?.offer, ids = offer ? offer.lines.map(l => l.productId).sort().join() : null;
+  const chosenIdx = Math.max(0, st.options.findIndex(op => op.lines.map(l => l.productId).sort().join() === ids));
+  const row = (op, i) => {
+    const l = op.lines, when = l[0]?.deliveryDate ? new Date(l[0].deliveryDate + 'T12:00').toLocaleDateString('en-GB', {weekday: 'short', day: 'numeric', month: 'numeric'}).replace('/', '.') : '';
+    const stock = l.every(x => x.stockConfirmed !== false) ? '' : ' · stock not confirmed';
+    return `<div class="opt${i === chosenIdx ? ' on' : ''}"><span class="lab">${i === chosenIdx ? '✓ Chosen' : esc(op.label)}</span>
+      <span class="what">${l.map(x => `${x.units.toLocaleString('en-US')} × ${esc(shortName(x.name))}`).join(' + ')}<small>${esc(when)}${stock} · ${esc(op.why)}</small></span>
+      <b>${eur(op.total_eur).replace('.00', '')}</b></div>`;
+  };
+  const order = [chosenIdx, ...st.options.map((_, i) => i).filter(i => i !== chosenIdx)].slice(0, 3);
+  return `<div class="choices"><div class="chead">The agent’s choice and the alternatives it compared</div>${order.map(i => row(st.options[i], i)).join('')}</div>`;
+}
+
 function decisionHtml(res) {
+  let html = decisionInner(res); const where = whereLine(res);
+  if (!where) return html;
+  if (!res.order) html = html.replace(/<p>[\s\S]*?<\/p>/, '');  // the reason line says it; buttons and suggestions stay
+  return html.replace(/<\/h2>/, `</h2>${where}`);  // the outcome first, then which check and why
+}
+function decisionInner(res) {
   const o = res.order, r = res.result, l = res.ladder || {};
   const bar = (tone, title, text, right = '') => `<div class="decision ${tone}"><div class="what"><h2>${title}</h2>${text ? `<p>${text}</p>` : ''}</div>${right}</div>`;
   const fixChip = (label, call) => `<div class="chips"><button class="chip" onclick='${call}'>${esc(label)}</button></div>`;
@@ -761,7 +822,7 @@ function outcome(res, status) {
   const o = res.order, l = res.ladder || {}, s = status || o?.status;
   if (s === 'placed') return ['go', 'Ordered. The agent did it alone.'];
   if (s === 'pending_approval') { const who = firstName(o.policy.approver?.name);
-    return ['hold', o.policy.ladder?.decided_by === 'proven' ? `${esc(who)}: check a fact.` : `Over its limit. ${esc(who)}'s call.`]; }
+    return ['hold', o.policy.ladder?.decided_by === 'proven' ? `${esc(who)} checks a fact.` : `${esc(who)}'s call.`]; }
   if (s === 'blocked' || l.action === 'stop' || l.action === 'decline' || s === 'rejected') return ['stop', 'Not ordered.'];
   if (l.action === 'ask_back') return ['back', 'Back to you.'];
   if (l.action === 'answer' || res.result?.status === 'answered') return ['back', 'Answered. Nothing ordered.'];
@@ -780,22 +841,15 @@ function remember(res, over = {}) {
   // Where it stopped, as the six boxes (pass / fail / not reached); a person's decision settles the last one
   let gates = (l.gates || []).map(g => g.state);
   if (over.status === 'placed') gates = gates.map(() => 'pass');
-  const failed = (o?.policy?.rules || []).find(r => !r.ok);
-  const spend = r => r?.rule === 'Auto-approve spend limit' ? `${tot} is over what the agent may spend alone`
-    : r?.rule === "Agent's own spend in 24 h" ? `Over the agent's allowance for 24 h`
-    : r?.rule === 'Earned trust' ? 'More than a new agent may spend alone'
-    : r?.rule === 'Delivery on time' ? lateText(r.detail) : r ? cap((SHORT_RULE[r.rule] || r.rule) + ': ' + r.detail) : '';
-  const raw = (l.reason || res.result?.error || '').replace(/^Nothing was ordered: /, '');
-  const banned = raw.match(/\(([^)]+)\) is ([\w ]+?), which this request or the mandate rules out/);
-  const reason = banned ? `${cap(banned[2])} is ruled out for this buyer` : clip(cap(raw.split(/[.;]/)[0]), 64);
+  const said = clip(reasonOf(res).replace(/\.$/, ''), 70);
   const [tone, label, why] =
       s === 'placed' && over.status ? ['go', `Ordered`, `${who} approved it`]
     : s === 'placed' ? ['go', 'Ordered by the agent', 'Within its own limits']
-    : s === 'pending_approval' ? ['hold', `Waiting for ${who}`, clip(spend(failed) || reason, 64)]
+    : s === 'pending_approval' ? ['hold', `Waiting for ${who}`, said]
     : s === 'rejected' ? ['stop', 'Not ordered', `${who} rejected it`]
-    : s === 'blocked' || l.action === 'stop' || l.action === 'decline' ? ['stop', 'Not ordered', reason || 'A hard rule stops it']
-    : l.action === 'ask_back' ? ['back', 'Sent back to the kitchen', reason]
-    : ['back', 'Nothing ordered', reason];
+    : s === 'blocked' || l.action === 'stop' || l.action === 'decline' ? ['stop', 'Not ordered', said || 'A hard rule stops it']
+    : l.action === 'ask_back' ? ['back', 'Sent back to the kitchen', said]
+    : ['back', 'Nothing ordered', said];
   const entry = {n: TICKET.n, buyer: TICKET.buyer, request: TICKET.request, tone, label, why, total: tot, gates};
   st.list = [entry, ...st.list.filter(x => x.n !== entry.n)].slice(0, 6);
   localStorage.setItem(PASS_KEY, JSON.stringify(st));

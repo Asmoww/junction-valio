@@ -176,3 +176,20 @@ body.pass {
 .pass #histR .case i { font-style: normal; font-size: 10.5px; color: #5b6b86; }
 .pass .hist .tk { margin-top: 22px; }
 .pass #histL .histlabel + .tk { margin-top: 26px; }
+
+/* Where it stopped and why: the check, then one sentence */
+.pass .decision .where { display: block; font: 700 12.5px var(--mono); letter-spacing: .02em; color: #4a5a78; margin: 8px 0 0; }
+.pass .decision.amber .where { color: var(--hold); } .pass .decision.red .where { color: var(--stop); }
+.pass .decision .why { margin: 6px 0 2px; font: 600 16px/1.35 "Archivo", sans-serif; color: var(--rail); }
+
+/* The agent's choice and the two alternatives */
+.pass .choices { margin-top: 22px; border-top: 1px dashed #b7c2d6; padding-top: 10px; }
+.pass .choices .chead { font: 600 12.5px var(--mono); color: #4a5a78; margin-bottom: 6px; }
+.pass .choices .opt { display: grid; grid-template-columns: 110px minmax(0, 1fr) auto; gap: 14px; align-items: baseline; padding: 8px 0;
+                      border-bottom: 1px dashed #d5dce8; font: 13px var(--mono); color: #34445f; }
+.pass .choices .opt .lab { font-weight: 700; color: #4a5a78; }
+.pass .choices .opt .what small { display: block; color: #6d7c96; font-size: 11.5px; margin-top: 2px; }
+.pass .choices .opt b { font: 700 15px var(--mono); color: var(--rail); }
+.pass .choices .opt.on { color: var(--rail); } .pass .choices .opt.on .lab { color: var(--pen); }
+.pass .choices .opt.on .what { font-weight: 600; }
+@media (max-width: 700px) { .pass .choices .opt { grid-template-columns: 1fr auto; } .pass .choices .opt .lab { grid-column: 1 / -1; } }
