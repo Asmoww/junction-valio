@@ -1078,6 +1078,7 @@ def _run(text, mandate_id, overrides=None, simulate_price_change=False, inject=F
                "partial": chosen["partial"], "simulate_price_change": simulate_price_change,
                "request": raw, "run_id": run_id, "options_considered": len(options),
                "requested_quantity": intent["quantity"], "required_attributes": intent.get("attributes") or [],
+               "from_profile": intent.get("from_profile") or [],
                "ignored_terms": intent.get("ignored_terms") or [],
                # No date in the request: the delivery day is the agent's assumption, so a person confirms it (rule 2).
                "date_assumed": not request_checks.date_stated(text),

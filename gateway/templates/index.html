@@ -348,7 +348,9 @@ function renderOutcome(res) {
       ${fact ? `<div class="small" style="margin-top:6px">The data can't prove: ${o.policy.rules.filter(r => !r.ok && r.gate === 'proven').map(r => esc(r.rule)).join(', ')}.
         Approving means you checked it.</div><input id="fc-${o.id}" class="field" style="margin-top:8px;width:100%" placeholder="What did you check? e.g. Valio confirmed 1,000 in stock by phone">` : ''}
       <div class="actions"><button class="btn btn-ok" onclick="decide('${o.id}','approve','${esc(ap.name)}')">${fact ? 'Confirm checked' : 'Approve'} as ${esc(ap.name.split(' ')[0])}</button>
-      <button class="btn btn-bad" onclick="decide('${o.id}','reject','${esc(ap.name)}')">Reject</button></div></div>`;
+      <button class="btn btn-bad" onclick="decide('${o.id}','reject','${esc(ap.name)}')">Reject</button>
+      <button class="btn btn-soft" onclick="phoneApprove('${o.id}','${esc(ap.name)}')">Approve on a phone</button></div>
+      <div id="qrbox"></div></div>`;
   }
   $('#tl').insertAdjacentHTML('beforeend', `<div id="outcome"><div class="card railcard">
     ${railHtml(res, body)}</div></div>`);
@@ -432,7 +434,29 @@ function railHtml(res, body) {
   return html;
 }
 
+// Hand the approval to a phone: a signed, single-use link as a QR code. The page updates when the phone decides.
+let qrPoll = null;
+async function phoneApprove(id, who) {
+  const r = await api(`/api/approval-link/${id}?approver=${encodeURIComponent(who)}`);
+  $('#qrbox').innerHTML = `<div class="qr"><div class="qrimg">${r.svg}</div><div><b>Scan to approve as ${esc(who)}</b>
+    <p class="small muted" style="margin:6px 0 0">A signed link for this order and this approver only. Works once, expires in 30 minutes,
+    no sign-in needed.</p><p class="small" style="margin:8px 0 0"><a href="${esc(r.url)}" target="_blank">open the link</a></p>
+    <p class="small muted" style="margin:8px 0 0">Waiting for the phone…</p></div></div>`;
+  clearInterval(qrPoll);
+  qrPoll = setInterval(async () => {
+    const o = await api(`/v1/orders/${id}`).catch(() => null);
+    if (!o || o.status === 'pending_approval') return;
+    clearInterval(qrPoll);
+    const a = (o.record.approvals || []).slice(-1)[0] || {};
+    $('#outcomeBody').innerHTML = o.status === 'placed'
+      ? `<div class="banner ok"><h3>Approved on a phone by ${esc(a.approver || who)} · order placed</h3>${o.id} · ${eur(o.total)}</div>`
+      : `<div class="banner bad"><h3>${o.status === 'rejected' ? 'Rejected on a phone by ' + esc(a.approver || who) : esc(o.status)}</h3>No order was placed.</div>`;
+    showRecord(id);
+  }, 2000);
+}
+
 async function decide(id, decision, who) {
+  clearInterval(qrPoll);
   let o;
   const fc = document.getElementById(`fc-${id}`);
   try { o = await post(`/v1/approvals/${id}`, {decision, approver: who, comment: fc && fc.value.trim() ? fc.value.trim() : `${decision}d in demo UI`}); }

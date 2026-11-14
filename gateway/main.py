@@ -54,7 +54,8 @@ async def password_gate(request: Request, call_next):
     may look up, quote and order, but only a human session may approve or reject an order, so a hijacked
     agent can't sign off its own order."""
     request.state.principal = "human" if not DEMO_PASSWORD else None
-    if not DEMO_PASSWORD or request.url.path in OPEN_PATHS:
+    if not DEMO_PASSWORD or request.url.path in OPEN_PATHS or request.url.path.startswith("/approve/"):
+        # /approve/... is reachable without signing in: it only works with a signed, single-use approval link.
         return await call_next(request)
     auth = request.headers.get("authorization", "")
     if secrets.compare_digest(request.cookies.get(_COOKIE, ""), _token):
@@ -303,6 +304,128 @@ def approve(request: Request, order_id: str,
     if err:
         raise HTTPException(409, err)
     return o
+
+
+# ---- Approval on your own phone: signed, single-use links (approval_links.py) --------------------------------
+
+def _public_base(request: Request):
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or "localhost"
+    proto = request.headers.get("x-forwarded-proto") or ("http" if host.startswith(("localhost", "127.")) else "https")
+    return f"{proto}://{host}"
+
+
+@app.get("/api/approval-link/{order_id}", tags=["demo"])
+def approval_link(request: Request, order_id: str, approver: str):
+    """A signed approval link and its QR code, for the approver's phone. Only a signed-in person can create one."""
+    from urllib.parse import urlencode
+    import segno
+    from . import approval_links
+    if getattr(request.state, "principal", None) != "human":
+        raise HTTPException(403, "only a person can hand out an approval link")
+    o = store.get_order(order_id)
+    if not o or o["status"] != "pending_approval":
+        raise HTTPException(409, "order is not waiting for approval")
+    if approver not in [a["name"] for a in policy.load(o["mandate_id"])["approvers"]]:
+        raise HTTPException(422, "not an approver in this buyer's mandate")
+    url = f"{_public_base(request)}/approve/{order_id}?{urlencode(approval_links.make(order_id, approver))}"
+    store.log(order_id, "gateway", "approval.link_issued", {"approver": approver})
+    return {"url": url, "svg": segno.make(url, error="m").svg_inline(scale=5, dark="#0a3d91", border=2)}
+
+
+def _approve_page(order, approver, body, title):
+    from html import escape as h
+    page = (TEMPLATES / "approve.html").read_text()
+    buyer = policy.load(order["mandate_id"])["buyer"].replace(" (demo)", "") if order else "Valio Aimo"
+    return HTMLResponse(page.replace("__BUYER__", h(buyer)).replace("__TITLE__", h(title))
+                        .replace("__APPROVER__", h(approver or "")).replace("__BODY__", body))
+
+
+def _approve_card(order, q, note_error=""):
+    from html import escape as h
+    offer = order["record"]["offer"]
+    rules = order["policy"]["rules"]
+    gate = (order["policy"].get("ladder") or {}).get("decided_by")
+    failed = [r for r in rules if not r["ok"]]
+    ok_jws = signing.verify((store.get_offer(order["offer_id"]) or {}).get("jws", ""))[0]
+    l0 = offer["lines"][0]
+    trust = l0.get("trust") or {}
+    mandate = policy.load(order["mandate_id"])
+    short_ok = {"Hard spend limit": ("Within the hard limit", f'€{mandate["hard_limits"]["max_order_total_eur"]:,} per order'),
+                "Forbidden allergens": ("No banned allergens", "checked in product data"),
+                "Claims verified in product data": ("Claims checked", "in the manufacturer's data"),
+                "Stock confirmed by Valio": ("In Valio's stock", "quantity confirmed"),
+                "Matches the buyer's request": ("Matches the request", "no over-ordering"),
+                "Delivery on time": ("Arrives in time", offer["deliver_by"])}
+    stamps = [f'<div class="stamp"><b>✓ {h(short_ok[r["rule"]][0])}</b>{h(short_ok[r["rule"]][1])}</div>'
+              for r in rules if r["ok"] and r["rule"] in short_ok]
+    profile = (order["record"].get("context") or {}).get("from_profile") or []
+    if profile:
+        stamps.append(f'<div class="stamp warn"><b>From your profile, not the request</b>{h(" · ".join(profile))}</div>')
+    need_note = gate == "proven"
+    lines = "<br>".join(f'{l["units"]:,g} × {h(l["name"])}' for l in offer["lines"])
+    return f"""<div class="card"><div class="top">
+      <div style="color:var(--mute);font-size:13.5px">Valio Aimo · deliver {h(offer["deliver_by"])}</div>
+      <div class="amount">€{order["total"]:,.2f}</div><div class="lines">{lines}</div>
+      <div class="why"><b>Why you:</b> {h(_why_you(failed, order, mandate))}</div></div>
+      <div class="perf"></div><div class="stamps">{"".join(stamps[:5])}</div>
+      <div class="sig">{"✓" if ok_jws else "✕"} signed by Valio · {h(order["offer_id"])} · Ed25519 {"verified" if ok_jws else "INVALID"}</div>
+      <form method="post"><input type="hidden" name="a" value="{h(q["a"])}"><input type="hidden" name="e" value="{h(q["e"])}">
+        <input type="hidden" name="t" value="{h(q["t"])}">
+        {f'<label>What did you check?</label><textarea name="note" required placeholder="e.g. Valio confirmed 1,000 in stock by phone"></textarea>' if need_note else '<input type="hidden" name="note" value="Approved on phone">'}
+        {f'<div class="why" style="margin:0 0 10px">{h(note_error)}</div>' if note_error else ''}
+        <div class="btns"><button class="rej" name="decision" value="reject">Reject</button>
+        <button class="app" name="decision" value="approve">Approve</button></div></form></div>"""
+
+
+def _why_you(failed, order, mandate):
+    """The reasons an order waits for a person, in plain words."""
+    out = []
+    for r in failed:
+        if r["rule"] == "Auto-approve spend limit":
+            out.append(f'€{order["total"]:,.0f} is over the €{mandate["auto_approve"]["max_order_total_eur"]:,.0f} the agent may spend alone')
+        elif r["rule"] == "Agent's own spend in 24 h":
+            out.append("the agent's own spending today would pass its daily limit")
+        elif r["rule"] == "Unstated details within tolerance":
+            out.append("a detail the request didn't state changes the price")
+        else:
+            out.append(f'{r["rule"].lower()}: {str(r["detail"])[:80]}')
+    return "; ".join(out[:2]) + "."
+
+
+@app.get("/approve/{order_id}", response_class=HTMLResponse, include_in_schema=False)
+def approve_page(order_id: str, a: str = "", e: str = "", t: str = ""):
+    from html import escape as h
+    from . import approval_links
+    ok, why = approval_links.check(order_id, a, e, t)
+    o = store.get_order(order_id)
+    if not ok or not o:
+        return _approve_page(o, a, f'<div class="card done bad"><h1>Link not valid</h1>{h(why or "unknown order")}</div>', "Approval")
+    if o["status"] != "pending_approval":
+        last = (o["record"].get("approvals") or [{}])[-1]
+        return _approve_page(o, a, f'<div class="card done {"ok" if o["status"] == "placed" else "bad"}"><h1>Already decided</h1>'
+                                   f'{h(o["status"].replace("_", " "))}{" by " + h(last.get("approver", "")) if last else ""}</div>', "Approval")
+    return _approve_page(o, a, _approve_card(o, {"a": a, "e": e, "t": t}), "1 order needs you")
+
+
+@app.post("/approve/{order_id}", response_class=HTMLResponse, include_in_schema=False)
+def approve_submit(order_id: str, a: str = Form(""), e: str = Form(""), t: str = Form(""), decision: str = Form(""),
+                   note: str = Form("")):
+    from html import escape as h
+    from . import approval_links
+    ok, why = approval_links.check(order_id, a, e, t)
+    o = store.get_order(order_id)
+    if not ok or not o:
+        return _approve_page(o, a, f'<div class="card done bad"><h1>Link not valid</h1>{h(why or "unknown order")}</div>', "Approval")
+    store.log(order_id, f"human:{a}", "approval.via_link", {"decision": decision})
+    done, err = agent.decide(order_id, decision, a, note)
+    if err:
+        if o["status"] == "pending_approval" and "fact check" in err:
+            return _approve_page(o, a, _approve_card(o, {"a": a, "e": e, "t": t}, err), "1 order needs you")
+        return _approve_page(o, a, f'<div class="card done bad"><h1>Not done</h1>{h(err)}</div>', "Approval")
+    placed = done["status"] == "placed"
+    return _approve_page(done, a, f'<div class="card done {"ok" if placed else "bad"}"><h1>{"Approved · order placed" if placed else "Rejected"}</h1>'
+                                  f'€{done["total"]:,.2f} · {h(done["id"])}<br><span style="color:var(--mute);font-size:14px">'
+                                  f'Logged in the audit trail as {h(a)}.</span></div>', "Done")
 
 
 @app.get("/v1/orders/{order_id}/decision", tags=["v1: audit"])
