@@ -13,7 +13,7 @@ from fastapi import Body, FastAPI, File, Form, Header, HTTPException, Request, S
 from fastapi.security import HTTPBearer
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from . import learning, unlock, plans, recipe, agent, ai, catalog, gates, policy, security, recalls, signing, standards, store, vision, preplanner, game
+from . import learning, unlock, plans, recipe, agent, ai, catalog, gates, policy, security, recalls, signing, standards, store, vision, preplanner, game, receipt
 from .config import AGENT_TOKEN as AGENT_TOKEN_ENV, AGENT_TOKEN_SCOPE, DEMO_CLOCK, DEMO_PASSWORD
 from .mcp_server import app as mcp_app
 from .mcp_server import mcp
@@ -62,7 +62,7 @@ def _bound_mandate(token):
     return False, None
 
 
-OPEN_PATHS = {"/login", "/healthz", "/.well-known/jwks.json", "/v1/mandates/verify"}
+OPEN_PATHS = {"/login", "/healthz", "/.well-known/jwks.json", "/v1/mandates/verify", "/static/style.css"}
 if not DEMO_PASSWORD:
     logging.getLogger("uvicorn.error").warning(
         "DEMO_PASSWORD is not set: the whole gateway, including approvals, is open. Local development only.")
@@ -76,7 +76,7 @@ async def password_gate(request: Request, call_next):
     may look up, quote and order, but only a human session may approve or reject an order, so a hijacked
     agent can't sign off its own order."""
     request.state.principal = "human" if not DEMO_PASSWORD else None
-    if not DEMO_PASSWORD or request.url.path in OPEN_PATHS or request.url.path.startswith(("/approve/", "/buyers/")):
+    if not DEMO_PASSWORD or request.url.path in OPEN_PATHS or request.url.path.startswith(("/approve/", "/buyers/", "/r/")):
         # /approve/... is reachable without signing in: it only works with a signed, single-use approval link.
         return await call_next(request)
     auth = request.headers.get("authorization", "")
@@ -347,6 +347,58 @@ def game_attempt(request: Request, body: dict = Body(...)):
         return game.play(body.get("mission"), body.get("text"), body.get("nick"))
     except ValueError as e:
         raise HTTPException(422, str(e))
+
+
+@app.get("/api/receipt-link/{order_id}", tags=["demo"])
+def receipt_link(request: Request, order_id: str):
+    """Signed link and QR for an order's public receipt (people only)."""
+    if getattr(request.state, "principal", None) != "human":
+        raise HTTPException(403, "people only")
+    if not store.get_order(order_id):
+        raise HTTPException(404, "unknown order")
+    url = f"{_public_base(request)}/r/{order_id}?t={receipt.token(order_id)}"
+    import segno
+    return {"url": url, "svg": segno.make(url, error="m").svg_inline(scale=4, dark="#0047bb", border=1)}
+
+
+@app.get("/r/{order_id}", response_class=HTMLResponse, include_in_schema=False)
+def receipt_page(order_id: str, t: str = ""):
+    """Public receipt: every claim behind the order re-checked live. Needs the signed link."""
+    if not receipt.check_token(order_id, t):
+        return HTMLResponse(_receipt_html("Not a valid receipt link", "<p class=muted>Scan the QR code on the order again.</p>"), 404)
+    r = receipt.verify(order_id)
+    if not r:
+        return HTMLResponse(_receipt_html("No such order", ""), 404)
+    o = r["order"]
+    status = {"placed": "Ordered", "pending_approval": "Waiting for a person", "blocked": "Stopped", "rejected": "Rejected"}.get(o["status"], o["status"])
+    lines = "".join(f"<div class=line><span>{escape(str(l['units']))} × {escape(l['name'])}</span><b>€{l['total']:,.2f}</b></div>" for l in o["lines"])
+    checks = "".join(f"<li class={'ok' if c['ok'] else 'bad'}><i>{'✓' if c['ok'] else '×'}</i><div><b>{escape(c['check'])}</b>"
+                     f"<span>{escape(c['why'])}</span></div></li>" for c in r["checks"])
+    body = (f"<div class=sum><div><small>{escape(o['buyer'])} · {escape(o['id'])}</small><h2>{status}</h2></div><div class=eur>€{o['total']:,.2f}</div></div>"
+            f"<div class=lines>{lines}</div>"
+            f"<div class='verdict {'ok' if r['all_ok'] else 'bad'}'>{'Every claim checks out' if r['all_ok'] else 'Something does not check out'}"
+            f"<small>re-checked just now, not read from a stored status</small></div><ul class=checks>{checks}</ul>"
+            f"<details><summary>Check it yourself</summary><p>Valio's public key: <a href='/.well-known/jwks.json'>/.well-known/jwks.json</a> "
+            f"(key id {escape(r['kid'])}). The signed offer (compact JWS, EdDSA):</p><pre>{escape(r['jws'] or '')}</pre></details>")
+    return _receipt_html("Receipt", body)
+
+
+def _receipt_html(title, body):
+    return f"""<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
+<title>{escape(title)} · Portti</title><link rel=icon href="data:,"><link rel=stylesheet href="/static/style.css">
+<style>body{{background:#f2f5fb}} main{{max-width:560px;margin:0 auto;padding:22px 16px 40px}}
+.card{{background:#fff;border-radius:22px;padding:22px 22px 18px;box-shadow:0 6px 24px rgba(10,31,77,.07)}}
+.sum{{display:flex;justify-content:space-between;align-items:flex-end;gap:12px}} .sum small{{color:var(--mute)}} .sum h2{{margin:2px 0 0;font-size:26px;font-weight:800;letter-spacing:-.02em}}
+.eur{{font-size:30px;font-weight:900;letter-spacing:-.03em}} .lines{{margin:14px 0;border-top:1px dashed var(--line);padding-top:10px}}
+.line{{display:flex;justify-content:space-between;gap:12px;padding:4px 0;font-size:14.5px}}
+.verdict{{border-radius:14px;padding:12px 16px;font-weight:800;font-size:17px}} .verdict.ok{{background:var(--ok-soft);color:var(--ok)}} .verdict.bad{{background:var(--bad-soft);color:var(--bad)}}
+.verdict small{{display:block;font-weight:500;font-size:12.5px;color:var(--mute)}}
+.checks{{list-style:none;padding:0;margin:14px 0 6px}} .checks li{{display:flex;gap:12px;padding:10px 0;border-top:1px solid var(--line)}}
+.checks i{{font-style:normal;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-weight:800;flex-shrink:0;color:#fff}}
+.checks .ok i{{background:var(--ok)}} .checks .bad i{{background:var(--bad)}} .checks b{{display:block}} .checks span{{color:var(--mute);font-size:13.5px;overflow-wrap:anywhere}}
+pre{{white-space:pre-wrap;word-break:break-all;font-size:11px;background:#f5f8fc;border-radius:10px;padding:10px}}</style></head><body>
+<header class=topbar><div class=inner><a class=brand href="#" aria-label="Portti"><svg class=mark viewBox="0 0 64 12" aria-hidden=true><path d="M5 6H59" stroke=currentColor stroke-width=2 opacity=.55 />{''.join(f'<circle cx="{5 + i * 10.8:.1f}" cy=6 r="{4.2 if i == 5 else 3.4}" fill="{"#ffb02e" if i == 5 else "currentColor"}"/>' for i in range(6))}</svg><span class=word>portti</span><span class=for>verified receipt</span></a></div></header>
+<main><div class=card>{body}</div><p class="small muted" style="text-align:center;margin-top:14px">Portti for Valio Aimo · demo data</p></main></body></html>"""
 
 
 @app.get("/api/info", tags=["demo"])

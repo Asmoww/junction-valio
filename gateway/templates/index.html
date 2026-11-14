@@ -438,7 +438,8 @@ function decisionHtml(res) {
     return bar('red', 'Not ordered', esc(cap(String(r.error || String(r.status).replace('_', ' ')).replace(/^Nothing was ordered: /, ''))));
   }
   const price = `<span class="eur">${eur(o.total).replace('.00', '')}</span>`;
-  if (o.status === 'placed') return bar('green', 'Ordered by the agent', `${lineText(o)} <span>within its own authority</span>`, price);
+  if (o.status === 'placed') return bar('green', 'Ordered by the agent', `${lineText(o)} <span>within its own authority</span>`,
+    `${price}<div class="acts"><button class="btn btn-soft" onclick="showReceipt('${o.id}')">Receipt</button></div><div id="qrbox" style="flex-basis:100%"></div>`);
   if (o.status === 'blocked') {
     const why = o.policy.rules.filter(x => !x.ok && x.level === 'block').map(x => (SHORT_RULE[x.rule] || x.rule) + ': ' + x.detail);
     return bar('red', 'Not ordered: a hard rule stops it', esc(why.join('; ')), price);
@@ -664,6 +665,14 @@ async function phoneApprove(id, who) {
   }, 2000);
 }
 
+// A receipt anyone can verify: QR and link to a public page that re-checks every claim live.
+async function showReceipt(id) {
+  const r = await api(`/api/receipt-link/${id}`);
+  $('#qrbox').innerHTML = `<div class="qr"><div class="qrimg">${r.svg}</div><div><b>Scan to verify this order</b>
+    <p class="small muted" style="margin:6px 0 0">Anyone with this link can check Valio's signature on the price, the buyer's signed rules, who decided and the audit trail.</p>
+    <p class="small" style="margin:8px 0 0"><a href="${esc(r.url)}" target="_blank">Open the receipt</a></p></div></div>`;
+}
+
 async function decide(id, decision, who) {
   clearInterval(qrPoll);
   let o;
@@ -681,7 +690,8 @@ async function decide(id, decision, who) {
 function decided(o, title) {
   const placed = o.status === 'placed';
   $('#decision').innerHTML = `<div class="decision ${placed ? 'green' : 'red'}"><div class="what"><h2>${esc(title)}${placed ? ': ordered' : ''}</h2>
-    <p>${lineText(o)} <span>${placed ? 'placed at the signed price' : 'nothing was ordered'}</span></p></div><span class="eur">${eur(o.total).replace('.00', '')}</span></div>`;
+    <p>${lineText(o)} <span>${placed ? 'placed at the signed price' : 'nothing was ordered'}</span></p></div><span class="eur">${eur(o.total).replace('.00', '')}</span>
+    ${placed ? `<div class="acts"><button class="btn btn-soft" onclick="showReceipt('${o.id}')">Receipt</button></div>` : ''}<div id="qrbox" style="flex-basis:100%"></div></div>`;
   const last = document.querySelector('.steps .s.fail');
   if (last) { last.className = 's ' + (placed ? 'done' : 'fail stop'); last.querySelector('.dot').textContent = placed ? '✓' : '×';
     last.querySelector('ul')?.insertAdjacentHTML('beforeend', `<li class="${placed ? '' : 'n'}">${esc(title)}</li>`); }
