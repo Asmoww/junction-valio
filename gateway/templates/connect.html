@@ -28,8 +28,9 @@
   </section>
 
   <section class="section">
-    <div class="shead"><span class="n">2</span><h2>What the agent can do</h2><p>Six tools. Approving is not one of them: only a person can.</p></div>
+    <div class="shead"><span class="n">2</span><h2>What the agent can do</h2><p>Seven tools. Approving is not one of them: only a person can.</p></div>
     <div class="tools">
+      <div><b>preplan_request</b><span>Purchase or inquiry, catalog preview and explicit authority boundaries; never orders</span></div>
       <div><b>get_mandate</b><span>The buyer's rules, signed by the buyer</span></div>
       <div><b>search_products</b><span>Search the catalog, no live calls</span></div>
       <div><b>check_price_availability</b><span>Live price and stock, up to 20 products</span></div>
@@ -37,6 +38,30 @@
       <div><b>place_order</b><span>Placed, sent to a person, or stopped</span></div>
       <div><b>get_order</b><span>Status and the decision record</span></div>
     </div>
+  </section>
+
+  <section class="section">
+    <div class="shead"><h2>Start with the preplanner</h2><p>Choose Purchase or Inquiry explicitly.</p></div>
+    <p>Call <code>preplan_request</code> through MCP, or <code>POST /v1/preplan</code> with your buyer-bound agent token.
+      Both accept the same fields and return the request purpose, catalog matches, buyer hard rules, delegated agent limits and next steps.
+      Neither creates an offer, reservation or order.</p>
+    <pre class="mono">{"purpose":"inquiry","mandate_id":"mnd_hotel_helsinki","product":"milk","attributes":["FREE_FROM_LACTOSE"]}</pre>
+    <p>For <code>purchase</code>, also provide a positive <code>quantity</code>, <code>unit</code> (litres, kg or pieces),
+      and <code>deliver_by</code> (YYYY-MM-DD). Optional <code>allergies</code> tighten the preview.
+      Use <a href="/docs">the typed API schema</a> for accepted values.</p>
+    <p><b>Inquiry:</b> use search and price tools to answer; do not place an order.
+      <b>Purchase:</b> preserve the buyer's requirements, obtain a signed offer, then explicitly place it.
+      Selecting Purchase never bypasses a rule. Selecting Inquiry here does not revoke the token's separate order capability.</p>
+    <h3>Buyer limits and agent authority are different</h3>
+    <p><b>Buyer hard rules</b> come from the registered buyer mandate and are enforced by the gateway:
+      exceeding them blocks the order. <b>Agent authority</b> is the buyer's delegated per-order and 24-hour spending allowance:
+      exceeding it requires a person. Built-in and external agents share the allowance for that buyer; it is not per token.</p>
+    <p>For the Hotel mandate, the baseline is €5,000 hard cap, €500 autonomous per order and €1,500 autonomous in 24 hours.
+      Read the current selected mandate; other buyers differ. A signed week plan may pre-authorize spend, but cannot remove hard rules.</p>
+    <p><b>Current limits of the integration:</b> private outside-agent budgets and request-only budget caps are not sealed into the
+      external quote API. Preview-only allergy additions are not automatically carried into low-level quotes either.
+      If a tighter requirement is not in the registered mandate, stop for the buyer rather than dropping it.
+      The response reports these gaps; a matching product is not permission to purchase.</p>
   </section>
 
   <section class="section">
@@ -53,3 +78,4 @@
 </div>
 </body>
 </html>
+
