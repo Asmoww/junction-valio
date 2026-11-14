@@ -401,6 +401,43 @@ pre{{white-space:pre-wrap;word-break:break-all;font-size:11px;background:#f5f8fc
 <main><div class=card>{body}</div><p class="small muted" style="text-align:center;margin-top:14px">Vahti for Valio Aimo · demo data</p></main></body></html>"""
 
 
+_SIM = {"proc": None, "path": None}
+
+
+@app.get("/live", response_class=HTMLResponse, include_in_schema=False)
+def live_page():
+    return (TEMPLATES / "live.html").read_text()
+
+
+@app.post("/api/sim/start", tags=["demo"])
+def sim_start(request: Request):
+    """Start a Monday-morning simulation in its own process and fresh state (people only)."""
+    if getattr(request.state, "principal", None) != "human":
+        raise HTTPException(403, "people only")
+    import os, subprocess, sys, tempfile, time
+    if _SIM["proc"] and _SIM["proc"].poll() is None:
+        return {"running": True, "id": _SIM["id"]}
+    from .config import ROOT, STATE_DIR
+    run_dir = tempfile.mkdtemp(prefix="sim-", dir=str(STATE_DIR))
+    path = os.path.join(run_dir, "events.jsonl")
+    env = dict(os.environ, TG_STATE_DIR=run_dir, GATEWAY_DB=os.path.join(run_dir, "gateway.db"))
+    _SIM.update(proc=subprocess.Popen([sys.executable, "-m", "gateway.sim", path], cwd=str(ROOT), env=env,
+                                      stdout=subprocess.DEVNULL, stderr=open(os.path.join(run_dir, "log.txt"), "w")),
+                path=path, id=str(int(time.time())))
+    return {"running": True, "id": _SIM["id"]}
+
+
+@app.get("/api/sim/events", tags=["demo"])
+def sim_events(since: int = 0):
+    import json, os
+    path = _SIM.get("path")
+    if not path or not os.path.exists(path):
+        return {"id": _SIM.get("id"), "events": [], "running": bool(_SIM["proc"] and _SIM["proc"].poll() is None)}
+    lines = open(path, encoding="utf-8").read().splitlines()
+    return {"id": _SIM["id"], "events": [json.loads(x) for x in lines[since:] if x.strip()], "next": len(lines),
+            "running": _SIM["proc"].poll() is None}
+
+
 @app.get("/api/info", tags=["demo"])
 def info():
     return {"ai_parser": ai.enabled(), "model": ai.MODEL if ai.enabled() else None, "demo_clock": DEMO_CLOCK,

@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>Monday morning, live · Vahti</title>
+<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<style>
+  .stage { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 22px; align-items: stretch; }
+  @media (max-width: 1000px) { .stage { grid-template-columns: 1fr; } }
+  #map { height: 600px; border-radius: 22px; border: 1px solid var(--line); overflow: hidden; z-index: 0; }
+  .mapwrap { position: relative; }
+  .counters { position: absolute; z-index: 500; left: 16px; top: 16px; display: grid; grid-template-columns: repeat(4, auto); gap: 8px; }
+  .counters div { background: rgba(255,255,255,.94); border-radius: 14px; padding: 10px 14px; box-shadow: 0 2px 10px rgba(10,31,77,.1); min-width: 110px; }
+  .counters b { display: block; font-size: 26px; font-weight: 900; letter-spacing: -.03em; font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .counters span { font-size: 12.5px; color: var(--mute); }
+  .counters .g b { color: var(--ok); } .counters .a b { color: var(--warn); } .counters .r b { color: var(--bad); }
+  @media (max-width: 700px) { .counters { grid-template-columns: repeat(2, auto); } #map { height: 460px; } }
+  .ticker { border: 1px solid var(--line); border-radius: 22px; padding: 16px 18px; height: 600px; overflow: hidden; display: flex; flex-direction: column; }
+  .ticker h3 { margin: 0 0 8px; font-size: 16px; }
+  .ticker ol { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; }
+  .ticker li { padding: 9px 0; border-top: 1px solid var(--line); font-size: 13.5px; animation: rise .3s ease both; }
+  .ticker li b { display: block; font-size: 14px; } .ticker li .why { color: var(--mute); }
+  .ticker li .tag { font-weight: 700; } .ticker li.g .tag { color: var(--ok); } .ticker li.a .tag { color: var(--warn); } .ticker li.r .tag { color: var(--bad); }
+  .legend { display: flex; gap: 18px; font-size: 13.5px; color: var(--mute); margin-top: 12px; flex-wrap: wrap; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: 0; }
+  .hub-label { font-weight: 800; color: var(--valio); font-size: 13px; background: #fff; padding: 2px 8px; border-radius: 99px; box-shadow: 0 1px 6px rgba(10,31,77,.15); white-space: nowrap; }
+  .leaflet-container { font-family: inherit; background: #eef2f7; }
+  .leaflet-tile-pane { filter: grayscale(1) brightness(1.06) contrast(.88); }
+</style>
+</head>
+<body>
+<header class="topbar"><div class="inner">
+  <a class="brand" href="/" aria-label="Vahti, for Valio Aimo"><svg class="mark" viewBox="0 0 64 12" aria-hidden="true"><path d="M5 6H59" stroke="currentColor" stroke-width="2" opacity=".55"/><circle cx="5.0" cy="6" r="3.4" fill="currentColor"/><circle cx="15.8" cy="6" r="3.4" fill="currentColor"/><circle cx="26.6" cy="6" r="3.4" fill="currentColor"/><circle cx="37.4" cy="6" r="3.4" fill="currentColor"/><circle cx="48.2" cy="6" r="3.4" fill="currentColor"/><circle cx="59.0" cy="6" r="4.2" fill="#ffb02e"/></svg><span class="word">vahti</span><span class="for">for Valio Aimo</span></a>
+  <nav class="tabs"><a href="/">Buyer agent</a><a href="/plan">Week plan</a><a href="/valio">Valio view</a><a href="/live" class="on">Live</a><a href="/connect">Connect an agent</a><a href="/play">Play</a></nav>
+  <div class="right"><span class="pill">Real gateway decisions</span></div>
+</div></header>
+
+<div class="page">
+  <div class="phead"><div><h1>Monday morning, live</h1><p>Seventeen kitchens' agents order at once. Every dot is a real gateway decision on Valio's live data.</p></div>
+    <button class="btn btn-primary" id="startBtn" style="width:auto;margin:0;padding:13px 24px" onclick="start()">Start Monday morning</button></div>
+  <div class="stage">
+    <div class="mapwrap">
+      <div id="map"></div>
+      <div class="counters"><div><b id="cOrders">0</b><span>orders</span></div><div class="g"><b id="cAlone">0</b><span>placed alone</span></div>
+        <div class="a"><b id="cPerson">0</b><span>for a person</span></div><div class="r"><b id="cStopped">0</b><span>stopped</span></div></div>
+      <div class="legend"><span><i style="background:var(--ok)"></i>placed alone, on its way</span><span><i style="background:var(--warn)"></i>waiting for a person</span>
+        <span><i style="background:var(--bad)"></i>stopped by a rule</span><span><i style="background:var(--valio)"></i>kitchen</span><span id="money"></span></div>
+    </div>
+    <div class="ticker"><h3>Decisions</h3><ol id="ticker"><li class="muted" style="border:0">Press Start: the agents begin ordering.</li></ol></div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+const COLOR = {placed: '#1a7f52', person: '#b86200', stopped: '#c9302c', refused: '#c9302c'};
+const map = L.map('map', {zoomControl: false, attributionControl: true}).setView([60.215, 24.86], 11);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+  {attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', maxZoom: 18}).addTo(map);
+let hub = null, sites = {}, next = 0, poll = null, counts = {orders: 0, placed: 0, person: 0, stopped: 0, eur: 0};
+
+function setup(e) {
+  if (hub) return;
+  hub = [e.hub.lat, e.hub.lon];
+  L.circleMarker(hub, {radius: 14, color: '#fff', weight: 3, fillColor: '#ffb02e', fillOpacity: 1}).addTo(map)
+    .bindTooltip(`<span class="hub-label">${esc(e.hub.name)}</span>`, {permanent: true, direction: 'top', className: '', offset: [0, -12], opacity: 1});
+  e.sites.forEach(s => { sites[s.name] = L.circleMarker([s.lat, s.lon], {radius: 6, color: '#fff', weight: 2, fillColor: '#0047bb', fillOpacity: 1})
+    .addTo(map).bindTooltip(esc(s.name), {direction: 'top', offset: [0, -6]}); });
+  map.fitBounds(L.latLngBounds([hub, ...e.sites.map(s => [s.lat, s.lon])]), {paddingTopLeft: [40, 110], paddingBottomRight: [40, 30]});
+}
+
+function travel(from, color) {
+  const dot = L.circleMarker(from, {radius: 6, color: '#fff', weight: 2, fillColor: color, fillOpacity: 1}).addTo(map);
+  const line = L.polyline([from, from], {color, weight: 2, opacity: .5}).addTo(map);
+  const t0 = performance.now(), dur = 1400;
+  (function step(t) {
+    const k = Math.min(1, (t - t0) / dur), e = k < .5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+    const p = [from[0] + (hub[0] - from[0]) * e, from[1] + (hub[1] - from[1]) * e];
+    dot.setLatLng(p); line.setLatLngs([from, p]);
+    if (k < 1) requestAnimationFrame(step); else { map.removeLayer(dot); setTimeout(() => map.removeLayer(line), 1200); }
+  })(t0);
+}
+
+function pulse(at, color, big) {
+  const ring = L.circleMarker(at, {radius: 8, color, weight: 3, fill: false, opacity: 1}).addTo(map);
+  const t0 = performance.now(), dur = big ? 1600 : 1200;
+  (function step(t) {
+    const k = Math.min(1, (t - t0) / dur);
+    ring.setRadius(8 + k * (big ? 30 : 20)); ring.setStyle({opacity: 1 - k});
+    if (k < 1) requestAnimationFrame(step); else map.removeLayer(ring);
+  })(t0);
+}
+
+function onOrder(e) {
+  const at = [e.lat, e.lon], kind = e.outcome === 'refused' ? 'stopped' : e.outcome;
+  counts.orders++; counts[kind] = (counts[kind] || 0) + 1; if (kind === 'placed') counts.eur += e.total || 0;
+  $('#cOrders').textContent = counts.orders; $('#cAlone').textContent = counts.placed; $('#cPerson').textContent = counts.person; $('#cStopped').textContent = counts.stopped;
+  $('#money').textContent = `€${Math.round(counts.eur).toLocaleString('en-US')} placed without a person`;
+  if (kind === 'placed') travel(at, COLOR.placed);
+  else pulse(at, COLOR[kind], kind === 'stopped');
+  sites[e.site]?.setStyle({fillColor: kind === 'placed' ? '#0047bb' : COLOR[kind]});
+  const tag = {placed: 'Placed alone', person: 'Waiting for a person', stopped: 'Stopped'}[kind];
+  const why = kind === 'placed' ? 'every check passed' : String(e.why || '').replace(/^Forbidden allergens: /, 'Banned allergen: ').slice(0, 120);
+  $('#ticker').insertAdjacentHTML('afterbegin', `<li class="${kind === 'placed' ? 'g' : kind === 'person' ? 'a' : 'r'}"><b>${esc(e.site)}</b>
+    ${esc(e.units)} × ${esc(e.product)} ${e.total ? '· €' + Number(e.total).toLocaleString('en-US', {maximumFractionDigits: 0}) : ''}<br>
+    <span class="tag">${tag}</span> <span class="why">${esc(why)}</span></li>`);
+}
+
+async function tick() {
+  const r = await (await fetch(`/api/sim/events?since=${next}`)).json();
+  r.events.forEach(e => { if (e.type === 'start') setup(e); else if (e.type === 'order') onOrder(e); });
+  next = r.next ?? next;
+  if (!r.running && r.events.some(e => e.type === 'done') || (!r.running && next > 0 && !r.events.length)) {
+    clearInterval(poll); $('#startBtn').disabled = false; $('#startBtn').textContent = 'Run it again';
+  }
+}
+
+async function start() {
+  const btn = $('#startBtn'); btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Agents ordering…';
+  await fetch('/api/sim/start', {method: 'POST'});
+  next = 0; counts = {orders: 0, placed: 0, person: 0, stopped: 0, eur: 0};
+  $('#ticker').innerHTML = ''; Object.values(sites).forEach(m => m.setStyle({fillColor: '#0047bb'}));
+  clearInterval(poll); poll = setInterval(tick, 700);
+}
+</script>
+</body>
+</html>

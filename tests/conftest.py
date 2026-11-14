@@ -41,7 +41,12 @@ def fixed_catalog(monkeypatch):
 class FakeValio:
     """Answers like the Valio mock: price per sales unit, availability with schedule lines."""
 
-    def __init__(self, prices=None, closing="2026-11-14T15:00:00+0200", terminal=("999001",)):
+    def __init__(self, prices=None, closing=None, terminal=("999001",)):
+        # The default cut-off is always two days ahead of the real clock (offers expire against the real clock).
+        # A fixed "2026-11-14T15:00" made every offer expire once that afternoon passed.
+        if closing is None:
+            from datetime import datetime, timedelta, timezone
+            closing = (datetime.now(timezone.utc) + timedelta(days=2)).strftime("%Y-%m-%dT%H:%M:%S+0000")
         self.price = {"464306": 1.01, "464073": 1.64, "463203": 20.0, "999001": 1.50, "463380": 2.65, "700001": 9.0,
                       **(prices or {})}
         self.closing, self.terminal, self.calls = closing, set(terminal), []
