@@ -617,7 +617,7 @@ def theme_image(name: str):
 def concept_image(name: str):
     from fastapi.responses import FileResponse
     from .config import ROOT
-    if name not in {f"concept_{k}.png" for k in "ABCDEFGHIJKLM"}:
+    if name not in {f"concept_{k}.png" for k in "ABCDEFGHIJKLMNOP"}:
         raise HTTPException(404, "not found")
     return FileResponse(ROOT / "docs" / "visuals" / name, media_type="image/png")
 

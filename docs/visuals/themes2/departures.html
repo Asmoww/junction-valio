@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Vahti · Departures</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root { --board: #071a44; --tile: #0f2a63; --seam: #061535; --text: #f4f6fb; --dim: #8fa3cc; --amber: #ffb21e;
+          --go: #3fcf8e; --stop: #ff5b4f; --valio: #2f6bff; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--board); color: var(--text); font: 15px/1.45 "Barlow", sans-serif; }
+  .top { display: flex; align-items: center; gap: 34px; padding: 18px 48px; border-bottom: 1px solid #1c3570; }
+  .brand { font: 700 30px "Barlow Condensed"; letter-spacing: .01em; }
+  .brand span { color: var(--amber); }
+  .tabs { display: flex; gap: 22px; font: 600 14px "Barlow"; color: var(--dim); }
+  .tabs b { color: var(--text); }
+  .clock { margin-left: auto; font: 600 22px "Barlow Condensed"; color: var(--amber); letter-spacing: .04em; }
+  .page { padding: 26px 48px 40px; }
+  .ask { display: flex; gap: 12px; align-items: center; }
+  .ask label { font: 600 13px "Barlow"; color: var(--dim); }
+  .ask .buyer { background: var(--tile); border-radius: 6px; padding: 12px 16px; font-weight: 600; }
+  .ask input { flex: 1; background: #fff; color: #071a44; border: 0; border-radius: 6px; padding: 14px 18px; font: 500 18px "Barlow"; }
+  .ask button { background: var(--amber); color: #071a44; border: 0; border-radius: 6px; padding: 14px 26px; font: 700 16px "Barlow"; }
+  h1 { font: 700 15px "Barlow"; color: var(--dim); margin: 30px 0 10px; letter-spacing: .02em; }
+  /* split-flap row */
+  .flaps { display: grid; grid-template-columns: 2.6fr 1.5fr 1fr .7fr 1.6fr; gap: 10px; }
+  .col-h { font: 600 12px "Barlow"; color: var(--dim); padding: 0 2px 6px; }
+  .flap { display: flex; gap: 3px; }
+  .ch { background: var(--tile); width: 100%; min-width: 0; text-align: center; font: 600 34px/1 "Barlow Condensed"; padding: 12px 0 11px;
+        border-radius: 3px; position: relative; }
+  .ch::after { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 2px; background: var(--seam); }
+  .cell { background: linear-gradient(var(--tile) calc(50% - 1px), var(--seam) 0 calc(50% + 1px), var(--tile) 0); border-radius: 4px; padding: 12px 14px 11px; font: 600 34px/1 "Barlow Condensed"; position: relative; white-space: nowrap; overflow: hidden; }
+  .amber { color: var(--amber); } .go { color: var(--go); } .stop { color: var(--stop); }
+  .said { color: var(--dim); margin: 10px 2px 0; font-size: 14px; }
+  .said span { color: var(--text); margin-left: 16px; }
+  /* gates */
+  .gates { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-top: 28px; }
+  .gate { border-top: 4px solid var(--go); background: #0b2257; padding: 14px 14px 16px; border-radius: 0 0 6px 6px; }
+  .gate.hold { border-color: var(--amber); background: #2a2a3a; background: #1e2b52; box-shadow: inset 0 0 0 2px var(--amber); }
+  .gate .no { font: 700 13px "Barlow Condensed"; color: var(--dim); letter-spacing: .08em; }
+  .gate .name { font: 700 24px/1.1 "Barlow Condensed"; margin: 4px 0 8px; }
+  .gate .st { font: 700 13px "Barlow"; }
+  .gate p { margin: 6px 0 0; font-size: 13px; color: #c9d4ea; }
+  .gate p b { color: var(--text); }
+  /* the hold */
+  .hold-panel { margin-top: 18px; display: grid; grid-template-columns: 1fr auto; gap: 28px; align-items: center; background: var(--amber); color: #071a44;
+                border-radius: 8px; padding: 22px 26px; }
+  .hold-panel h2 { margin: 0; font: 700 34px/1.05 "Barlow Condensed"; }
+  .hold-panel p { margin: 6px 0 0; font-size: 15px; }
+  .btns { display: flex; gap: 10px; }
+  .btn { border-radius: 6px; padding: 14px 20px; font: 700 15px "Barlow"; border: 2px solid #071a44; background: transparent; color: #071a44; }
+  .btn.primary { background: #071a44; color: #fff; }
+  .links { margin-top: 12px; display: flex; gap: 20px; font: 600 13px "Barlow"; color: #9cb7ff; }
+  /* board of recent orders */
+  .board { margin-top: 30px; }
+  .row { display: grid; grid-template-columns: 70px 1.6fr 1.6fr 90px 1.4fr; gap: 14px; padding: 10px 0; border-top: 1px solid #1c3570; font: 600 20px "Barlow Condensed"; align-items: baseline; }
+  .row .t { color: var(--dim); }
+  .row.h { font: 600 12px "Barlow"; color: var(--dim); border-top: 0; padding-bottom: 4px; }
+</style></head>
+<body>
+  <div class="top">
+    <div class="brand">vahti<span>·</span> departures to Valio Aimo</div>
+    <div class="tabs"><b>Buyer agent</b><span>Week plan</span><span>Rules</span><span>Valio view</span><span>Live</span><span>Connect</span><span>Play</span></div>
+    <div class="clock">SAT 14.11 · 18:42</div>
+  </div>
+  <div class="page">
+    <div class="ask"><div class="buyer">Hotel Aurora Helsinki</div><input value="I need 1,000 litres of lactose-free milk by Monday."><button>Send to the gates</button></div>
+
+    <h1>Now at the gates</h1>
+    <div class="flaps">
+      <div><div class="col-h">Order</div><div class="cell">MILK · LACTOSE-FREE · 1,000 L</div></div>
+      <div><div class="col-h">For</div><div class="cell">HOTEL AURORA</div></div>
+      <div><div class="col-h">Arrives</div><div class="cell">MON 16.11</div></div>
+      <div><div class="col-h">Gate</div><div class="cell amber">6</div></div>
+      <div><div class="col-h">Status</div><div class="cell amber">HELD · AINO</div></div>
+    </div>
+    <div class="said">Read from “I need 1,000 litres of lactose-free milk by Monday.”<span>+ fat 1.5 % from the buyer's profile</span><span>+ fresh or long-life both fine</span></div>
+
+    <div class="gates">
+      <div class="gate"><div class="no">GATE 1</div><div class="name">A purchase</div><div class="st go">Passed</div><p>An order, not a question</p></div>
+      <div class="gate"><div class="no">GATE 2</div><div class="name">Clear</div><div class="st go">Passed</div><p>Amount, product and date known</p></div>
+      <div class="gate"><div class="no">GATE 3</div><div class="name">Valio has it</div><div class="st go">Passed</div><p><b>17,546 → 14</b> products fit and arrive Monday · 4 live calls</p></div>
+      <div class="gate"><div class="no">GATE 4</div><div class="name">Safe</div><div class="st go">Passed</div><p>No recall (checked live) · under the €5,000 limit</p></div>
+      <div class="gate"><div class="no">GATE 5</div><div class="name">Proven</div><div class="st go">Passed</div><p>Claims in product data · in Valio's stock</p></div>
+      <div class="gate hold"><div class="no">GATE 6</div><div class="name">Agent's call</div><div class="st amber">Held for a person</div><p><b>€1,010</b> is over the €500 it may spend alone</p></div>
+    </div>
+
+    <div class="hold-panel">
+      <div><h2>Held at gate 6 for Aino's approval · €1,010</h2>
+        <p>1,000 × Valio Eila semi-skimmed milk drink 1 l, lactose-free. Aino Virtanen, head chef, may approve up to €1,500.</p></div>
+      <div class="btns"><button class="btn">Reject</button><button class="btn">Approve on phone</button><button class="btn primary">Approve</button></div>
+    </div>
+    <div class="links"><span>Products compared</span><span>Signed offer</span><span>Audit trail</span></div>
+
+    <div class="board">
+      <div class="row h"><span>Time</span><span>Order</span><span>For</span><span>Gate</span><span>Status</span></div>
+      <div class="row"><span class="t">18:40</span><span>MILK · LACTOSE-FREE · 100 L</span><span>HOTEL AURORA</span><span>—</span><span class="go">DEPARTED · €101</span></div>
+      <div class="row"><span class="t">18:37</span><span>MILK · LACTOSE-FREE · 100 L</span><span>MEILAHTI WARD 7</span><span>4</span><span class="stop">STOPPED · MILK BANNED</span></div>
+      <div class="row"><span class="t">18:31</span><span>OAT DRINK · 50 L</span><span>HOTEL AURORA</span><span>6</span><span class="amber">HELD · ARRIVES MON, ASKED SUN</span></div>
+    </div>
+  </div>
+</body></html>
