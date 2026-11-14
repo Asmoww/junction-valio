@@ -41,6 +41,20 @@ def _when(s):
 # clock (the "passed cut-off" trap) without affecting other requests.
 CLOCK = contextvars.ContextVar("demo_clock", default=DEMO_CLOCK)
 
+# The mandate the calling agent's token is bound to (set per request by main.py; None = in-process caller,
+# such as the demo page or tests). An agent holding the hotel's token can't quote, order or read under
+# the hospital's mandate (benchmark AUDIT_RECORD cross-tenant; winner reports' "whose authority?" question).
+CALLER = contextvars.ContextVar("caller_mandate", default=None)
+
+
+def caller_refusal(mandate_id, ref="security"):
+    """An error if the calling agent's token is bound to a different mandate, else None (and nothing logged)."""
+    bound = CALLER.get()
+    if bound and bound != mandate_id:
+        store.log(ref, f"agent:{bound}", "security.mandate_mismatch", {"token_for": bound, "tried": mandate_id})
+        return f"this agent token acts for {bound}, not {mandate_id}"
+    return None
+
 
 def _clock_shift():
     """How far the demo clock is behind real time (zero when it's off)."""
@@ -57,7 +71,59 @@ def _deadline(s):
 def _passed(deadline, now_s):
     """True if an order deadline is before the API's own clock (compared as times, not strings)."""
     d, n = _deadline(deadline), _when(now_s)
+    if deadline and d is None:
+        return True  # a cut-off we can't read counts as passed: fail closed
     return bool(d and n and d < n)
+
+
+def _amount(x):
+    """A schedule line's quantity as a finite number ≥ 0, or 0 if Valio sent something else (NaN, inf, text)."""
+    v = x.get("availableAmount", 0)
+    if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or v < 0:
+        return 0
+    return v
+
+
+def _price(pr):
+    """Valio's catalog price as a finite positive number, or None."""
+    v = ((pr or {}).get("catalogPrice") or {}).get("value")
+    if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or v <= 0:
+        return None
+    return v
+
+
+def _valio(call, *args):
+    """Call Valio; on any failure (HTTP 500, 429 after retries, timeout) return (None, reason) so the caller
+    gives a clean refusal instead of crashing."""
+    try:
+        return call(*args), None
+    except Exception as e:  # noqa: BLE001 - any upstream failure must fail closed
+        return None, f"Valio didn't answer ({type(e).__name__}): nothing was ordered, try again"
+
+
+def check_quote_input(deliver_by, requested_quantity, requested_unit, lines, mandate):
+    """Refuse malformed quote fields before anything is priced or signed (an agent's typo must not
+    become a signed offer)."""
+    if not isinstance(deliver_by, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", deliver_by):
+        return "deliver_by must be a date like 2026-11-18"
+    try:
+        d = date.fromisoformat(deliver_by)
+    except ValueError:
+        return f"deliver_by {deliver_by} is not a real date"
+    today = (datetime.now(timezone.utc) - _clock_shift()).astimezone(ZoneInfo(TIMEZONE)).date()
+    if d < today:
+        return f"deliver_by {deliver_by} is in the past"
+    if requested_quantity is not None and (isinstance(requested_quantity, bool) or not isinstance(requested_quantity, (int, float))
+                                           or not math.isfinite(requested_quantity) or requested_quantity <= 0):
+        return "requested_quantity must be a positive number"
+    if requested_unit not in (None, "") and str(requested_unit).upper() not in ("L", "KG", "PCS", "ST", "KPL"):
+        return "requested_unit must be L, KG or PCS"
+    allowed = set(mandate.get("substitutions", {}))
+    for l in lines if isinstance(lines, list) else []:
+        sub = (l or {}).get("substitution")
+        if sub is not None and sub not in allowed:
+            return f"substitution {sub!r} is not a type this mandate knows ({', '.join(sorted(allowed))})"
+    return None
 
 
 def _number(s):
@@ -537,16 +603,21 @@ def _place_order(offer_jws, idempotency_key, mandate, context, client, actor):
     if payload["expires_at"] < store.now():
         return None, "offer expired: request a new one"
     client = client or ValioClient()
-    fresh = client.prices(mandate["customer"], payload["deliver_by"], [l["productId"] for l in payload["lines"]])
+    fresh, err = _valio(client.prices, mandate["customer"], payload["deliver_by"], [l["productId"] for l in payload["lines"]])
+    if err:
+        return None, err
     drift = [l["productId"] for l in payload["lines"]
-             if abs((fresh.get(l["productId"], {}).get("catalogPrice") or {}).get("value", -1) - l["unitPrice"]) > 0.005]
+             if abs((_price((fresh or {}).get(l["productId"])) or -1) - l["unitPrice"]) > 0.005]
     if context.get("simulate_price_change"):
         drift = [payload["lines"][0]["productId"]]
     if drift:
         store.log(payload["offer_id"], "gateway", "order.rejected", {"reason": "price changed", "products": drift})
         return None, f"price changed since the offer for {', '.join(drift)}: request a new offer"
     # A quote is not a reservation: stock, cut-off and sales blocks are checked again at commit.
-    now_s, avail = client.availability(mandate["customer"], payload["deliver_by"], [l["productId"] for l in payload["lines"]])
+    got, err = _valio(client.availability, mandate["customer"], payload["deliver_by"], [l["productId"] for l in payload["lines"]])
+    if err:
+        return None, err
+    now_s, avail = got
     gone = [p for l in payload["lines"] if (p := _line_problem(l, avail.get(l["productId"]) or {}, now_s, payload["deliver_by"]))]
     if gone:
         store.log(payload["offer_id"], "gateway", "order.rejected", {"reason": "availability changed", "problems": gone})
@@ -582,7 +653,7 @@ def _line_problem(line, av, now_s, deliver_by):
         return f"{pid}: the order deadline (cut-off) passed at {av.get('closingTime')}"
     sched = [x for x in av.get("scheduleLines", []) if not x.get("salesBlock") and x.get("availableDate")
              and x["availableDate"] <= deliver_by]
-    if not sched or sum(x.get("availableAmount", 0) for x in sched) < line["units"]:
+    if not sched or sum(_amount(x) for x in sched) < line["units"]:
         return f"{pid} is no longer available in that quantity by {deliver_by}"
     return ""
 
@@ -591,20 +662,26 @@ def quote(mandate_id, deliver_by, lines, client=None, requested_quantity=None, r
     """Signed fixed-price offer for explicit lines (used by /v1/quotes and the MCP tool).
 
     Returns (offer, jws, None) or (None, None, error)."""
+    if err := caller_refusal(mandate_id):
+        return None, None, err
     mandate = policy.load(mandate_id)
-    if err := _check_lines(lines):
+    if err := (_check_lines(lines) or check_quote_input(deliver_by, requested_quantity, requested_unit, lines, mandate)):
         store.log("security", "gateway", "security.quote_refused", {"mandate_id": mandate_id, "reason": err})
         return None, None, err
     ids = [str(l["productId"]) for l in lines]
     client = client or ValioClient()
-    prices = client.prices(mandate["customer"], deliver_by, ids)
-    now_s, avail = client.availability(mandate["customer"], deliver_by, ids)
+    prices, err = _valio(client.prices, mandate["customer"], deliver_by, ids)
+    got, err2 = (None, None) if err else _valio(client.availability, mandate["customer"], deliver_by, ids)
+    if err or err2:
+        return None, None, err or err2
+    now_s, avail = got
+    prices = prices or {}
     out = []
     for l in lines:
         pid = str(l["productId"])
         pr, av, p = prices.get(pid), avail.get(pid) or {}, catalog.get(pid)
-        if not p or not pr or not pr.get("catalogPrice"):
-            return None, None, f"no price for {pid}"
+        if not p or _price(pr) is None:
+            return None, None, f"no valid price from Valio for {pid}"
         if problem := _line_problem({"productId": pid, "units": l["units"]}, av, now_s, deliver_by):
             return None, None, problem
         sched = [x for x in av.get("scheduleLines", []) if not x.get("salesBlock") and x.get("availableDate")
@@ -626,7 +703,7 @@ def quote(mandate_id, deliver_by, lines, client=None, requested_quantity=None, r
                     "substitution": l.get("substitution"), "orderDeadline": av.get("closingTime"),
                     "priceValidTo": (pr["catalogPrice"].get("validTo") or "")[:10] or None,
                     "stockConfirmed": av.get("logisticModel") == "Stock",
-                    "trust": trust_flags(p, pr, av, sum(x["availableAmount"] for x in sched), now_s),
+                    "trust": trust_flags(p, pr, av, sum(_amount(x) for x in sched), now_s),
                     "evidence": catalog.evidence(p)})
     option = {"lines": out, "total_eur": round(sum(x["lineTotal"] for x in out), 2)}
     offer, jws = create_offer(mandate, option, {"deliver_by": deliver_by, "quantity": requested_quantity,
@@ -645,6 +722,11 @@ def _check_lines(lines):
         return f"at most {MAX_OFFER_LINES} lines per offer"
     seen = set()
     for l in lines:
+        if not isinstance(l, dict):
+            return "each line must be an object with productId and units"
+        if extra := sorted(set(l) - {"productId", "units", "perUnit", "substitution"}):
+            # Prices and totals come from Valio, never from the caller.
+            return f"unexpected field(s) {', '.join(extra)}: send productId, units and optionally perUnit, substitution"
         pid = str((l or {}).get("productId", ""))
         p = catalog.get(pid)
         if not p:
@@ -669,6 +751,8 @@ def order_from_jws(jws, idempotency_key, rationale="", requested_units=None):
     if not ok:
         store.log("security", "unknown", "security.invalid_signature", {"error": payload})
         return None, payload
+    if err := caller_refusal(payload["mandate_id"], payload.get("offer_id", "security")):
+        return None, err
     mandate = policy.load(payload["mandate_id"])
     ctx = {"deliver_by": payload["deliver_by"], "delivery_date": max(l["deliveryDate"] for l in payload["lines"]),
            "rationale": rationale, "requested_units": requested_units,
@@ -733,26 +817,22 @@ def _decide(order_id, decision, approver, comment, client):
         return None, ("this order waits for a fact check (" + "; ".join(unproven) + "). Write what you checked, "
                       "for example “Valio confirmed 1,000 in stock by phone”, and approve again")
     offer = order["record"]["offer"]
-    if decision == "approve" and offer["expires_at"] < store.now():
-        client = client or ValioClient()
-        ids = [l["productId"] for l in offer["lines"]]
-        fresh = client.prices(mandate["customer"], offer["deliver_by"], ids)
-        changed = [l["productId"] for l in offer["lines"]
-                   if abs((fresh.get(l["productId"], {}).get("catalogPrice") or {}).get("value", -1) - l["unitPrice"]) > 0.005]
-        # Stock and cut-off can change while an order waits too.
-        now_s, avail = client.availability(mandate["customer"], offer["deliver_by"], ids)
-        changed += [l["productId"] for l in offer["lines"]
-                    if _line_problem(l, avail.get(l["productId"]) or {}, now_s, offer["deliver_by"])]
-        if changed:
-            order["status"] = "expired"
+    if decision == "approve":
+        # The world can change while an order waits: re-check everything a fresh order would face, not only
+        # the price after the lock ran out (benchmark APPROVAL_RECHECK: mandate revoked, allergen newly
+        # reported, hard limit lowered, stock gone, item withdrawn).
+        refusal = _recheck_before_approval(order, mandate, client)
+        if refusal:
+            kind, why = refusal
+            if kind == "retry":
+                return None, why  # Valio didn't answer: the order keeps waiting
+            order["status"] = kind
             order["record"].setdefault("approvals", []).append(
-                {"approver": approver, "decision": decision, "comment": comment, "at": store.now(),
-                 "note": f"price lock expired and the price, stock or cut-off changed for {', '.join(changed)}"})
-            store.save_order(order)
-            store.log(order_id, "gateway", "order.expired", {"products": changed})
-            return None, (f"the price lock expired and the price, stock or cut-off changed for {', '.join(changed)}: "
-                          "request a new offer")
-        store.log(order_id, "gateway", "price.reconfirmed", {"reason": "price lock expired before approval"})
+                {"approver": approver, "decision": decision, "comment": comment, "at": store.now(), "note": why})
+            if not store.save_order(order, expect_status="pending_approval"):
+                return None, "someone else decided this order first"
+            store.log(order_id, "gateway", "order.expired" if kind == "expired" else "order.blocked_at_approval", {"reason": why})
+            return None, why + (": request a new offer" if kind == "expired" else "")
     order["status"] = "placed" if decision == "approve" else "rejected"
     order["record"].setdefault("approvals", []).append(
         {"approver": approver, "decision": decision, "comment": comment, "at": store.now(),
@@ -764,6 +844,45 @@ def _decide(order_id, decision, approver, comment, client):
         return None, "someone else decided this order first"
     store.log(order_id, f"human:{approver}", f"approval.{decision}", {"comment": comment})
     return order, None
+
+
+def _recheck_before_approval(order, mandate, client):
+    """Why a pending order can't be placed now, as (status, reason), or None.
+
+    status "expired": price, stock, cut-off or Valio's stock confirmation changed (a new offer may work).
+    status "blocked": a hard rule fails now (mandate expired or revoked, banned allergen, hard limit,
+    product withdrawn). "retry": Valio didn't answer, nothing changes."""
+    offer = order["record"]["offer"]
+    gone = [l["productId"] for l in offer["lines"] if not catalog.get(l["productId"])]
+    if gone:
+        return "blocked", f"no longer in Valio's catalog: {', '.join(gone)}"
+    verdict = policy.evaluate(mandate, offer, dict(order["record"].get("context") or {}))
+    hard = [f"{r['rule']}: {r['detail']}" for r in verdict["rules"] if not r["ok"] and r["gate"] == "allowed"]
+    if hard:
+        return "blocked", "a hard rule fails now: " + "; ".join(hard)
+    # A problem the approver was never shown (an allergen warning, a claim no longer backed by data) means
+    # they'd be approving something else than what they were asked about.
+    before = {r["rule"] for r in order["policy"].get("rules", []) if not r["ok"]}
+    new = [f"{r['rule']}: {r['detail']}" for r in verdict["rules"] if not r["ok"] and r["rule"] not in before
+           and r["rule"] != "Agent's own spend in 24 h"]
+    if new:
+        return "expired", "something changed since you were asked (" + "; ".join(new) + ")"
+    client = client or ValioClient()
+    ids = [l["productId"] for l in offer["lines"]]
+    fresh, err = _valio(client.prices, mandate["customer"], offer["deliver_by"], ids)
+    got, err2 = (None, None) if err else _valio(client.availability, mandate["customer"], offer["deliver_by"], ids)
+    if err or err2:
+        return "retry", (err or err2).replace("nothing was ordered, try again", "the order keeps waiting, approve again later")
+    now_s, avail = got
+    changed = [l["productId"] for l in offer["lines"]
+               if abs((_price((fresh or {}).get(l["productId"])) or -1) - l["unitPrice"]) > 0.005]
+    changed += [l["productId"] for l in offer["lines"] if _line_problem(l, avail.get(l["productId"]) or {}, now_s, offer["deliver_by"])]
+    unconfirmed = [l["productId"] for l in offer["lines"]
+                   if l.get("stockConfirmed") and (avail.get(l["productId"]) or {}).get("logisticModel") != "Stock"]
+    if changed or unconfirmed:
+        return "expired", f"the price, stock, cut-off or Valio's stock confirmation changed for {', '.join(dict.fromkeys(changed + unconfirmed))}"
+    store.log(order["id"], "gateway", "price.reconfirmed", {"reason": "re-checked with Valio before placing"})
+    return None
 
 
 def run(text, mandate_id, overrides=None, simulate_price_change=False, inject=False, real_clock=False):

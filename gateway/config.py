@@ -22,6 +22,9 @@ DEMO_PASSWORD = os.environ.get("DEMO_PASSWORD", "")  # people sign in with this 
 # Agents use a different secret (Authorization: Bearer). Default: derived from the password, so it never equals it and
 # can't be used to sign in as a person. Shown to signed-in people on /connect.
 AGENT_TOKEN = os.environ.get("AGENT_TOKEN", "")
+# Which mandate the single AGENT_TOKEN may act under. Each mandate also has its own derived token (shown on
+# /connect to a signed-in person). "all" restores the old unbound behaviour; not recommended.
+AGENT_TOKEN_SCOPE = os.environ.get("AGENT_TOKEN_SCOPE", "mnd_hotel_helsinki")
 DATA_DIR = ROOT / "data"
 STATE_DIR = Path(os.environ.get("TG_STATE_DIR") or ROOT / "state")  # tests point this at a temp folder
 STATE_DIR.mkdir(parents=True, exist_ok=True)

@@ -26,7 +26,7 @@ CAP = 500
 
 
 def evaluate(mandate, payload, ctx):  # stands in for the policy: €500 of autonomous spend per 24 h
-    auto = ctx["auto_spend_24h"] + payload["total_eur"] <= CAP
+    auto = ctx.get("auto_spend_24h", 0) + payload["total_eur"] <= CAP
     return {"outcome": "auto_approve" if auto else "needs_approval", "approver": None, "rules": []}
 
 
@@ -44,5 +44,5 @@ if action == "commit":  # arg = "offer id/mandate id"; every worker uses its own
     order, err = agent.place_order("jws", f"key-{arg}-{time.time_ns()}", MANDATE, {}, client=SlowValio())
     print(json.dumps({"status": order and order["status"], "error": err}))
 else:  # action = approve/reject, arg = order id
-    order, err = agent.decide(arg, action, "Aino Virtanen")
+    order, err = agent.decide(arg, action, "Aino Virtanen", client=SlowValio())
     print(json.dumps({"status": order and order["status"], "error": err}))

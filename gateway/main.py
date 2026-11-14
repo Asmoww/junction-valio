@@ -13,7 +13,7 @@ from fastapi import Body, FastAPI, Form, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from . import agent, ai, catalog, gates, policy, security, signing, standards, store
-from .config import AGENT_TOKEN as AGENT_TOKEN_ENV, DEMO_CLOCK, DEMO_PASSWORD
+from .config import AGENT_TOKEN as AGENT_TOKEN_ENV, AGENT_TOKEN_SCOPE, DEMO_CLOCK, DEMO_PASSWORD
 from .mcp_server import app as mcp_app
 from .mcp_server import mcp
 
@@ -42,6 +42,25 @@ AGENT_TOKEN = AGENT_TOKEN_ENV or (hmac.new(DEMO_PASSWORD.encode(), b"tg-agent", 
                                      if DEMO_PASSWORD else "")
 if AGENT_TOKEN and AGENT_TOKEN == DEMO_PASSWORD:
     raise SystemExit("AGENT_TOKEN must differ from DEMO_PASSWORD")
+
+
+def mandate_token(mandate_id):
+    """The agent token bound to one buyer's mandate (derived, so nothing new to store or leak)."""
+    return hmac.new(AGENT_TOKEN.encode(), b"tg-agent:" + mandate_id.encode(), hashlib.sha256).hexdigest()[:32]
+
+
+def _bound_mandate(token):
+    """(True, mandate it is bound to or None for unbound) for a valid agent token, else (False, None)."""
+    if not AGENT_TOKEN:
+        return False, None
+    if secrets.compare_digest(token, AGENT_TOKEN):
+        return True, (None if AGENT_TOKEN_SCOPE == "all" else AGENT_TOKEN_SCOPE)
+    for mid in policy.mandates():
+        if secrets.compare_digest(token, mandate_token(mid)):
+            return True, mid
+    return False, None
+
+
 OPEN_PATHS = {"/login", "/healthz", "/.well-known/jwks.json", "/v1/mandates/verify"}
 if not DEMO_PASSWORD:
     logging.getLogger("uvicorn.error").warning(
@@ -63,9 +82,18 @@ async def password_gate(request: Request, call_next):
     if secrets.compare_digest(request.cookies.get(_COOKIE, ""), _token):
         request.state.principal = "human"
         return await call_next(request)
-    if auth.startswith("Bearer ") and secrets.compare_digest(auth[7:], AGENT_TOKEN):
+    ok, bound = _bound_mandate(auth[7:]) if auth.startswith("Bearer ") else (False, None)
+    if ok and request.url.path.startswith("/api"):
+        # The /api endpoints serve the demo pages to signed-in people (and list every buyer's orders).
+        return JSONResponse({"detail": "agents use /v1 or /mcp"}, status_code=403)
+    if ok:
         request.state.principal = "agent"
-        return await call_next(request)
+        request.state.mandate = bound
+        reset = agent.CALLER.set(bound)  # read by agent.quote/order_from_jws, so REST and MCP get the same check
+        try:
+            return await call_next(request)
+        finally:
+            agent.CALLER.reset(reset)
     if request.url.path.startswith(("/v1", "/api", "/mcp")):
         return JSONResponse({"detail": "authentication required"}, status_code=401)
     return RedirectResponse(f"/login?next={urlquote(request.url.path)}", status_code=303)
@@ -189,8 +217,22 @@ def concept_image(name: str):
 def connect_page(request: Request):
     page = (TEMPLATES / "connect.html").read_text()
     if getattr(request.state, "principal", None) == "human" and AGENT_TOKEN:
-        page = page.replace("&lt;agent token&gt;", escape(AGENT_TOKEN))  # people hand this to their agent
+        page = page.replace("&lt;agent token&gt;", escape(mandate_token("mnd_hotel_helsinki")))  # people hand this to their agent
+        rows = "".join(f"<tr><td class=name>{escape(m['buyer'])}</td><td class=mono>{escape(mandate_token(mid))}</td></tr>"
+                       for mid, m in policy.mandates().items())
+        page = page.replace("<!--MANDATE_TOKENS-->", "<p class='small muted' style='margin:14px 0 8px'>One token per buyer: "
+                            "a token can only quote, order and read orders under its own buyer's mandate</p>"
+                            f"<table><tbody>{rows}</tbody></table>")
     return page
+
+
+def _own(request: Request, o):
+    """Hide another buyer's order from an agent whose token is bound to a different mandate."""
+    bound = getattr(request.state, "mandate", None)
+    if o and bound and o["mandate_id"] != bound:
+        store.log(o["id"], f"agent:{bound}", "security.mandate_mismatch", {"token_for": bound, "tried": o["mandate_id"]})
+        return None
+    return o
 
 
 @app.get("/static/style.css", include_in_schema=False)
@@ -280,6 +322,8 @@ def quote(body: dict = Body(..., examples=[{"mandate_id": "mnd_hotel_helsinki", 
     """Price and availability for specific lines, returned as a signed fixed-price offer (valid 15 min)."""
     if body.get("mandate_id") not in policy.mandates():
         raise HTTPException(404, "unknown mandate")
+    if err := agent.caller_refusal(body["mandate_id"]):
+        raise HTTPException(403, err)
     offer, jws, err = agent.quote(body["mandate_id"], body["deliver_by"], body.get("lines") or [],
                                   requested_quantity=body.get("requested_quantity"), requested_unit=body.get("requested_unit"))
     if err:
@@ -296,13 +340,13 @@ def order(body: dict = Body(...), idempotency_key: str = Header(...)):
         raise HTTPException(422, "give offer_id or jws")
     o, err = agent.order_from_jws(jws, idempotency_key, body.get("rationale", ""), body.get("requested_units"))
     if not o:
-        raise HTTPException(409, err)
+        raise HTTPException(403 if err.startswith("this agent token acts for") else 409, err)
     return o
 
 
 @app.get("/v1/orders/{order_id}", tags=["v1: order"])
-def get_order(order_id: str):
-    o = store.get_order(order_id)
+def get_order(request: Request, order_id: str):
+    o = _own(request, store.get_order(order_id))
     if not o:
         raise HTTPException(404, "unknown order")
     return o
@@ -447,9 +491,9 @@ def approve_submit(order_id: str, a: str = Form(""), e: str = Form(""), t: str =
 
 
 @app.get("/v1/orders/{order_id}/decision", tags=["v1: audit"])
-def decision(order_id: str):
+def decision(request: Request, order_id: str):
     """Human-readable decision record plus the audit events for this order."""
-    o = store.get_order(order_id)
+    o = _own(request, store.get_order(order_id))
     if not o:
         raise HTTPException(404, "unknown order")
     return {"order": o, "events": store.events(o["id"]) + store.events(o["offer_id"]), "chain": store.verify_chain()}
@@ -472,7 +516,7 @@ def well_known_jwks():
 @app.get("/v1/orders/{order_id}/peppol.xml", tags=["v1: standards"])
 def peppol_xml(request: Request, order_id: str):
     """The placed order as a Peppol BIS Ordering 3 document (UBL 2.1 Order), ready for an ERP or access point."""
-    o = store.get_order(order_id)
+    o = _own(request, store.get_order(order_id))
     if not o:
         raise HTTPException(404, "unknown order")
     if o["status"] != "placed":

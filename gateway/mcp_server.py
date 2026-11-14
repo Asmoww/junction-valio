@@ -26,6 +26,8 @@ mcp = MCPServer(
 def get_mandate(mandate_id: str = "mnd_hotel_helsinki") -> dict:
     """The buyer's purchasing mandate: what the agent may decide alone, hard limits, allergen bans, approvers.
     Also returns the buyer-signed W3C Verifiable Credential (vc+jwt) the gateway enforces it from."""
+    if err := agent.caller_refusal(mandate_id):
+        return {"error": err}
     m = policy.load(mandate_id)
     return dict(m, signed_credential=standards.credential(m), issuer=standards.buyer_did(mandate_id))
 
@@ -44,6 +46,8 @@ def check_price_availability(product_ids: list[str], deliver_by: str, mandate_id
     """Live price and availability from Valio for up to 20 products, for a delivery date (YYYY-MM-DD)."""
     if len(product_ids) > 20:
         return {"error": "narrow the list to 20 products or fewer first"}
+    if err := agent.caller_refusal(mandate_id):
+        return {"error": err}
     m = policy.load(mandate_id)
     c = agent.ValioClient()
     prices = c.prices(m["customer"], deliver_by, product_ids)
@@ -95,6 +99,8 @@ def place_order(idempotency_key: str, rationale: str, offer_id: str | None = Non
 def get_order(order_id: str) -> dict:
     """Order status (placed, pending_approval, rejected, blocked) with the decision record."""
     o = store.get_order(order_id)
+    if o and agent.caller_refusal(o["mandate_id"], o["id"]):
+        o = None
     return o or {"error": "unknown order"}
 
 
