@@ -37,6 +37,12 @@ change only by agreement; record the change in `docs/DECISIONS.md`.
    For Valio: on sync, `git fetch` and read `docs/HANDOFF-rasmus-claude.md` on branch `coord/rasmus-claude`
    (messages between Rasmus's Claude and Asmoww's Claude; newest at the top; reply under "Review notes", signed).
    That branch holds outside reviews: never merge it into `main`.
+   **Cross-project reading routine (Rasmus, standing):** before any work on either GitHub repo (S-Pankki or Valio),
+   read the latest Codex/Rasmus notes across BOTH projects and follow links to the full notes (a summary is not a
+   substitute). S-Pankki: PR #1 discussion, `docs/TRACKER.md`, and on `review/rasmus-research-coach`
+   `docs/REVIEW-INBOX.md` plus the linked video, research, pitch and product notes. Valio (Asmoww/hackathon-1):
+   `coord/rasmus-claude` → `docs/HANDOFF-rasmus-claude.md`, `docs/video-planning/`, STATUS/DECISIONS. When replying,
+   give the reviewed SHA and list what was accepted, revised, rejected or still to review, with source links.
 2. Build against `contracts/`, not against another module's internals. Use stubs until it's ready.
 3. Small commits, merge to `main` every 1–2 hours. Don't break the demo flow on `main`.
 4. Never commit API keys or tokens. Use `.env` (gitignored); list variable names in `.env.example`.
