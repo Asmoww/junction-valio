@@ -427,6 +427,69 @@ def _assess(p, price, avail, intent, now_s):
     return row
 
 
+# ---- Agent trust profile (docs/TRUST-PROFILE.md) -----------------------------------------------------------
+# Every claim in an offer line says how far an agent can rely on it without a manual check.
+TRUST_LEVELS = {
+    "verified": "checked with Valio's live API when this offer was made (price, stock, cut-off, delivery date)",
+    "measured": "calculated by Valio from its own records (delivery reliability from delivery history)",
+    "derived": "calculated by the gateway from Valio data (pack contents from catalog price / comparison price)",
+    "declared": "stated in Valio's product data by the supplier, not checked by Valio (allergens, claims, origin)",
+    "placeholder": "Valio's answer is a stand-in, not a fact (stock 999,999 = 'quantity unknown')",
+    "unknown": "Valio has no data: absent, not zero",
+}
+
+
+def trust_profile_spec():
+    """The published trust profile (GET /v1/trust-profile, MCP get_trust_profile)."""
+    return {"version": "0.1", "levels": TRUST_LEVELS,
+            "claims": ["price", "stock", "order_cutoff", "allergens", "labels", "origin", "delivery_reliability"],
+            "rules": ["Every offer is signed (Ed25519 JWS) with its claims: the signature proves where they came from and "
+                      "that they weren't changed, not that they are correct; the level says that.",
+                      "'unknown' and 'placeholder' never stand in for a fact an order depends on: such orders stop at "
+                      "gate 4 ('Proven?') for a person to check.",
+                      "Price, stock, cut-off and delivery date are re-checked with Valio when the order is committed and "
+                      "again when a person approves it."],
+            "spec": "docs/TRUST-PROFILE.md"}
+
+
+def trust_profile(p, price, avail, available, now_s):
+    """The claims behind one offer line, each with an evidence level, source and time. Machine-readable, signed
+    into the offer with it. Gate 4 ("Proven?") never lets 'unknown' or 'placeholder' stand in for a fact an
+    order depends on."""
+    at = now_s or store.now()
+    cp = (price or {}).get("catalogPrice") or {}
+    model = avail.get("logisticModel")
+    claims = [{"claim": "price", "value": cp.get("value"), "unit": "EUR per " + (p.get("salesUnit") or "unit"),
+               "level": "verified" if _price(price) is not None else "unknown", "source": "Valio price API",
+               "as_of": at, "valid_until": (cp.get("validTo") or "")[:10] or None}]
+    if model == "Terminal":
+        claims.append({"claim": "stock", "value": None, "level": "unknown", "source": "Valio availability API",
+                       "as_of": at, "note": "supplier warehouse: Valio can't see the quantity"})
+    elif model == "Stock" and available < UNKNOWN_STOCK:
+        claims.append({"claim": "stock", "value": available, "unit": p.get("salesUnit"), "level": "verified",
+                       "source": "Valio availability API", "as_of": at})
+    elif available >= UNKNOWN_STOCK:
+        claims.append({"claim": "stock", "value": None, "level": "placeholder", "source": "Valio availability API",
+                       "as_of": at, "note": "availableAmount >= 999999 means the quantity is unknown"})
+    else:
+        claims.append({"claim": "stock", "value": None, "level": "unknown", "source": "Valio availability API",
+                       "as_of": at, "note": "no availability answer"})
+    cut = avail.get("closingTime")
+    claims.append({"claim": "order_cutoff", "value": cut, "level": "verified" if cut and _deadline(cut) else "unknown",
+                   "source": "Valio availability API", "as_of": at})
+    claims.append({"claim": "allergens", "value": {"contains": p.get("contains", []), "may_contain": p.get("mayContain", []),
+                                                   "undeclared": p.get("undeclared", [])},
+                   "level": "declared" if p.get("allergenData") else "unknown", "source": "Valio product data"})
+    if p.get("lactose") is not None or p.get("claims"):
+        claims.append({"claim": "labels", "value": {"claims": p.get("claims", []), "lactose_g_per_100g": p.get("lactose")},
+                       "level": "declared", "source": "Valio product data"})
+    claims.append({"claim": "origin", "value": p.get("origin") or None, "level": "declared" if p.get("origin") else "unknown",
+                   "source": "Valio product data"})
+    claims.append({"claim": "delivery_reliability", "value": p.get("reliability"),
+                   "level": "measured" if p.get("reliability") is not None else "unknown", "source": "Valio delivery history"})
+    return claims
+
+
 def trust_flags(p, price, avail, available, now_s):
     """How far each claim in Valio's answer can be trusted. Published with every offer line."""
     model = avail.get("logisticModel")
@@ -457,6 +520,7 @@ def trust_flags(p, price, avail, available, now_s):
         "reliability_warning": p.get("reliability") is not None and p["reliability"] < 0.95,
         "reliability": (f"{p['reliability']:.0%} on time" if p.get("reliability") is not None
                         else "unverified: no delivery history"),
+        "claims": trust_profile(p, price, avail, available, now_s),
     }
 
 
