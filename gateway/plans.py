@@ -136,6 +136,9 @@ def view(plan):
                        for l in plan["lines"]])
 
 
+SIGNED_FIELDS = ("id", "kind", "mandate_id", "start", "end", "max_total_eur", "lines", "approved_by", "role", "approved_at")
+
+
 def covering(mandate_id, offer):
     """(plan summary, None) if an approved plan covers this offer in full, else (None, why not or None).
 
@@ -143,8 +146,8 @@ def covering(mandate_id, offer):
     why = None
     for plan in store.plans_for(mandate_id, "approved"):
         ok, payload = signing.verify(plan.get("jws") or "")
-        if not ok or payload.get("id") != plan["id"] or payload.get("lines") != plan["lines"] \
-                or payload.get("max_total_eur") != plan["max_total_eur"]:
+        # Every signed field must match what is stored: an edited window, buyer or budget is not the signed plan.
+        if not ok or any(payload.get(k) != plan.get(k) for k in SIGNED_FIELDS) or payload.get("mandate_id") != mandate_id:
             store.log(plan["id"], "gateway", "security.plan_signature_invalid", {})
             continue
         planned = {l["productId"]: l for l in plan["lines"]}

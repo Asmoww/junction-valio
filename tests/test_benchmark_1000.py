@@ -236,3 +236,37 @@ def test_a_past_date_shows_the_date_that_failed(valio):
     r = agent.run("Order 20 litres of lactose-free milk for delivery yesterday.", HOTEL)
     assert r["ladder"]["action"] == "ask_back"
     assert r["steps"][0]["intent"]["deliver_by"] == (date.today() - timedelta(days=1)).isoformat()
+
+
+# ---- Outside browser test round 2 (14 Nov 11:07): a budget stated in the request was ignored --------------------------
+@pytest.mark.parametrize("text, eur", [
+    ("Order 30 litres of lactose-free milk by Monday. My total budget for this purchase is EUR 5, including all charges.", 5),
+    ("Order 100 litres of lactose-free milk by Monday, total budget €10.", 10),
+    ("Buy 30 litres of lactose-free milk by Monday. Spend no more than five euros in total. If it costs more, ask me first.", 5),
+    ("Order 30 litres of lactose-free milk by Monday, spending at most 4,50 €.", 4.5),
+])
+def test_a_budget_in_the_request_is_read(text, eur):
+    assert rc.stated_budget(text) == eur
+    assert not rc.exact_quantity(rc.drop_budget_clauses(text))
+
+
+@pytest.mark.parametrize("text", ["Order no more than 24 eggs by Monday.", "Order 100 litres of milk by Monday, max 5 % fat."])
+def test_a_limit_that_is_not_money_is_not_a_budget(text):
+    assert rc.stated_budget(text) is None
+
+
+def test_an_order_over_the_buyers_own_budget_is_never_placed(valio):
+    r = agent.run("Order 100 litres of lactose-free milk by Monday. My total budget for this purchase is EUR 10.", HOTEL)
+    assert r["ladder"]["action"] == "stop" and r["order"]["status"] == "blocked"
+    rule = next(x for x in r["order"]["policy"]["rules"] if x["rule"] == "Within the buyer's stated budget")
+    assert not rule["ok"] and "only the requester" in rule["detail"]
+
+
+def test_an_order_inside_the_buyers_budget_goes_through(valio):
+    r = agent.run("Order 100 litres of lactose-free milk by Monday. My total budget for this purchase is EUR 500.", HOTEL)
+    assert next(x for x in r["order"]["policy"]["rules"] if x["rule"] == "Within the buyer's stated budget")["ok"]
+
+
+def test_a_negative_quantity_is_not_shown_as_positive(valio):
+    r = agent.run("Order -10 litres of lactose-free milk by Monday.", HOTEL)
+    assert r["ladder"]["action"] == "ask_back" and r["steps"][0]["intent"]["quantity"] is None

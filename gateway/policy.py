@@ -9,7 +9,7 @@ import re
 from datetime import date
 from pathlib import Path
 
-from . import gates, recalls, standards
+from . import gates, recalls, request_checks, standards
 from .catalog import ALLERGENS, get
 
 MANDATE_DIR = Path(__file__).parent / "mandates"
@@ -47,6 +47,19 @@ def allergen_problem(mandate, p):
     rules = mandate.get("allergen_policy", {})
     if hits := sorted(set(p["contains"]) & banned):
         return "contains " + ", ".join(ALLERGENS.get(a, a) for a in hits), "block"
+    # What the product is, by its own name, whatever its allergen data says: "lactose free concentrated butter"
+    # declares no milk in the data but is butter. Same check for every path: buyer page, recipe, plan, REST, MCP.
+    from .readiness import NON_FOOD  # napkins, cleaners and creams for skin are not food
+    named = {} if str(p.get("category") or "").startswith(NON_FOOD) else \
+        request_checks.allergen_words(f"{p.get('name', '')} {p.get('name_fi', '')}")
+    if hits := sorted(c for c in named if c in banned or (c == "AM" and "ML" in banned)):
+        return (f"it is {', '.join(ALLERGENS.get(c, c) for c in hits)} by its name (\u201c{named[hits[0]]}\u201d), "
+                "whatever its allergen data says"), "block"
+    if not p.get("allergenData") and p.get("ingredients") and not str(p.get("category") or "").startswith(NON_FOOD):
+        listed = request_checks.allergen_words(p["ingredients"], ingredients=True)
+        if hits := sorted(c for c in listed if c in banned or (c == "AM" and "ML" in banned)):
+            return (f"no allergen data, but its ingredients list {', '.join(ALLERGENS.get(c, c) for c in hits)} "
+                    f"(\u201c{listed[hits[0]]}\u201d)"), "block"
     if (hits := sorted(set(p.get("mayContain", [])) & banned)) and rules.get("may_contain", "block") != "allow":
         level = "block" if rules.get("may_contain", "block") == "block" else "approve"
         return "may contain " + ", ".join(ALLERGENS.get(a, a) for a in hits), level
@@ -73,6 +86,14 @@ def evaluate(mandate, offer, context, lookup=None):
     The first gate with a failed rule decides the action. lookup replaces the catalog for a what-if
     ("would this order go through if Valio added the missing data?", unlock.py); it never changes the catalog."""
     get = lookup or globals()["get"]
+    if extra := sorted(set(context.get("request_allergens") or []) - set(mandate["hard_limits"].get("forbidden_allergens", []))):
+        # Allergies stated in the request or the caller's request_limits tighten the mandate for this order only.
+        mandate = json.loads(json.dumps(mandate))
+        mandate["hard_limits"]["forbidden_allergens"] = sorted(set(mandate["hard_limits"].get("forbidden_allergens", [])) | set(extra))
+        ap = mandate.setdefault("allergen_policy", {})
+        ap["may_contain"] = "block"
+        if ap.get("no_data", "allow") == "allow":
+            ap["no_data"] = "needs_approval"
     rules = []
 
     def rule(name, ok, level, detail):
@@ -89,6 +110,11 @@ def evaluate(mandate, offer, context, lookup=None):
     rule("Mandate valid", date.fromisoformat(mandate["valid_until"]) >= date.today() and signed_ok, "block",
          (f"signed by the buyer ({standards.buyer_did(mandate['mandate_id'])}), " if signed_ok
           else f"buyer's signature fails: {signed}; ") + f"valid until {mandate['valid_until']}")
+    if context.get("request_budget") is not None:
+        b = context["request_budget"]
+        rule("Within the buyer's stated budget", total <= b + 1e-9, "block",
+             f"€{total:,.2f} vs the €{b:,.2f} the request allows" + ("" if total <= b + 1e-9 else
+             ": nothing ordered; only the requester can raise their own budget"))
     rule("Hard spend limit", total <= hard["max_order_total_eur"], "block",
          f"€{total:,.2f} vs hard limit €{hard['max_order_total_eur']:,}")
 
@@ -99,7 +125,9 @@ def evaluate(mandate, offer, context, lookup=None):
         if problem:
             (blocked if problem[1] == "block" else unverified).append(f"{p['name']}: {problem[0]}")
     names = ", ".join(ALLERGENS.get(a, a) for a in hard.get("forbidden_allergens", [])) or "-"
-    rule("Forbidden allergens", not blocked, "block", "; ".join(blocked) or f"none of: {names}")
+    no_data = sum(1 for line in offer["lines"] if not get(line["productId"]).get("allergenData"))
+    rule("Forbidden allergens", not blocked, "block", "; ".join(blocked) or (
+        f"none of {names} declared or named" + (f"; {no_data} line(s) have no allergen data: see Proven" if no_data and hard.get("forbidden_allergens") else "")))
     if hard.get("forbidden_allergens"):
         rule("Allergens verifiable from data", not unverified, "approve",
              "; ".join(unverified) or "allergen data present for every line")

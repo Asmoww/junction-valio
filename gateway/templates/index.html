@@ -30,8 +30,11 @@
     <div class="underbar" style="margin:14px 0 0"><span class="flabel">Try</span><span id="presets" class="chips"></span><button class="gear" onclick="$('#settings').classList.toggle('open')">Settings and tests</button></div>
   <div class="settings" id="settings">
     <div><h4>Buyer's rules</h4><div id="mandateView"></div>
-      <label class="field" for="autoLimit">Agent may order alone up to (€)</label><input type="number" id="autoLimit" step="50" min="0"></div>
+      <label class="field" for="autoLimit">Demo: built-in agent authority for this run (€)</label><input type="number" id="autoLimit" step="50" min="0"></div>
     <div><h4>Build the request step by step</h4>
+      <label for="bPurpose">Request purpose</label>
+      <select id="bPurpose" onchange="bMode()"><option value="purchase">Purchase</option><option value="inquiry">Inquiry — information only</option></select>
+      <p class="small muted">Purchase needs a quantity and date. Inquiry can leave them open.</p>
       <input type="text" id="bProduct" placeholder="Product, e.g. muesli" onkeydown="if(event.key==='Enter')bSearch()">
       <div class="chips" id="bAttrs" style="margin-top:8px"></div>
       <div style="display:grid;grid-template-columns:1fr 100px 1fr;gap:8px;margin-top:8px">
@@ -49,6 +52,7 @@
   </div>
   </div>
 
+  <p id="purposeHint" class="small muted" aria-live="polite">Purchase · may order within the buyer’s rules</p>
   <section id="out"></section>
 </div>
 
@@ -94,7 +98,7 @@ async function init() {
   renderMandate();
   $('#out').innerHTML = idleHtml();
   fitRequest(); window.addEventListener('resize', fitRequest);
-  bInit();
+  bInit(); bMode();
 }
 
 function renderMandate() {
@@ -103,10 +107,12 @@ function renderMandate() {
   const forb = m.hard_limits.forbidden_allergens.map(a => ALLERGEN[a] || a);
   const prof = m.profile ? Object.entries(m.profile).map(([k, v]) => `${k} ${[v.fat_pct != null ? v.fat_pct + ' %' : '', v.shelf_life === 'any' ? 'fresh or UHT' : (v.shelf_life || '').replace('_', '-')].filter(Boolean).join(', ')}`) : [];
   $('#mandateView').innerHTML = `<div class="mfacts">
-      <div><span>Hard limit</span><b>${eur(m.hard_limits.max_order_total_eur).replace('.00', '')}</b></div>
+      <div><span>Buyer’s hard limit / order</span><b>${eur(m.hard_limits.max_order_total_eur).replace('.00', '')}</b></div>
       <div><span>Approvers</span><b>${m.approvers.length}</b></div>
       <div><span>Bans</span><b>${forb.length || '—'}</b></div></div>
     ${forb.length ? `<div class="chips" style="margin-top:10px">${forb.map(a => `<span class="chip bad">no ${a}</span>`).join('')}</div>` : ''}
+    <p class="small">Agent authority: ${eur(m.auto_approve.max_order_total_eur)} per order · ${eur(m.auto_approve.max_auto_eur_per_24h ?? m.auto_approve.max_order_total_eur)} in 24 hours, shared across built-in and external agents for this buyer. Above these: a person approves. Above the buyer’s hard limit: blocked.</p>
+    <p class="small muted">A signed week plan can pre-authorize spend; hard rules still apply. Private limits held by an outside agent are not registered here.</p>
     <details style="margin-top:10px"><summary>All rules</summary><div class="kv small" style="margin-top:8px">
       <div>Agent</div><div>${esc(m.agent)}</div>
       ${forb.length ? `<div>Unclear data</div><div>“may contain”: ${esc((m.allergen_policy?.may_contain || 'block').replace('_', ' '))} · no data: ${esc((m.allergen_policy?.no_data || 'needs_approval').replace('_', ' '))}</div>` : ''}
@@ -131,27 +137,36 @@ function bInit() {
   const d = new Date(); d.setDate(d.getDate() + 3); $('#bDate').value = d.toISOString().slice(0, 10);
 }
 function bToggle(el, k, v) { bSel[k].has(v) ? bSel[k].delete(v) : bSel[k].add(v); el.classList.toggle('navy', bSel[k].has(v)); }
-async function bSearch() {
-  const q = $('#bProduct').value.trim(); if (!q) return;
-  const attrs = B_ATTRS.filter(([l]) => bSel.attrs.has(l)).map(([, c]) => c).join(',');
-  $('#bResults').innerHTML = '<span class="muted">Looking…</span>';
+function bMode() {
+  const inquiry = $('#bPurpose').value === 'inquiry';
+  $('#purposeHint').textContent = inquiry ? 'Inquiry · information only, nothing will be ordered' : 'Purchase · may order within the buyer’s rules';
+}
+function bBody() {
+  return {
+    purpose: $('#bPurpose').value, mandate_id: $('#mandate').value,
+    product: $('#bProduct').value.trim(),
+    quantity: $('#bQty').value === '' ? null : Number($('#bQty').value),
+    unit: $('#bUnit').value, deliver_by: $('#bDate').value || null,
+    attributes: B_ATTRS.filter(([l]) => bSel.attrs.has(l)).map(([, c]) => c),
+    allergies: [...bSel.allergies], limit: 6
+  };
+}
+async function bPrepare(write) {
+  $('#bResults').textContent = 'Preparing…';
   try {
-    const r = await api(`/api/planner/search?q=${encodeURIComponent(q)}&mandate_id=${$('#mandate').value}&attributes=${attrs}&limit=6`);
-    const ok = r.products.filter(p => p.mandate_check.level !== 'block'), no = r.products.length - ok.length;
-    $('#bResults').innerHTML = (ok.length ? `<div class="muted">${ok.length} match${ok.length > 1 ? 'es' : ''} the buyer's mandate${no ? `, ${no} ruled out` : ''}:</div>` +
-      ok.slice(0, 4).map(p => `<div>· ${esc(p.name)} <span class="faint">per ${esc(p.salesUnit)}${p.mandate_check.level === 'check' ? ' · a person checks: ' + esc(p.mandate_check.why) : ''}</span></div>`).join('')
-      : `<div class="bad">Nothing that fits this buyer's mandate${no ? ` (${no} ruled out)` : ''}. Try other words.</div>`);
+    const r = await post('/v1/preplan', bBody());
+    const ok = r.products.filter(p => p.mandate_check.level !== 'block');
+    $('#bResults').innerHTML = '<p>Preview only: no offer or order created.</p>' +
+      (ok.length ? ok.slice(0, 4).map(p => `<div>· ${esc(p.name)} <span class="faint">per ${esc(p.salesUnit)}${p.mandate_check.level === 'check' ? ' · a person checks: ' + esc(p.mandate_check.why) : ''}</span></div>`).join('')
+      : '<div class="bad">No matching products pass these catalog checks. Try another product.</div>');
+    if (write) {
+      $('#request').value = r.request_text;
+      bMode(); fitRequest(); $('#request').focus();
+    }
   } catch (e) { $('#bResults').innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
 }
-function bWrite() {
-  const product = $('#bProduct').value.trim(), qty = Number($('#bQty').value);
-  if (!product || !(qty > 0)) { $('#bResults').innerHTML = '<span class="bad">Give a product and a quantity.</span>'; return; }
-  const attrs = [...bSel.attrs].join(' '), al = [...bSel.allergies];
-  const allergy = al.length ? `, for guests allergic to ${al.length > 1 ? al.slice(0, -1).join(', ') + ' and ' + al.at(-1) : al[0]}` : '';
-  setTimeout(fitRequest);
-  $('#request').value = `Order ${qty} ${$('#bUnit').value} of ${attrs ? attrs + ' ' : ''}${product} by ${$('#bDate').value}${allergy}.`;
-  $('#request').focus();
-}
+async function bSearch() { return bPrepare(false); }
+async function bWrite() { return bPrepare(true); }
 
 async function run() {
   const btn = $('#runBtn');
@@ -160,7 +175,7 @@ async function run() {
   $('#out').scrollIntoView({behavior: 'smooth', block: 'start'});
   try {
     const res = await post('/api/run', {
-      request: $('#request').value, mandate_id: $('#mandate').value, auto_limit: Number($('#autoLimit').value),
+      request: $('#request').value, purpose: $('#bPurpose').value, mandate_id: $('#mandate').value, auto_limit: Number($('#autoLimit').value),
       simulate_price_change: $('#priceChange').checked, inject: $('#inject').checked, real_clock: $('#realClock').checked,
       test_recall: $('#testRecall').checked });
     clearTimeout(workTimer);
@@ -696,3 +711,4 @@ init();
 </script>
 </body>
 </html>
+

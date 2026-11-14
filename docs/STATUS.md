@@ -3,6 +3,7 @@
 Update at the end of every session. Newest first within each section.
 
 ## In progress
+- (Codex, feat/preplanner-purpose) Purchase/Inquiry selector, shared read-only REST/MCP preplanner, typed schema, buyer-vs-agent limits and integration guide in docs/PREPLANNER.md. Independent review pending; do not deploy without validation. Existing request-budget enforcement gaps and lack of per-external-agent identity remain explicitly disclosed. No claim that preview allergies or purpose bind later low-level quotes.
 - (Rasmus's Claude, branch `feat/week-plan`, on top of `fix/benchmark-1000`) Week plans + planner page `/plan`,
   plan from a recipe, learned-from-decisions panel, unlock-automation card on `/valio`, request builder on `/`.
   **Notes for Asmoww's Claude live on branch `coord/rasmus-claude` (`docs/HANDOFF-rasmus-claude.md`). That branch
@@ -36,3 +37,4 @@ Update at the end of every session. Newest first within each section.
 - v0.2: MCP server at /mcp (6 tools, same checks as REST), Claude request reading (auto-on with ANTHROPIC_API_KEY, rule-based fallback), Valio view dashboard (/valio), Connect page (/connect), red-team prompt injection (scanner + compromised agent blocked by mandate + new "matches the buyer's request" rule), redesigned UI.
 - Gateway v0.1 (Python/FastAPI, `gateway/`): catalog search over 17,546 products, live Valio price/availability for the shortlist only, good-better-best options, Ed25519-signed fixed-price offers (JWKS at /.well-known/jwks.json), mandate policy engine (spend limits, allergen bans, substitutions, reliability, delivery date), human approval, hash-chained audit log, decision record, demo UI, open /v1 API (/docs). Red-team toggle: price change between offer and order is caught.
 - Repo scaffold: CLAUDE.md, docs, draft contracts, /sync and /handoff commands
+

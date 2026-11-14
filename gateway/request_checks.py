@@ -47,7 +47,10 @@ _EXACT_CLAUSE = re.compile(r"round\w* up|over-?deliver\w*|\bexceed\w*|\bmaximum 
 
 def exact_quantity(text):
     """Does the buyer rule out rounding up to whole packs? Then an order covering more needs a person."""
-    return bool(EXACT.search(catalog.fold(text)))
+    t = catalog.fold(text)
+    # "no more than five euros" is a budget (stated_budget), not an exact quantity
+    return any(not re.match(r"\s*(€|eur\b|euros?\b|\d[\d,.]*\s*(€|eur\b|euros?\b)|(one|two|three|four|five|six|seven|eight|nine|ten|twenty|fifty|hundred)\s+euros?)",
+                            t[m.end():m.end() + 20]) for m in EXACT.finditer(t))
 
 
 def drop_exact_clauses(text):
@@ -70,6 +73,62 @@ def drop_exact_clauses(text):
     out = " ".join(keep)
     out = re.sub(r"\bexactly\s+(?=\d)", "", out, flags=re.I)
     return re.sub(r",?\s*(with )?no over-?deliver\w*", "", out, flags=re.I)
+
+
+# ---- A budget stated in the request ("total budget EUR 5", "no more than five euros") ---------------------
+_NUMWORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+             "twenty": 20, "fifty": 50, "hundred": 100, "a hundred": 100, "one hundred": 100, "thousand": 1000,
+             "a thousand": 1000, "one thousand": 1000}
+_AMOUNT = r"(?:€|eur|euros?)?\s*(\d[\d\s,.]*\d|\d|" + "|".join(sorted(_NUMWORDS, key=len, reverse=True)) + r")\s*(?:€|eur\b|euros?\b)?"
+_BUDGET_CUE = (r"(?:budget(?:\s+(?:for this (?:purchase|order)|of|is|:))*|spend(?:ing)?\s+(?:no more than|at most|max(?:imum)?|up to|under|less than)"
+               r"|(?:cost|costs|total|price)\s+(?:no more than|at most|max(?:imum)?|under|less than|below|up to)"
+               r"|no more than|at most|max(?:imum)?|up to|under|below|less than|within|cap(?:ped)? (?:at|of))")
+_BUDGET = re.compile(r"\b" + _BUDGET_CUE + r"\s*(?:is\s+|of\s+|:\s*)?" + _AMOUNT, re.I)
+
+
+def stated_budget(text):
+    """The most the buyer says this purchase may cost, in EUR, or None. Only amounts written as money count
+    (a € sign, EUR or euros, or the word budget), so "no more than 24 eggs" is not a budget."""
+    t = catalog.fold(normalise(text))
+    best = None
+    for m in _BUDGET.finditer(t):
+        span = m.group(0)
+        if not re.search(r"€|\beur\b|euros?\b|budget", span) and not re.search(r"^\s*(€|eur\b|euros?\b)", t[m.end():m.end() + 8]):
+            continue
+        raw = m.group(1).strip()
+        try:
+            v = float(_NUMWORDS[raw]) if raw in _NUMWORDS else _value(raw)
+        except (ValueError, KeyError):
+            continue
+        best = v if best is None else min(best, v)
+    return best
+
+
+_CUR = r"(?:€|\beur\b|\beuros?\b|\beuroa?\b)"
+_MONEY = re.compile(r"\d[\d\s.,]*\s*(?:" + _CUR + r"|e\b)|" + _CUR + r"\s*(?!(?:19|20)\d\d\b)\d|\b(?:one|two|three|four|five|six|seven|eight|nine|ten|"
+                    r"twenty|fifty|hundred|thousand|yksi|kaksi|kolme|nelja|viisi|kymmenen|sata|tuhat)\s+" + _CUR, re.I)
+
+
+def unread_money(text):
+    """A money amount in the request that isn't read as a budget, e.g. 'Budget: €1.000,00' in a format the parser
+    doesn't know, or 'for 5 euros or less'. Ignoring it would let an order through over the buyer's own limit,
+    so the request goes back to the requester instead (fail closed)."""
+    t = catalog.fold(normalise(text))
+    return bool(_MONEY.search(t)) and stated_budget(text) is None
+
+
+def drop_budget_clauses(text):
+    """The reader shouldn't call budget words 'not understood': the budget is enforced as a rule instead.
+    Sentences that only state the budget (and the ask-first fallback) are left out of reading."""
+    if stated_budget(text) is None:
+        return text
+    sentences = re.split(r"(?<=[.;!?])\s+", text)
+    keep = [sentences[0]] + [s for s in sentences[1:] if not (_BUDGET.search(catalog.fold(s)) or
+                             re.search(r"\b(if it costs more|ask me first|ask first|including all charges)\b", s, re.I))]
+    out = " ".join(keep)
+    out = re.sub(r"[,;]?\s*(?:with a |for a |on a )?(?:total )?budget(?: of| is)?\s*" + _AMOUNT + r"(?:\s*(?:in total|total))?", "", out, flags=re.I)
+    out = re.sub(r"[,;]?\s*(?:spend(?:ing)?\s+)?(?:no more than|at most|max(?:imum)?|up to|under)\s*(?:€|eur)\s*\d[\d,.]*(?:\s*(?:in total|total))?", "", out, flags=re.I)
+    return out
 
 
 # ---- Gate 0: is it a purchase? ---------------------------------------------------------------------
@@ -192,6 +251,9 @@ def _value(s):
     s = re.sub(r"\s", "", s)
     if re.fullmatch(r"\d{1,3}([,.]\d{3})+", s):
         return float(re.sub(r"[,.]", "", s))
+    if "," in s and "." in s:  # 1.000,50 (Finnish/German) or 1,000.50 (English): the last separator is the decimal one
+        dec = "," if s.rfind(",") > s.rfind(".") else "."
+        return float(s.replace("." if dec == "," else ",", "").replace(",", "."))
     return float(s.replace(",", "."))
 
 
@@ -371,22 +433,62 @@ def date_stated(text):
                           r"|\b\d{1,2}(st|nd|rd|th)?\s+(of\s+)?(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)", t))
 
 
-INHERENT = {"butter": "AM", "voi": "AM", "milk": "AM", "maito": "AM", "cream": "AM", "kerma": "AM", "cheese": "AM",
-            "juusto": "AM", "yoghurt": "AM", "yogurt": "AM", "jogurtti": "AM", "quark": "AM", "rahka": "AM",
-            "egg": "AE", "eggs": "AE", "kananmuna": "AE"}
+# What a food IS, by name, in English, Finnish and Swedish: the request's product word, a product's name, or an
+# ingredient list. Exact words, and stems for Finnish/Swedish compounds (maapähkinävoi, mjölkchoklad).
+_WORDS = {"butter": "AM", "voi": "AM", "milk": "AM", "cream": "AM", "cheese": "AM", "yoghurt": "AM", "yogurt": "AM",
+          "quark": "AM", "whey": "AM", "casein": "AM", "smör": "AM", "ost": "AM", "grädde": "AM", "mjölk": "AM",
+          "egg": "AE", "eggs": "AE", "ägg": "AE",
+          "peanut": "AP", "peanuts": "AP", "jordnöt": "AP", "jordnötter": "AP",
+          "hazelnut": "SH", "hazelnuts": "SH", "hasselnöt": "SH", "almond": "SA", "almonds": "SA", "mandel": "SA",
+          "walnut": "AN", "walnuts": "AN", "cashew": "AN", "cashews": "AN", "pistachio": "AN", "pistachios": "AN",
+          "pecan": "AN", "pecans": "AN", "nut": "AN", "nuts": "AN", "nötter": "AN",
+          "sesame": "AS", "tahini": "AS", "sesam": "AS",
+          "fish": "AF", "salmon": "AF", "tuna": "AF", "cod": "AF", "fisk": "AF", "lax": "AF",
+          "shrimp": "AC", "shrimps": "AC", "prawn": "AC", "prawns": "AC", "räkor": "AC",
+          "wheat": "UW", "vete": "UW", "soy": "AY", "soya": "AY", "soja": "AY"}
+_STEMS = [("maapähkinä", "AP"), ("hasselpähkinä", "SH"), ("manteli", "SA"), ("seesami", "AS"), ("kananmuna", "AE"),
+          ("juusto", "AM"), ("maito", "AM"), ("kerma", "AM"), ("jogurtti", "AM"), ("rahka", "AM"), ("hera", "AM"),
+          ("lohi", "AF"), ("tonnikala", "AF"), ("kala", "AF"), ("katkarapu", "AC"), ("vehnä", "UW"), ("soija", "AY"),
+          ("pähkinä", "AN")]
+_NOT_STEM = re.compile(r"^(maitohappo|kookos|muskottipähkinä|kalanmaksa|herakles|juustokumina|herne)")
+_FREE_SUFFIX = re.compile(r"(ton|tön|toin|töin|vapaa|vapaat|tonta|töntä|free)$")  # pähkinätön, maidoton, nutfree
+# Non-dairy "butters" and spans that only look like an allergen word
+_NONDAIRY_BUTTER = re.compile(r"\b(peanut|nut|almond|cashew|hazelnut|cocoa|cacao|shea|apple|seed|sesame|soy|sunflower|coconut)[- ]butter\b")
+_NOT_FOOD = re.compile(r"\b\w+(?:[,]?\s+(?:and|ja|och|&)\s+\w+)?[- ]free\b|\b\w+[- ](?:flavou?red|aromi\w*)\b|\bbutter[- ]?(beans?|nut|scotch|fly|head|milk)\b|\bcream of tartar\b|\bcoconut milk\b|\bcoconut cream\b"
+                       r"|\b(nut|nuts)[- ]free\b|\bfree[- ]from\b.{0,40}")
 _PLANT = re.compile(r"\b(oat|kaura\w*|soy|soya|soija\w*|almond|coconut|rice|plant|vegan|vegetable|kasvi\w*|non[- ]dairy"
-                    r"|dairy[- ]free|egg[- ]free|replacer|substitute|alternative)\b")
+                    r"|dairy[- ]free|egg[- ]free|replacer|substitute|alternative|vegaani\w*|veggie|kasvipohjai\w*)\b")
+_WEAK = {"AM", "AE"}  # milk and egg words are often used for plant alternatives ("oat milk")
+
+
+def allergen_words(text, ingredients=False):
+    """{code: word} for allergen foods named in the text. For a product name or a request's product word, plant
+    alternatives don't count as milk or egg; in an ingredient list every word counts."""
+    t = _NOT_FOOD.sub(" ", _NONDAIRY_BUTTER.sub(r"\1", catalog.fold(text or "")))  # "peanut butter": peanut, not milk
+    plant = not ingredients and bool(_PLANT.search(t))
+    out = {}
+    for w in re.findall(r"[a-zåäö]+", t):
+        if ingredients and w == "voi":  # in Finnish ingredient text "voi" is usually "may" ("voi sisältää")
+            continue
+        if _FREE_SUFFIX.search(w):
+            continue
+        code = _WORDS.get(w)
+        if not code and not _NOT_STEM.match(w):
+            code = next((c for stem, c in _STEMS if w.startswith(stem) or (len(w) > len(stem) + 3 and stem in w and c != "AN")), None)
+            if code == "AN" and re.match(r"^(maa|hassel|kookos|muskotti)", w):
+                code = None
+        if code and not (plant and code in _WEAK):
+            out.setdefault(code, w)
+    if "SH" in out or "SA" in out:  # hazelnut and almond are tree nuts too
+        out.setdefault("AN", out.get("SH") or out.get("SA"))
+    return out
 
 
 def inherent_allergen(product, banned):
-    """(word, code) when the product asked for is itself a banned allergen ("butter" with a milk ban), else None."""
-    t = catalog.fold(product)
-    if _PLANT.search(t):
-        return None
-    for w in re.findall(r"[a-zåäö]+", t):
-        if INHERENT.get(w) in banned:
-            return w, INHERENT[w]
-    return None
+    """(word, code) when the product asked for is itself a banned allergen ("butter" with a milk ban,
+    "peanut butter" with a peanut ban), else None."""
+    hits = allergen_words(product)
+    return next(((w, c) for c, w in hits.items() if c in banned or (c == "ML" and "AM" in banned)), None)
 
 
 def allergy_unclear(text):

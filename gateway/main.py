@@ -9,10 +9,11 @@ from html import escape
 from pathlib import Path
 from urllib.parse import quote as urlquote
 
-from fastapi import Body, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
+from fastapi import Body, FastAPI, File, Form, Header, HTTPException, Request, Security, UploadFile
+from fastapi.security import HTTPBearer
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from . import learning, unlock, plans, recipe, agent, ai, catalog, gates, policy, security, recalls, signing, standards, store, vision
+from . import learning, unlock, plans, recipe, agent, ai, catalog, gates, policy, security, recalls, signing, standards, store, vision, preplanner
 from .config import AGENT_TOKEN as AGENT_TOKEN_ENV, AGENT_TOKEN_SCOPE, DEMO_CLOCK, DEMO_PASSWORD
 from .mcp_server import app as mcp_app
 from .mcp_server import mcp
@@ -149,6 +150,9 @@ def run_agent(request: Request, body: dict = Body(...)):
     mandate_id = body.get("mandate_id", "mnd_hotel_helsinki")
     if mandate_id not in policy.mandates():
         raise HTTPException(404, "unknown mandate")
+    purpose = body.get("purpose")
+    if purpose not in (None, "purchase", "inquiry"):
+        raise HTTPException(422, "purpose must be purchase or inquiry")
     overrides = {}
     if body.get("auto_limit") is not None:
         # Demo knob for the buyer's own settings. A signed-in person may set it up to the hard limit; an agent can
@@ -164,7 +168,7 @@ def run_agent(request: Request, body: dict = Body(...)):
     try:
         return agent.run(body["request"], mandate_id, overrides,
                          simulate_price_change=bool(body.get("simulate_price_change")), inject=bool(body.get("inject")),
-                         real_clock=bool(body.get("real_clock")))
+                         real_clock=bool(body.get("real_clock")), purpose=purpose)
     finally:
         recalls.TEST.reset(token)
 
@@ -174,6 +178,18 @@ def run_agent(request: Request, body: dict = Body(...)):
 def _human(request: Request):
     if getattr(request.state, "principal", None) != "human":
         raise HTTPException(403, "plans are made and signed by people, not agents")
+
+
+@app.post("/v1/preplan", response_model=preplanner.PreplanResponse, tags=["v1: lookup"],
+          dependencies=[Security(HTTPBearer(auto_error=False))])
+def preplan_request(body: preplanner.PreplanRequest):
+    """Prepare a purchase or inquiry and inspect buyer/agent limits. Never signs an offer or orders."""
+    try:
+        return preplanner.prepare(body)
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 @app.get("/plan", response_class=HTMLResponse, include_in_schema=False)
@@ -496,7 +512,8 @@ def quote(body: dict = Body(..., examples=[{"mandate_id": "mnd_hotel_helsinki", 
     if err := agent.caller_refusal(body["mandate_id"]):
         raise HTTPException(403, err)
     offer, jws, err = agent.quote(body["mandate_id"], body["deliver_by"], body.get("lines") or [],
-                                  requested_quantity=body.get("requested_quantity"), requested_unit=body.get("requested_unit"))
+                                  requested_quantity=body.get("requested_quantity"), requested_unit=body.get("requested_unit"),
+                                  limits=body.get("request_limits"))
     if err:
         raise HTTPException(409, err)
     return {"offer": offer, "jws": jws}
@@ -734,3 +751,4 @@ def buyer_did_document(slug: str):
 
 # MCP over streamable HTTP at /mcp. Mounted last so the routes above take precedence.
 app.mount("/", mcp_app)
+

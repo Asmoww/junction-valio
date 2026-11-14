@@ -7,9 +7,31 @@ info:
     catalog, no live calls) → signed fixed-price offer for a shortlist → order → mandate check →
     placed, pending human approval, or blocked. Every claim in an offer carries trust flags that say
     how far it can be believed. The same operations are exposed as MCP tools at /mcp.
-    Auth (demo): `Authorization: Bearer <demo password>`.
+    Auth (demo): `Authorization: Bearer <buyer-bound agent token>`, never the sign-in password.
     This file is the contract; the running service also serves generated docs at /docs.
 paths:
+  /v1/preplan:
+    post:
+      summary: Prepare an explicit purchase or inquiry without creating an offer or order
+      security: [{AgentToken: []}]
+      description: >
+        Same read-only preplanner as the buyer page and MCP preplan_request. The token must belong
+        to mandate_id. Returns catalog checks, buyer hard limits and shared agent authority.
+        Preview purpose and request-only constraints are not bound to later low-level quotes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/PreplanRequest"}
+      responses:
+        "200":
+          description: Read-only preview with explicit enforcement boundaries
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/PreplanResponse"}
+        "401": {description: Authentication required}
+        "403": {description: Token belongs to another buyer}
+        "422": {description: Invalid input or purchase missing quantity/date}
   /v1/products/search:
     get:
       summary: Structured lookup over the static catalog. Never returns the whole catalogue.
@@ -139,7 +161,68 @@ paths:
       responses:
         "200": {description: JWKS}
 components:
+  securitySchemes:
+    AgentToken:
+      type: http
+      scheme: bearer
+      description: Buyer-bound agent token, never the demo sign-in password
   schemas:
+    PreplanRequest:
+      type: object
+      additionalProperties: false
+      required: [purpose, mandate_id, product]
+      properties:
+        purpose: {type: string, enum: [purchase, inquiry]}
+        mandate_id: {type: string, minLength: 1, maxLength: 100}
+        product: {type: string, minLength: 1, maxLength: 200}
+        quantity: {type: [number, "null"], exclusiveMinimum: 0}
+        unit: {type: string, enum: [litres, kg, pieces], default: litres}
+        deliver_by: {type: [string, "null"], format: date, description: Cannot be in the past}
+        attributes:
+          type: array
+          maxItems: 5
+          items: {type: string, enum: [FREE_FROM_LACTOSE, FREE_FROM_GLUTEN, ORGANIC, VEGAN, FINNISH]}
+        allergies:
+          type: array
+          maxItems: 8
+          items: {type: string, enum: [milk, gluten, eggs, peanuts, tree nuts, sesame, fish, soy]}
+        limit: {type: integer, minimum: 1, maximum: 20, default: 6}
+      allOf:
+        - if: {properties: {purpose: {const: purchase}}}
+          then:
+            required: [quantity, deliver_by]
+            properties:
+              quantity: {type: number, exclusiveMinimum: 0}
+              deliver_by: {type: string, format: date}
+    PreplanResponse:
+      type: object
+      required: [purpose, mandate_id, request_text, creates_order, products, guardrails, next_steps, warnings]
+      properties:
+        purpose: {type: string, enum: [purchase, inquiry]}
+        mandate_id: {type: string}
+        request_text: {type: string}
+        creates_order: {type: boolean, const: false}
+        products:
+          type: array
+          items:
+            allOf:
+              - {$ref: "#/components/schemas/Product"}
+              - type: object
+                properties:
+                  mandate_check:
+                    type: object
+                    properties:
+                      level: {type: string, enum: [ok, check, block]}
+                      why: {type: string}
+        guardrails:
+          type: object
+          description: >
+            Snapshot only. buyer holds registered hard rules; agent holds baseline per-order and 24h
+            authority shared by all agents under the mandate; approvers lists human ceilings.
+            request_limits explicitly identifies unsupported external request-budget enforcement
+            and preview-only allergy additions. A signed plan can replace autonomy caps, not hard rules.
+        next_steps: {type: array, items: {type: string}}
+        warnings: {type: array, items: {type: string}}
     Spec:
       description: >
         The buyer's request as a typed spec (from free text by Claude, or rules). Optional details are
@@ -312,3 +395,4 @@ components:
     Mandate:
       description: See contracts/mandate.example.json
       type: object
+
