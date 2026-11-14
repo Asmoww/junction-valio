@@ -331,6 +331,13 @@ def revoke_plan(request: Request, plan_id: str, body: dict = Body(...)):
     return plans.view(plan)
 
 
+@app.get("/v1/trust-profile", tags=["v1: lookup"])
+def trust_profile_spec():
+    """The evidence levels used in every offer line's trust.claims: how far an agent can rely on each claim
+    (price, stock, cut-off, allergens, labels, origin, delivery reliability) without a manual check."""
+    return agent.trust_profile_spec()
+
+
 @app.get("/v1/plans", tags=["v1: lookup"])
 def agent_plans(request: Request, mandate_id: str):
     """The buyer's signed week plans (read-only): what the agent may order without asking, and what's left."""

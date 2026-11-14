@@ -55,6 +55,14 @@ def get_mandate(mandate_id: str = "mnd_hotel_helsinki") -> dict:
 
 
 @mcp.tool()
+def get_trust_profile() -> dict:
+    """How far to rely on each claim in an offer line (lines[].trust.claims): verified with Valio's live API,
+    measured, derived, declared by the supplier, a placeholder, or unknown. Read this before trusting stock,
+    allergen or origin data without a person checking."""
+    return agent.trust_profile_spec()
+
+
+@mcp.tool()
 def search_products(query: str, attributes: list[str] | None = None, limit: int = 10) -> dict:
     """Search the static catalog (no live API calls). attributes: FREE_FROM_LACTOSE, FREE_FROM_GLUTEN,
     VEGAN, ORGANIC, FINNISH. Returns allergens, labels, delivery reliability and carbon per product."""
