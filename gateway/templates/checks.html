@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>Safety checks · Vahti</title>
+<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Permanent+Marker&display=swap">
+<style>
+  .hero { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 48px; align-items: center; margin: 6px 0 34px; }
+  .hero h1 { font: 900 44px/1.02 Archivo, sans-serif; font-stretch: 105%; letter-spacing: -.035em; color: var(--valio); margin: 0 0 14px; }
+  .hero p { font-size: 17px; color: var(--ink); margin: 0; max-width: 560px; }
+  .flow { display: grid; grid-template-columns: 1fr 40px 1.1fr 40px 1fr; align-items: center; }
+  .flow .fbox { background: #fff; padding: 16px 14px; text-align: center; box-shadow: 0 10px 24px -18px rgba(0,27,64,.55); }
+  .flow .fbox b { display: block; font: 800 16px Archivo, sans-serif; color: var(--valio); }
+  .flow .fbox span { font: 12px var(--mono); color: var(--mute); }
+  .flow .fbox.v { background: var(--valio); } .flow .fbox.v b { color: #fff; } .flow .fbox.v span { color: #b9cbe6; }
+  .flow i { height: 3px; background: var(--valio); position: relative; } .flow i::after { content: ""; position: absolute; right: -2px; top: -5px; border: 6.5px solid transparent; border-left-color: var(--valio); }
+
+  .ticket { background: #fff; position: relative; padding: 26px 30px 22px; box-shadow: 0 12px 26px -16px rgba(0,27,64,.5); font-family: var(--mono); color: var(--ink); }
+  .ticket::before { content: ""; position: absolute; top: -13px; left: 50%; width: 46px; height: 21px; margin-left: -23px; background: #6c7a92; border-radius: 3px 3px 8px 8px; }
+  .rail { height: 16px; background: var(--valio-ink); margin: 0 calc(50% - 50vw) -8px; }
+  .thead { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--mute); border-bottom: 2px solid var(--ink); padding-bottom: 8px; }
+  .row { display: grid; grid-template-columns: 30px 150px minmax(0, 1.2fr) minmax(0, 1fr) 150px; gap: 16px; align-items: baseline; padding: 14px 0; border-bottom: 1px dashed var(--line); font-size: 13.5px; }
+  .row.h { font-size: 11.5px; color: var(--mute); padding: 10px 0 6px; }
+  .row .n { font: 26px/1 "Permanent Marker", cursive; color: var(--valio); }
+  .row b { font-size: 14.5px; }
+  .row .who { font-weight: 700; }
+  .who.stop { color: var(--bad); } .who.person { color: var(--warn); } .who.back { color: var(--valio); }
+  .split { margin: 6px 0 2px; padding: 10px 0 4px; font: 600 12.5px var(--mono); color: var(--valio); display: flex; align-items: center; gap: 10px; }
+  .split::before, .split::after { content: ""; height: 2px; background: var(--valio); flex: 1; }
+  .try { font: 600 13px Archivo, sans-serif; color: var(--valio); background: none; border: 1.5px solid #b9cbe6; padding: 6px 10px; cursor: pointer; text-align: left; }
+  .try:hover { background: var(--valio-soft); }
+
+  h2.sec { font: 900 26px Archivo, sans-serif; color: var(--valio); letter-spacing: -.02em; margin: 54px 0 6px; }
+  .secp { color: var(--mute); margin: 0 0 20px; }
+  .never { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; }
+  .never div { background: #fff; padding: 16px; box-shadow: 0 10px 24px -18px rgba(0,27,64,.55); font-size: 14px; }
+  .never b { display: block; color: var(--bad); font-size: 15px; margin-bottom: 4px; }
+
+  .cases { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 22px; }
+  .case { background: var(--paper); padding: 18px 18px 16px; font-family: var(--mono); font-size: 13px; position: relative; box-shadow: 0 10px 24px -18px rgba(0,27,64,.55); display: flex; flex-direction: column; gap: 6px; }
+  .case.stop { --paper: #fde6e3; } .case.person { --paper: #fff5cc; } .case.back { --paper: #e6eefa; } .case.go { --paper: #e6f4e8; }
+  .case .k { font-size: 11.5px; color: var(--mute); }
+  .case h3 { font: 800 17px Archivo, sans-serif; margin: 0; color: var(--ink); }
+  .case .q { color: var(--ink); }
+  .case .x { border-top: 1px dashed rgba(0,27,64,.25); padding-top: 8px; margin-top: auto; }
+  .case .x b { font-family: Archivo, sans-serif; }
+  .case.stop .x b { color: var(--bad); } .case.person .x b { color: var(--warn); } .case.back .x b { color: var(--valio); }
+  .case .go { margin-top: 8px; align-self: flex-start; font: 700 13.5px Archivo, sans-serif; background: var(--valio); color: #fff; border: 0; padding: 9px 14px; cursor: pointer; text-decoration: none; }
+  .case .test { position: absolute; right: 14px; top: 14px; font: 11px var(--mono); color: var(--mute); border: 1px solid currentColor; padding: 1px 6px; }
+  @media (max-width: 1000px) { .hero { grid-template-columns: 1fr; } .never { grid-template-columns: 1fr 1fr; } .row { grid-template-columns: 30px 1fr; } .row > :nth-child(n+4) { grid-column: 2; } .row.h { display: none; } }
+</style>
+</head>
+<body>
+<!--HEADER-->
+<div class="page">
+  <div class="hero">
+    <div>
+      <h1>Every agent passes the same checks.</h1>
+      <p>Valio can’t choose which AI agents its customers use. So the checks don’t live in the agent: they run in Vahti, on Valio’s side, on every order, whoever sent it.</p>
+    </div>
+    <div class="flow" aria-label="Any agent, then Vahti, then Valio Aimo">
+      <div class="fbox"><b>Any agent</b><span>MCP · REST · A2A</span></div><i></i>
+      <div class="fbox v"><b>Vahti</b><span>six checks</span></div><i></i>
+      <div class="fbox"><b>Valio Aimo</b><span>order</span></div>
+    </div>
+  </div>
+
+  <div class="rail" aria-hidden="true"></div>
+  <div class="ticket">
+    <div class="thead"><span>THE SIX CHECKS · IN THIS ORDER · THE FIRST “NO” DECIDES</span><span>SAME FOR EVERY AGENT</span></div>
+    <div class="row h"><span></span><span>Check</span><span>What it asks</span><span>If the answer is no</span><span></span></div>
+    <div id="rows"></div>
+  </div>
+
+  <h2 class="sec">What no agent can do</h2>
+  <p class="secp">Whatever the agent is told, and whoever built it.</p>
+  <div class="never">
+    <div><b>Approve</b>Only a named person in the buyer’s signed rules can. Agents get “forbidden”.</div>
+    <div><b>Set a price</b>Prices come from Valio, signed in the offer. A changed price is refused.</div>
+    <div><b>Act for another buyer</b>Each agent token works for one buyer only.</div>
+    <div><b>Break a hard rule</b>Banned allergens, recalls and the spending ceiling can’t be overridden by anyone.</div>
+    <div><b>Order twice</b>One signed offer, one order. A retry returns the same order.</div>
+  </div>
+
+  <h2 class="sec">Exceptions, ready to try</h2>
+  <p class="secp">Each one runs the real gateway on Valio’s mock data. Click to open it as a ticket.</p>
+  <div class="cases" id="cases"></div>
+</div>
+
+<script src="/static/cases.js"></script>
+<script>
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+const CHECKS = [
+  ['A purchase', 'Is it an order, not a question or something else?', 'Answered or declined. Nothing ordered.', 'back'],
+  ['Clear', 'Do we know the product, amount and date?', 'Back to the kitchen with a question.', 'back'],
+  ['Valio has it', 'Do real products fit, with a fixed price, in time?', 'Back with the nearest option Valio has.', 'back'],
+  ['Safe', 'Does it keep every hard rule: allergens, recalls, the ceiling, the signed rules?', 'Stopped. No one can override it.', 'stop'],
+  ['Proven', 'Is every fact backed by Valio’s data: stock, allergen data, pack size?', 'A person checks the fact first.', 'person'],
+  ['Agent’s call', 'Within what the agent may spend and decide alone?', 'A named person approves it.', 'person'],
+];
+const tone = g => ({allowed: 'stop', proven: 'person', authority: 'person'}[g] || 'back');
+const $rows = document.getElementById('rows');
+$rows.innerHTML = CHECKS.map(([name, ask, no, t], i) => {
+  const ex = CASES.find(c => CASE_GATE[c.gate] === i + 1);
+  const split = i === 3 ? '<div class="split">checks 4–6 run in Valio’s gateway on every order, whatever agent sent it</div>' : '';
+  return split + `<div class="row"><span class="n">${i + 1}</span><b>${name}</b><span>${ask}</span><span class="who ${t}">${no}</span>
+    ${ex ? `<a class="try" href="/?case=${ex.id}">Try: ${esc(ex.title)}</a>` : '<span></span>'}</div>`;
+}).join('');
+document.getElementById('cases').innerHTML = CASES.map(c => `<div class="case ${tone(c.gate)}">
+  ${c.test ? '<span class="test">test switch</span>' : ''}<span class="k">${esc(c.kind)} · check ${CASE_GATE[c.gate]}</span>
+  <h3>${esc(c.title)}</h3><span class="q">“${esc(c.q)}”</span>
+  <div class="x"><b>${esc(c.expect)}</b></div>
+  <a class="go" href="/?case=${c.id}">Try it</a></div>`).join('');
+</script>
+</body>
+</html>

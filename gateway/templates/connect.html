@@ -6,6 +6,15 @@
 <link rel="icon" href="data:,">
 <title>Connect an agent · Vahti</title>
 <link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Permanent+Marker&display=swap">
+<style>
+  .steps4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+  .steps4 div { background: #fff; padding: 18px; box-shadow: 0 10px 24px -18px rgba(0,27,64,.55); display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+  .steps4 span { font: 26px/1 "Permanent Marker", cursive; color: var(--valio); }
+  .steps4 b { font-size: 16px; color: var(--valio); }
+  .steps4 code { margin-top: auto; font: 12px "IBM Plex Mono", monospace; color: var(--mute); }
+  @media (max-width: 900px) { .steps4 { grid-template-columns: 1fr 1fr; } }
+</style>
 </head>
 <body>
 <header class="topbar"><div class="inner">
@@ -30,31 +39,17 @@
     </div>
   </div>
 
-  <section class="section">
-    <div class="shead"><h2>Start with the preplanner</h2><p>Choose Purchase or Inquiry explicitly.</p></div>
-    <p>Call <code>preplan_request</code> through MCP, or <code>POST /v1/preplan</code> with your buyer-bound agent token.
-      Both accept the same fields and return the request purpose, catalog matches, buyer hard rules, delegated agent limits and next steps.
-      Neither creates an offer, reservation or order.</p>
-    <pre class="mono">{"purpose":"inquiry","mandate_id":"mnd_hotel_helsinki","product":"milk","attributes":["FREE_FROM_LACTOSE"]}</pre>
-    <p>For <code>purchase</code>, also provide a positive <code>quantity</code>, <code>unit</code> (litres, kg or pieces),
-      and <code>deliver_by</code> (YYYY-MM-DD). Optional <code>allergies</code> tighten the preview.
-      Use <a href="/docs">the typed API schema</a> for accepted values.</p>
-    <p><b>Inquiry:</b> use search and price tools to answer; do not place an order.
-      <b>Purchase:</b> preserve the buyer's requirements, obtain a signed offer, then explicitly place it.
-      Selecting Purchase never bypasses a rule. Selecting Inquiry here does not revoke the token's separate order capability.</p>
-    <h3>Buyer limits and agent authority are different</h3>
-    <p><b>Buyer hard rules</b> come from the registered buyer mandate and are enforced by the gateway:
-      exceeding them blocks the order. <b>Agent authority</b> is the buyer's delegated per-order and 24-hour spending allowance:
-      exceeding it requires a person. Built-in and external agents share the allowance for that buyer; it is not per token.</p>
-    <p>For the Hotel mandate, the baseline is €5,000 hard cap, €500 autonomous per order and €1,500 autonomous in 24 hours.
-      Read the current selected mandate; other buyers differ. A signed week plan may pre-authorize spend, but cannot remove hard rules.</p>
-    <p><b>Current limits of the integration:</b> private outside-agent budgets and request-only budget caps are not sealed into the
-      external quote API. Preview-only allergy additions are not automatically carried into low-level quotes either.
-      If a tighter requirement is not in the registered mandate, stop for the buyer rather than dropping it.
-      The response reports these gaps; a matching product is not permission to purchase.</p>
-  </section>
+  <h2 class="rhead">What your agent does, step by step</h2>
+  <div class="steps4">
+    <div><span>1</span><b>Look up</b>Search Valio's catalog, then live price and stock for a shortlist.<code>search_products</code></div>
+    <div><span>2</span><b>Get a signed offer</b>A fixed price for 15 minutes, signed by Valio. Not a negotiation.<code>request_offer</code></div>
+    <div><span>3</span><b>Place the order</b>Vahti runs checks 4–6. Placed, sent to a person, or stopped.<code>place_order</code></div>
+    <div><span>4</span><b>Follow up</b>Read the decision and the audit trail. Only a person approves.<code>get_order</code></div>
+  </div>
+  <p class="small muted" style="margin:10px 0 0">The same steps over MCP, REST (<a href="/docs">OpenAPI</a>) and A2A. An inquiry-only token can look up and price but never order.
+    <a href="/checks">What Vahti checks on every order</a></p>
 
-  <h2 class="rhead">What's inside</h2>
+  <h2 class="rhead" style="margin-top:34px">Open standards it speaks</h2>
   <div class="tools">
     <div><b>preplan_request</b><span>Purchase or inquiry; read-only preparation and explicit limits</span></div>
     <div><b>Search and price</b><span>Catalog search, then Valio's live price and stock</span></div>

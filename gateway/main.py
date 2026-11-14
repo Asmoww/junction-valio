@@ -2,6 +2,7 @@
 import hashlib
 import hmac
 import logging
+import re
 import os
 import secrets
 from collections import Counter, defaultdict
@@ -90,6 +91,32 @@ def _www_authenticate(request: Request, error=None, scope=None):
     return "Bearer " + ", ".join(parts)
 
 
+
+# ---- One header for every page: the logo (the V of vahti is a tick in a box) and the navigation ----------------
+LOGO = ('<svg class="mark" viewBox="0 0 30 26" aria-hidden="true"><rect x="1.5" y="6.5" width="18" height="18" rx="2.5" fill="none" '
+        'stroke="currentColor" stroke-width="2.6"/><path d="M6 15.2 10.6 20.4 27.5 2.5" fill="none" stroke="#fcb900" stroke-width="3.6" '
+        'stroke-linecap="round" stroke-linejoin="round"/></svg>')
+NAV = [("/", "Order"), ("/checks", "Safety checks"), ("/connect", "Connect an agent"), ("/valio", "Valio view"), ("/play", "Play")]
+MORE = [("/plan", "Week plan"), ("/rules", "Rules from a policy"), ("/live", "Live map")]
+
+
+def header(active=""):
+    tabs = "".join(f'<a href="{h}"{" class=on" if h == active else ""}>{t}</a>' for h, t in NAV)
+    more = "".join(f'<a href="{h}"{" class=on" if h == active else ""}>{t}</a>' for h, t in MORE)
+    on = " on" if active in dict(MORE) else ""
+    return (f'<header class="topbar"><div class="inner"><a class="brand" href="/" aria-label="Vahti for Valio Aimo">{LOGO}'
+            f'<span class="word">vahti</span><span class="for">for Valio Aimo</span></a><nav class="tabs">{tabs}'
+            f'<details class="more{on}"><summary>More</summary><div class="menu">{more}</div></details></nav></div></header>')
+
+
+def page(name, active=None):
+    """A page template with the shared header in place of the <header class="topbar"> block (or <!--HEADER-->)."""
+    html = (TEMPLATES / f"{name}.html").read_text()
+    head = header(active if active is not None else {"index": "/"}.get(name, f"/{name}"))
+    if "<!--HEADER-->" in html:
+        return html.replace("<!--HEADER-->", head)
+    return re.sub(r'<header class="topbar">.*?</header>', lambda m: head, html, count=1, flags=re.S)
+
 OPEN_PATHS = {"/login", "/healthz", PRM_PATH, "/.well-known/jwks.json", "/v1/mandates/verify", "/static/style.css",
               "/.well-known/agent-card.json", "/openapi.json", "/docs"}  # the API description is public; calling it is not
 if not DEMO_PASSWORD:
@@ -165,7 +192,7 @@ def healthz():
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 def index():
-    return (TEMPLATES / "index.html").read_text()
+    return page("index")
 
 
 # ---- Demo API used by the UI -------------------------------------------------------------------
@@ -227,7 +254,7 @@ def preplan_request(body: preplanner.PreplanRequest):
 
 @app.get("/plan", response_class=HTMLResponse, include_in_schema=False)
 def plan_page():
-    return (TEMPLATES / "plan.html").read_text()
+    return page("plan")
 
 
 @app.get("/api/planner/search", tags=["demo"])
@@ -398,7 +425,7 @@ async def read_photo(request: Request, photo: UploadFile = File(...), deliver_by
 
 @app.get("/play", response_class=HTMLResponse, include_in_schema=False)
 def play_page():
-    return (TEMPLATES / "play.html").read_text()
+    return page("play")
 
 
 @app.get("/api/game", tags=["demo"])
@@ -465,7 +492,7 @@ def _receipt_html(title, body):
 .checks i{{font-style:normal;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-weight:800;flex-shrink:0;color:#fff}}
 .checks .ok i{{background:var(--ok)}} .checks .bad i{{background:var(--bad)}} .checks b{{display:block}} .checks span{{color:var(--mute);font-size:13.5px;overflow-wrap:anywhere}}
 pre{{white-space:pre-wrap;word-break:break-all;font-size:11px;background:#f5f8fc;border-radius:10px;padding:10px}}</style></head><body>
-<header class=topbar><div class=inner><a class=brand href="#" aria-label="Vahti"><svg class=mark viewBox="0 0 64 12" aria-hidden=true><path d="M5 6H59" stroke=currentColor stroke-width=2 opacity=.55 />{''.join(f'<circle cx="{5 + i * 10.8:.1f}" cy=6 r="{4.2 if i == 5 else 3.4}" fill="{"#ffb02e" if i == 5 else "currentColor"}"/>' for i in range(6))}</svg><span class=word>vahti</span><span class=for>verified receipt</span></a></div></header>
+<header class=topbar><div class=inner><a class=brand href="#" aria-label="Vahti">{LOGO}<span class=word>vahti</span><span class=for>verified receipt</span></a></div></header>
 <main><div class=card>{body}</div><p class="small muted" style="text-align:center;margin-top:14px">Vahti for Valio Aimo · demo data</p></main></body></html>"""
 
 
@@ -474,7 +501,7 @@ _SIM = {"proc": None, "path": None}
 
 @app.get("/live", response_class=HTMLResponse, include_in_schema=False)
 def live_page():
-    return (TEMPLATES / "live.html").read_text()
+    return page("live")
 
 
 @app.post("/api/sim/start", tags=["demo"])
@@ -514,7 +541,7 @@ def trust_report():
 
 @app.get("/rules", response_class=HTMLResponse, include_in_schema=False)
 def rules_page():
-    return (TEMPLATES / "rules.html").read_text()
+    return page("rules")
 
 
 @app.get("/api/rules/sample", tags=["demo"])
@@ -636,13 +663,13 @@ def protected_resource_metadata(request: Request):
 
 @app.get("/connect", response_class=HTMLResponse, include_in_schema=False)
 def connect_page(request: Request):
-    page = (TEMPLATES / "connect.html").read_text()
+    html = page("connect")
     if getattr(request.state, "principal", None) == "human" and AGENT_TOKEN:  # people hand these to their agent
         import json as _json
         tokens = {mid: {"buyer": m["buyer"].replace(" (demo)", ""), "token": mandate_token(mid),
                         "inquiry_token": mandate_token(mid, "inquiry")} for mid, m in policy.mandates().items()}
-        page = page.replace("<!--MANDATE_TOKENS-->", f"<script>window.TOKENS = {_json.dumps(tokens)};</script>")
-    return page
+        html = html.replace("<!--MANDATE_TOKENS-->", f"<script>window.TOKENS = {_json.dumps(tokens)};</script>")
+    return html
 
 
 def _own(request: Request, o):
@@ -661,6 +688,18 @@ def stylesheet():
                     headers={"Cache-Control": "no-cache"})
 
 
+@app.get("/static/cases.js", include_in_schema=False)
+def cases_js():
+    """Picked exception requests, shared by the Safety checks page and the buyer page."""
+    from fastapi.responses import Response
+    return Response((TEMPLATES / "cases.js").read_text(), media_type="text/javascript", headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/checks", response_class=HTMLResponse, include_in_schema=False)
+def checks_page():
+    return page("checks")
+
+
 @app.get("/static/pass.css", include_in_schema=False)
 def pass_stylesheet():
     """The buyer page's theme: each request is a kitchen ticket on the rail of the pass."""
@@ -670,7 +709,7 @@ def pass_stylesheet():
 
 @app.get("/valio", response_class=HTMLResponse, include_in_schema=False)
 def valio_page():
-    return (TEMPLATES / "valio.html").read_text()
+    return page("valio")
 
 
 @app.get("/api/dashboard", tags=["demo"])

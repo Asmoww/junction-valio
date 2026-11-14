@@ -67,6 +67,7 @@
   </div>
 </div>
 
+<script src="/static/cases.js"></script>
 <script>
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -101,7 +102,7 @@ async function api(path, opts) {
 const post = (path, body) => api(path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
 
 async function init() {
-  renderHist();
+  renderHist(); renderCases();
   const [list, info] = await Promise.all([api('/api/mandates'), api('/api/info')]);
   if (info.demo_clock) $('#clockSwitch').style.display = '';
   list.forEach(m => mandates[m.mandate_id] = m);
@@ -111,6 +112,8 @@ async function init() {
   $('#out').innerHTML = idleHtml();
   fitRequest(); window.addEventListener('resize', fitRequest);
   bInit(); bMode();
+  const cid = new URLSearchParams(location.search).get('case');  // from the Safety checks page
+  if (cid) { history.replaceState(null, '', '/'); runCase(cid); }
 }
 
 function renderMandate() {
@@ -756,7 +759,7 @@ function note(tone, text, near) {
 }
 function outcome(res, status) {
   const o = res.order, l = res.ladder || {}, s = status || o?.status;
-  if (s === 'placed') return ['go', 'Fired. Agent did it.'];
+  if (s === 'placed') return ['go', 'Ordered. The agent did it alone.'];
   if (s === 'pending_approval') { const who = firstName(o.policy.approver?.name);
     return ['hold', o.policy.ladder?.decided_by === 'proven' ? `${esc(who)}: check a fact.` : `Over its limit. ${esc(who)}'s call.`]; }
   if (s === 'blocked' || l.action === 'stop' || l.action === 'decline' || s === 'rejected') return ['stop', 'Not ordered.'];
@@ -814,8 +817,22 @@ function renderHist() {
     <div class="mini" title="The six checks">${(x.gates || []).map(g => box(g, x.tone)).join('')}</div>
     <div class="tkst"><b>${icon[x.tone]} ${esc(x.label)}</b>${x.total ? `<span>${esc(x.total)}</span>` : ''}</div>
     <div class="tkwhy">${esc(x.why || '')}</div></div>` : '';
-  const label = list.length ? '<div class="histlabel">Earlier orders</div>' : '';
-  $('#histL').innerHTML = label + tk(list[0]) + tk(list[2]); $('#histR').innerHTML = (list.length > 1 ? '<div class="histlabel">&nbsp;</div>' : '') + tk(list[1]) + tk(list[3]);
+  $('#histL').innerHTML = list.length ? '<div class="histlabel">Earlier orders, newest first</div>' + list.slice(0, 4).map(tk).join('') : '';
+}
+// The right-hand column: picked exceptions (cases.js), each runs in place as a new ticket
+function renderCases() {
+  const tone = g => ({allowed: 'stop', proven: 'hold', authority: 'hold'}[g] || 'back');
+  $('#histR').innerHTML = '<div class="histlabel">Try an exception</div><div class="cases">' + CASES.map(c =>
+    `<button class="case ${tone(c.gate)}" onclick="runCase('${c.id}')"><span class="k">${esc(c.kind)}</span><b>${esc(c.title)}</b>${c.test ? '<i>test switch</i>' : ''}</button>`).join('') + '</div>';
+}
+async function runCase(id) {
+  const c = CASES.find(x => x.id === id); if (!c) return;
+  $('#mandate').value = c.buyer; renderMandate(); $('#request').value = c.q; fitRequest();
+  const sw = {price: '#priceChange', recall: '#testRecall', inject: '#inject'};
+  Object.values(sw).forEach(x => { const el = $(x); if (el) el.checked = false; });
+  if (c.test && $(sw[c.test])) $(sw[c.test]).checked = true;
+  await run();
+  if (c.test && $(sw[c.test])) $(sw[c.test]).checked = false;  // a test switch applies to this ticket only
 }
 
 async function showRecord(id) {

@@ -485,3 +485,50 @@ details summary { color: var(--valio); font-weight: 600; }
 .trow .sub { color: var(--mute); font-size: 13.5px; }
 .lvl { font-weight: 750; font-size: 13.5px; } .lvl.trusted { color: var(--ok); } .lvl.proven { color: var(--valio); } .lvl.new { color: var(--mute); } .lvl.onhold { color: var(--bad); }
 .meter { height: 8px; border-radius: 99px; background: #edf1f7; overflow: hidden; } .meter i { display: block; height: 100%; background: var(--valio); border-radius: 99px; }
+
+/* ==== Valio brand, the pass everywhere (14 Nov evening). Valio's own brand blue (#002f6d, valioaimo.fi --color-brand),
+   its pastel blue as the page, white paper for every card. This layer wins over the earlier rounds above. ==== */
+:root { --valio: #002f6d; --valio-ink: #001b40; --valio-soft: #eaf4fd; --navy: #002f6d; --navy-2: #002f6d; --accent: #002f6d; --accent-soft: #eaf4fd;
+  --bg: #eaf4fd; --ink: #001b40; --mute: #5b6b86; --faint: #97a5bd; --line: #d6e0ee; --sun: #fcb900;
+  --ok: #1d6b3a; --ok-soft: #e6f4e8; --warn: #a35400; --warn-soft: #fff5cc; --bad: #b3261e; --bad-soft: #fde6e3;
+  --paper: #ffffff; --mono: "IBM Plex Mono", ui-monospace, monospace; }
+body { background: var(--bg); color: var(--ink); }
+a { color: var(--valio); }
+
+/* Header: Valio blue, the tick-box logo, five tabs and a small "More" menu */
+.topbar { background: var(--valio); color: #fff; border: 0; position: sticky; top: 0; z-index: 20; }
+.topbar .inner { max-width: 1440px; height: 62px; padding: 0 40px; gap: 34px; }
+.brand { color: #fff !important; gap: 9px; }
+.brand .mark { width: 30px; height: 26px; color: #fff; }
+.brand .word { font: 900 25px/1 Archivo, sans-serif; font-stretch: 112%; letter-spacing: -.035em; }
+.brand .for { font-size: 12px; font-weight: 500; color: #b9cbe6; opacity: 1; }
+.tabs { gap: 2px; align-items: stretch; }
+.tabs a { color: #c6d5ec; font-weight: 600; font-size: 14.5px; padding: 0 13px; border-bottom: 3px solid transparent; }
+.tabs a:hover { color: #fff; } .tabs a.on { color: #fff; border-bottom-color: var(--sun); }
+.tabs a[href="/play"] { color: var(--sun); }
+.tabs a[href="/checks"] { color: #fff; }
+.tabs .more { position: relative; display: flex; align-items: center; }
+.tabs .more summary { list-style: none; cursor: pointer; color: #c6d5ec; font-weight: 600; font-size: 14.5px; padding: 0 13px; height: 100%; display: flex; align-items: center; }
+.tabs .more summary::-webkit-details-marker { display: none; }
+.tabs .more summary::after { content: "▾"; margin-left: 5px; font-size: 11px; }
+.tabs .more.on summary { color: #fff; box-shadow: inset 0 -3px 0 var(--sun); }
+.tabs .more .menu { position: absolute; top: 100%; left: 0; background: #fff; min-width: 210px; padding: 6px 0; box-shadow: 0 14px 30px -14px rgba(0,27,64,.5); }
+.tabs .more .menu a { color: var(--ink); height: auto; padding: 10px 16px; border: 0; font-weight: 600; }
+.tabs .more .menu a:hover { background: var(--valio-soft); text-decoration: none; } .tabs .more .menu a.on { color: var(--valio); border: 0; }
+.topbar .right { display: none; }
+
+/* Pages: title in Valio blue, cards as paper */
+.page { max-width: 1440px; padding: 30px 40px 60px; }
+.phead h1, .page-head h1 { color: var(--valio); font-weight: 900; font-stretch: 108%; }
+.phead p, .page-head p { color: var(--mute); }
+.card, .panel, .metric, .dpanel { background: var(--paper); border: 0; border-radius: 0; box-shadow: 0 10px 24px -18px rgba(0,27,64,.55); }
+.btn, .btn-primary, .btn-soft { border-radius: 6px; }
+.btn-primary { background: var(--valio); } .btn-primary:hover { background: var(--valio-ink); }
+.btn-soft { background: #fff; color: var(--valio); box-shadow: inset 0 0 0 1.5px #b9cbe6; }
+.chip { border-radius: 4px; }
+.chip.navy { background: var(--valio-soft); color: var(--valio); }
+.rhead { color: var(--valio); }
+table th { color: var(--mute); }
+@media (max-width: 1100px) { .brand .for { display: none; } .tabs a, .tabs .more summary { padding: 0 9px; font-size: 13.5px; } }
+@media (max-width: 760px) { .topbar .inner { padding: 8px 14px 0; height: auto; } .tabs { overflow-x: auto; width: 100%; } .tabs .more .menu { position: fixed; left: auto; right: 10px; top: 96px; } }
+.tabs .more summary::before { content: none; display: none; }

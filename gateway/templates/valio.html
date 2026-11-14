@@ -63,7 +63,7 @@ async function load() {
   $('#nums').innerHTML = [['blue', t.orders, 'orders from agents'], ['', auto, 'placed by an agent alone'],
     ['', t.pending, 'waiting for a person'], ['', t.blocked, 'stopped by a rule']]
     .map(([c, v, l]) => `<div class="num ${c}"><b>${v}</b><span>${l}</span></div>`).join('');
-  $('#agentsOn').textContent = `${d.agents.length} agent${d.agents.length === 1 ? '' : 's'} connected`;
+  if ($('#agentsOn')) $('#agentsOn').textContent = `${d.agents.length} agent${d.agents.length === 1 ? '' : 's'} connected`;
 
   const max = Math.max(1, ...d.escalations.map(r => r.count));
   $('#rules').innerHTML = d.escalations.length ? d.escalations.slice(0, 6).map(r => `<div class="row"><span>${esc(r.rule)}</span>

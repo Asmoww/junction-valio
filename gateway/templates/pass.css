@@ -1,23 +1,23 @@
 /* The pass: each request is a kitchen ticket clipped to the rail above the pass, in Valio colours.
    Scoped to body.pass (the buyer page); everything the page renders keeps its classes and behaviour. */
 body.pass {
-  --rail: #0a1f4d; --paper: #ffffff; --pen: #0047bb; --hold: #d9730d; --stop: #d3261f; --mono: "IBM Plex Mono", ui-monospace, monospace;
+  --rail: #001b40; --paper: #ffffff; --pen: #002f6d; --hold: #d9730d; --stop: #d3261f; --mono: "IBM Plex Mono", ui-monospace, monospace;
   --marker: "Permanent Marker", "Comic Sans MS", cursive;
-  background: #e3ebf7;
+  background: var(--bg);
 }
 .pass .page { max-width: 1440px; }
 .pass .phead { display: none; }
 
 /* The printer: Buying for + what the kitchen needs, on Valio blue */
-.pass .panel { background: var(--pen); border: 0; border-radius: 14px; box-shadow: none; padding: 18px 20px 14px; color: #fff; }
-.pass .panel label, .pass .panel .flabel { color: #cfdcf5; }
-.pass .panel select { background: #0a3a9a; color: #fff; border: 0; font-weight: 600; }
+.pass .panel { background: var(--valio); border: 0; border-radius: 14px; box-shadow: none; padding: 18px 20px 14px; color: #fff; }
+.pass .panel label, .pass .panel .flabel { color: #b9cbe6; }
+.pass .panel select { background: #0d4182; color: #fff; border: 0; font-weight: 600; }
 .pass .composer { background: #fff; border-radius: 10px; }
 .pass .composer textarea { font: 500 18px var(--mono); color: var(--rail); }
 .pass .composer .btn-primary { background: var(--rail); border-radius: 8px; }
 .pass .composer .photo-btn { border-radius: 8px; }
-.pass .underbar .chip { background: transparent; color: #fff; box-shadow: inset 0 0 0 1px #6f97de; }
-.pass .underbar .chip:hover { background: #0a3a9a; }
+.pass .underbar .chip { background: transparent; color: #fff; box-shadow: inset 0 0 0 1px #5d7fb3; }
+.pass .underbar .chip:hover { background: #0d4182; }
 .pass .underbar .gear { color: #fff; text-decoration: underline; }
 .pass .settings { background: #fff; color: var(--ink); border-radius: 10px; padding: 20px; border: 0; margin-top: 14px; }
 .pass .settings label { color: var(--mute); }
@@ -92,7 +92,7 @@ body.pass {
 .pass .decision .acts .btn + .btn { border-left: 0; }
 .pass .decision .acts .btn-bad { color: var(--stop); }
 .pass .decision .acts .btn-primary { flex: 1.4; background: var(--pen); color: #fff; border: 2px solid var(--pen); }
-.pass .decision .acts .btn-primary:hover { background: #003a99; }
+.pass .decision .acts .btn-primary:hover { background: var(--rail); }
 .pass .decision .chips .chip { border-radius: 0; font-family: var(--mono); }
 .pass .dlinks { gap: 18px; margin-top: 14px; }
 .pass .dlinks button { font: 500 12.5px var(--mono); text-decoration: underline; border: 0; color: var(--pen); }
@@ -163,3 +163,16 @@ body.pass {
 .pass .hist .tk.hold .tkst b { color: #a35400; }
 .pass .hist .tk.stop .tkst b { color: #b3261e; }
 .pass .hist .tk .tkst { border-top-color: rgba(10,31,77,.22); }
+
+/* Right-hand column: exceptions to try, each a small tinted slip */
+.pass #histR .cases { display: flex; flex-direction: column; gap: 10px; margin-top: 22px; }
+.pass #histR .case { all: unset; cursor: pointer; display: block; position: relative; padding: 10px 12px 10px 14px; font: 12px/1.35 var(--mono); color: var(--rail);
+                     background: #fff; box-shadow: 0 8px 18px -14px rgba(0,27,64,.5); border-left: 4px solid var(--pen); }
+.pass #histR .case:hover { transform: translateX(-3px); }
+.pass #histR .case:focus-visible { outline: 2px solid var(--pen); outline-offset: 2px; }
+.pass #histR .case.stop { border-left-color: var(--stop); } .pass #histR .case.hold { border-left-color: var(--hold); }
+.pass #histR .case .k { display: block; color: #5b6b86; font-size: 11px; }
+.pass #histR .case b { display: block; font: 700 13.5px/1.25 "Archivo", sans-serif; margin-top: 2px; }
+.pass #histR .case i { font-style: normal; font-size: 10.5px; color: #5b6b86; }
+.pass .hist .tk { margin-top: 22px; }
+.pass #histL .histlabel + .tk { margin-top: 26px; }
