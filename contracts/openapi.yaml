@@ -349,6 +349,21 @@ components:
         expiry_reason: {type: string}
         requested_quantity: {type: [number, "null"], description: What the buyer asked for, sealed into the signature}
         requested_unit: {type: [string, "null"], description: Unit of requested_quantity, sealed into the signature}
+        basket:
+          type: array
+          description: "Only for a request with several products (the built-in buyer agent). What each line asked for and which offer lines answer it, sealed into the signature; the gateway checks every line against its own request, and refuses an offer line that answers none."
+          items:
+            type: object
+            properties:
+              line: {type: integer}
+              request: {type: string}
+              product: {type: string}
+              requested_quantity: {type: number}
+              requested_unit: {type: string, enum: [L, KG, PCS]}
+              products: {type: array, items: {type: string}, description: productIds of the offer lines for this line}
+              required_attributes: {type: array, items: {type: string}, description: "e.g. FREE_FROM_LACTOSE, for this line only"}
+              partial: {type: boolean}
+              exact: {type: boolean}
     PolicyRule:
       type: object
       properties:

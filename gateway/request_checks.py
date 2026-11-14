@@ -378,6 +378,26 @@ def multi_line(text):
     return False
 
 
+_LINE_SEP = re.compile(r"\n|;|(?<!\d),|,(?!\d)|\.(?=\s|$)|\s(?:and|plus|ja|och|sekä)\s|\s?[&+]\s")
+
+
+def split_lines(text):
+    """Cut a shopping list into its parts at commas, semicolons, new lines and "and" ("100 L milk, 20 kg butter
+    and 300 eggs"). Returns [{"text", "quantities"}]: a part with one quantity is an order line, a part with none
+    is framing ("for Monday") or something the agent can't place, and a part with two couldn't be split."""
+    t = catalog.fold(text)
+    src = text if len(t) == len(text) else t  # positions must line up with the original
+    parts, last = [], 0
+    for m in list(_LINE_SEP.finditer(t)) + [None]:
+        a, b = (m.start(), m.end()) if m else (len(t), len(t))
+        piece = src[last:a].strip(" \t:-–—")
+        if piece:
+            qs = [q for q in _order_quantities(piece) if not q["negative"]]
+            parts.append({"text": piece, "quantities": max(len(qs), 2 if len(qs) == 1 and multi_line(piece) else 0)})
+        last = b
+    return parts
+
+
 # ---- Dates -----------------------------------------------------------------------------------------
 def date_problem(text, deliver_by, today):
     """(reason, gate): an invalid or past date is unclear (gate 1); a window Valio can't meet is impossible (gate 2)."""

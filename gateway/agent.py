@@ -575,6 +575,9 @@ def create_offer(mandate, option, intent):
         # The caller's own tighter limits for this purchase (budget, extra allergen bans): signed, so no later step
         # can drop them; enforced at commit and again at approval.
         **({"request_limits": intent["request_limits"]} if intent.get("request_limits") else {}),
+        # A basket: what each line asked for and which offer lines answer it, so the gateway checks every line
+        # against its own request ("Matches the buyer's request", lactose-free on that line only).
+        **({"basket": intent["basket"]} if intent.get("basket") else {}),
         "issued_at": store.now(), "expires_at": exp.astimezone(timezone.utc).isoformat(timespec="seconds"),
         "expiry_reason": reason,
         # Said inside the signature, so nobody can mistake a demo for a real purchase:
@@ -982,23 +985,9 @@ def run(text, mandate_id, overrides=None, simulate_price_change=False, inject=Fa
     return res
 
 
-def _run(text, mandate_id, overrides=None, simulate_price_change=False, inject=False, purpose=None):
-    mandate = policy.load(mandate_id, overrides)
-    client = ValioClient()
-    steps = []
-    run_id = "run_" + uuid.uuid4().hex[:10]
-    raw = text
-    ai_intent = ai.parse(raw)
-    # The deterministic checks read a normalised copy: invisible characters and look-alike letters removed,
-    # "no lactose" read as "lactose-free", "12 dozen" as 144 (request_checks.normalise).
-    text = request_checks.normalise(raw)
-    scan_text = text  # the injection scanner always reads everything the buyer wrote
-    # "Exactly 24 eggs, not 24 packs; ask me instead of rounding up": a limit, not a second quantity.
-    # "My total budget for this purchase is EUR 5": the buyer's own limit for this order, enforced as a hard rule.
-    budget = request_checks.stated_budget(text)
-    text = request_checks.drop_budget_clauses(text)
-    exact = request_checks.exact_quantity(text)
-    text = request_checks.drop_exact_clauses(text)
+def _read_intent(ai_intent, text):
+    """(intent, parser, quantity_mismatch) for one request: the model's reading if there is one, held against the
+    deterministic reading of the same text (request_checks.py), which only ever makes the agent more careful."""
     if ai_intent and "_error" not in ai_intent:
         intent, parser = ai_intent, (ai.reader_name() if ai.eu() else f"Claude ({ai.MODEL})")
         # Guard, whatever the model: if Claude's product is just a shortened version of the buyer's own words
@@ -1023,6 +1012,27 @@ def _run(text, mandate_id, overrides=None, simulate_price_change=False, inject=F
     elif oq and intent.get("quantity") is not None and (abs(oq["quantity"] - intent["quantity"]) > 1e-6 or oq["unit"] != intent["unit"]):
         quantity_mismatch = (f"the quantity reads two ways: “{oq['raw']}” is {oq['quantity']:g} {oq['unit']}, "
                              f"but it was read as {intent['quantity']:g} {intent['unit']}")
+    return intent, parser, quantity_mismatch
+
+
+def _run(text, mandate_id, overrides=None, simulate_price_change=False, inject=False, purpose=None):
+    mandate = policy.load(mandate_id, overrides)
+    client = ValioClient()
+    steps = []
+    run_id = "run_" + uuid.uuid4().hex[:10]
+    raw = text
+    ai_intent = ai.parse(raw)
+    # The deterministic checks read a normalised copy: invisible characters and look-alike letters removed,
+    # "no lactose" read as "lactose-free", "12 dozen" as 144 (request_checks.normalise).
+    text = request_checks.normalise(raw)
+    scan_text = text  # the injection scanner always reads everything the buyer wrote
+    # "Exactly 24 eggs, not 24 packs; ask me instead of rounding up": a limit, not a second quantity.
+    # "My total budget for this purchase is EUR 5": the buyer's own limit for this order, enforced as a hard rule.
+    budget = request_checks.stated_budget(text)
+    text = request_checks.drop_budget_clauses(text)
+    exact = request_checks.exact_quantity(text)
+    text = request_checks.drop_exact_clauses(text)
+    intent, parser, quantity_mismatch = _read_intent(ai_intent, text)
     allergy_codes = request_checks.allergies(text)
     if allergy_codes:
         # An allergy in the request tightens this run's mandate. It can only add bans, never remove one.
@@ -1095,197 +1105,16 @@ def _run(text, mandate_id, overrides=None, simulate_price_change=False, inject=F
                        "Nothing was ordered: the request mentions an amount of money that couldn't be read as a budget. "
                        "Write it as, for example, “budget €50”, so the gateway can enforce it, or leave it out.")
     if rtype == "buy" and request_checks.multi_line(text):
-        return exit_at("clear", "ask_back", "several_lines",
-                       "The request names several quantities. Ask for each product as a separate request (or use "
-                       "Photo of a list for a whole list), so each one is checked on its own; nothing was ordered.")
+        # A shopping list: every line climbs gates 1-2 on its own, then one signed offer for the whole basket goes
+        # through gates 3-5, and the order takes the earliest "no" of any line.
+        return _run_basket(text, raw, intent, mandate, client, steps, run_id, exit_at, simulate_price_change,
+                           budget, exact, allergy_codes)
     if problem := request_checks.conditional(text):
         return exit_at("clear", "ask_back", "conditional", f"Nothing was ordered: {problem}.")
-    if quantity_mismatch:
-        return exit_at("clear", "ask_back", "quantity_unclear", f"Nothing was ordered: {quantity_mismatch}.")
-    if not (intent.get("product") or "").strip():
-        return exit_at("clear", "ask_back", "unclear_request", "Which product? The request doesn't name one.")
-    if problem := request_checks.too_broad(intent["product"]):
-        return exit_at("clear", "ask_back", "too_broad", f"Nothing was ordered: {problem}.")
-    if rtype == "buy" and not intent.get("quantity"):
-        return exit_at("clear", "ask_back", "unclear_request", f"How much {intent['product']}? The request gives no quantity.")
-
-    if intent.get("unit") == "PCS":
-        intent["count_kind"] = count_kind(text)
-    spec = {"fat_pct": intent.get("fat_pct"), "shelf_life": intent.get("shelf_life")}
-    candidates, trace = catalog.search(intent["product"], intent["attributes"], spec=spec,
-                                       type_check=ai.type_check if ai.enabled() else None)
-    # Products the buyer named by id are the candidates (still checked against the requirements).
-    if named := request_checks.named_products(text):
-        named_ok = []
-        for pid in named:
-            p = catalog.get(pid)
-            ok, why, gaps = catalog.matches_attributes(p, intent["attributes"])
-            if not ok:
-                return exit_at("possible", "ask_back", "named_product_fails",
-                               f"Product {pid} ({p['name']}) doesn't meet the request: {why}. Nothing was ordered.")
-            p["_gaps"] = gaps
-            named_ok.append(p)
-        candidates, trace["named_products"] = named_ok, named
-    # Products the buyer excluded ("do NOT send Arla Cafè milk 463380", "ei kahvimaitoa").
-    asked_words = set(re.findall(r"[a-zåäö]+", catalog.fold(intent["product"])))
-    for ex in request_checks.exclusions(text):
-        words = {w for w in ex["words"] - asked_words if w in catalog.vocabulary()}
-        if not words and not ex["ids"]:
-            continue
-        before = len(candidates)
-        candidates = [p for p in candidates if p["id"] not in ex["ids"]
-                      and not (words and words <= set(re.findall(r"[a-zåäö]+", p["_text"])))]
-        if len(candidates) < before:
-            trace.setdefault("excluded_by_request", []).append(" ".join(sorted(words | ex["ids"])))
-    # Gate 1 again, now that we know what the words matched: nothing in the request may be silently dropped.
-    intent["ignored_terms"] = sorted(set(intent.get("ignored_terms") or []) |
-                                     set(unmatched_terms(text, intent, [p["_text"] for p in candidates],
-                                                         strict=intent["parser"].startswith("rules"))))
-    if rtype == "buy" and intent["ignored_terms"]:
-        return exit_at("clear", "ask_back", "unclear_request",
-                       f"Understood: {intent.get('quantity') or ''} {intent.get('unit', '')} {intent['product']}. "
-                       f"Not understood or not covered: {', '.join(intent['ignored_terms'])}. "
-                       "Send them as separate lines, or confirm the order without them.")
-    # The agent drops what the mandate forbids, or can't be verified, before asking for prices.
-    excluded = []
-    kept = []
-    for p in candidates:
-        why = policy.allergen_problem(mandate, p)
-        if why and why[1] == "block":
-            excluded.append({"productId": p["id"], "name": p["name"], "reason": why[0]})
-        else:
-            kept.append(p)
-    verified = [p for p in kept if not policy.allergen_problem(mandate, p)]
-    if verified and len(verified) < len(kept):  # prefer products whose allergen data proves safety
-        for p in kept:
-            if p not in verified:
-                excluded.append({"productId": p["id"], "name": p["name"], "reason": policy.allergen_problem(mandate, p)[0]})
-        kept = verified
-    candidates = kept
-    # Add Valio's official substitutes, but only if they are the same kind of product (fit check).
-    seen = {p["id"] for p in candidates}
-    subs, misfits = [], []
-    for p in list(candidates):
-        for sid in p["substitutes"]:
-            sp = catalog.get(sid)
-            if not sp or sid in seen:
-                continue
-            seen.add(sid)
-            if sp["category"] != p["category"]:
-                misfits.append({"productId": sid, "name": sp["name"], "reason": f"fit check: different product type than {p['name']}"})
-            elif policy.allergen_problem(mandate, sp):
-                misfits.append({"productId": sid, "name": sp["name"], "reason": policy.allergen_problem(mandate, sp)[0]})
-            else:
-                subs.append(sid)
-                sp["_gaps"] = []
-                candidates.append(sp)
-    # Unit sense check: 1,000 litres of chicken nuggets can't be converted, so stop before any API call.
-    if intent["unit"] in ("L", "KG") and candidates:
-        measures = Counter(m for m in (catalog.measure(p) for p in candidates) if m)
-        if measures and intent["unit"] not in measures and sum(measures.values()) >= len(candidates) / 2:
-            alt = measures.most_common(1)[0][0]
-            words = {"L": "volume (litres)", "KG": "weight (kg)"}
-            msg = (f"{intent['product'].capitalize()} are sold by {words[alt]}, not by {words[intent['unit']]}, so "
-                   f"{intent['quantity']:,g} {UNIT_WORDS[intent['unit']]} can't be ordered. Nothing was ordered.")
-            steps.append({"step": "lookup", "title": "Find candidates in the catalog (local, no API calls)",
-                          "search": trace, "excluded_by_mandate": excluded, "official_substitutes_added": [],
-                          "substitutes_rejected": [], "spec_gaps": [], "candidates": []})
-            store.log(run_id, f"agent:{mandate['agent']}", "run.unit_mismatch", {"asked": intent["unit"], "sold_by": alt})
-            res = exit_at("clear", "ask_back", "unit_mismatch", msg)  # gate 1: the quantity can't mean anything
-            res["result"]["fix"] = {"from": intent["unit"], "to": alt, "label": f"Use {intent['quantity']:,g} {UNIT_WORDS[alt]} instead"}
-            return res
-    candidates = apply_profile(candidates, intent, mandate)
-    gaps = spec_gaps(candidates, intent)
-    steps.append({"step": "lookup", "title": "Find candidates in the catalog (local, no API calls)",
-                  "search": trace, "excluded_by_mandate": excluded, "official_substitutes_added": subs,
-                  "substitutes_rejected": misfits, "spec_gaps": gaps,
-                  "candidates": [dict(catalog.describe(p), evidence=catalog.evidence(p, intent["attributes"])) for p in candidates]})
-    if not candidates:
-        if excluded:
-            reasons = sorted({e["reason"] for e in excluded})
-            msg = (f"All {len(excluded)} matching products fail this mandate's allergen rules ({'; '.join(reasons)}). "
-                   "Nothing was ordered. Lactose-free is not milk-free: ask for a plant-based alternative instead."
-                   if any("milk" in r for r in reasons) else
-                   f"All {len(excluded)} matching products fail this mandate's allergen rules ({'; '.join(reasons)}). Nothing was ordered.")
-            return exit_at("allowed", "stop", "no_safe_product", msg)  # gate 3: every candidate breaks a hard rule
-        # Gate 2 (possible?): the reality check failed. Say what doesn't exist and what does, but order nothing.
-        what = intent["product"]
-        attrs = " and ".join(a.lower().replace("_", " ").replace("free from ", "") + "-free" if a.startswith("FREE_FROM_")
-                             else a.lower() for a in intent["attributes"])
-        rc = trace.get("reality_check")
-        bare = []
-        if intent["attributes"]:  # does the product itself exist, without the requirements?
-            bare, btrace = catalog.search(what, [], type_check=ai.type_check if ai.enabled() else None)
-        if bare:
-            msg = f"Valio has {what} products, but none is verifiably {attrs}. Nothing was ordered."
-            sugg = []
-        else:
-            msg = (f"“{what}” is not a product in Valio's catalog" + (f" ({rc['reason']})" if rc and rc.get("reason") else "")
-                   + ". Nothing was ordered.")
-            sugg = catalog.suggest(what, intent["attributes"])
-        res = exit_at("possible", "ask_back", "not_in_catalog", msg)
-        res["result"]["suggestions"] = sugg
+    line, res = _resolve_line(text, intent, mandate, client, steps, run_id, exit_at, rtype, inject, quantity_mismatch)
+    if res:
         return res
-
-    ids = [p["id"] for p in candidates]
-    prices = client.prices(mandate["customer"], intent["deliver_by"], ids)
-    now_s, avail = client.availability(mandate["customer"], intent["deliver_by"], ids)
-    rows = [_assess(p, prices.get(p["id"]), avail.get(p["id"]), intent, now_s) for p in candidates]
-    for r in rows:
-        if r["productId"] in subs:
-            r["substitution"] = "official_substitute"
-    # Note: the mock answers the same for every requested date (see docs/ASSUMPTIONS.md), so asking
-    # for "the next possible date" would add API calls without information. We don't.
-    usable = [r for r in rows if r["status"] in ("ok", "partial")]
-    if inject and len(usable) > 1:
-        # Red team: a deliverable product's supplier text is poisoned. The honest agent drops it.
-        target = catalog.get(sorted(usable, key=lambda r: r["price_per_req_unit"])[1]["productId"])
-        steps += _injection_attack(target, mandate, intent, client, run_id)
-        usable = [r for r in usable if r["productId"] != target["id"]]
-        rows = [r for r in rows if r["productId"] != target["id"]]
-    _score(usable, mandate["weights"])
-    rows.sort(key=lambda r: (r["status"] not in ("ok", "partial"), -(r.get("score") or 0)))
-    steps.append({"step": "price_availability", "title": "Ask Valio for price and availability (shortlist only)",
-                  "now": now_s, "rows": rows})
-
-    options = build_options(usable, intent)
-    priced = [r for r in usable if r["status"] == "ok"]
-    for g in gaps:
-        # Cheapest deliverable product for each value of the unspecified detail.
-        key = (lambda r: f"{r['product']['fatPct']:g} %" if r["product"]["fatPct"] is not None else None) \
-            if g["field"] == "fat level" else (lambda r: "long-life (UHT)" if r["product"]["longLife"] else "fresh")
-        best = {}
-        for r in priced:
-            k = key(r)
-            if k and (k not in best or r["price_per_req_unit"] < best[k]):
-                best[k] = r["price_per_req_unit"]
-        g["cheapest_per_value"] = dict(sorted(best.items(), key=lambda kv: kv[1]))
-        if len(best) > 1:
-            g["cost_spread_eur"] = round((max(best.values()) - min(best.values())) * (intent["quantity"] or 0), 2)
-    steps.append({"step": "options", "title": "Compare options (good-better-best)", "options": options, "spec_gaps": gaps})
-    if rtype == "question":  # Gate 0 said "not a purchase": answer with prices and trust flags, order nothing
-        return {"run_id": run_id, "steps": steps, "api_calls": client.calls, "mandate": mandate,
-                "result": {"status": "answered"},
-                "ladder": gates.ladder("purchase", "answer", f"{len(usable)} products can be delivered by {intent['deliver_by']}")}
-    if not options:
-        # Nothing in time. A later delivery is still "possible" (gate 2) but it is a compromise, so the order goes
-        # on and gate 5 ("Delivery on time") sends it to a person. Stated requirements are never relaxed here.
-        late = []
-        for r in rows:
-            if r.get("late_date"):
-                rr = dict(r, status="ok", delivery_date=r["late_date"], units=r["units_needed"],
-                          total=round(r["units_needed"] * r["unit_price"], 2))
-                rr["issues"] = r["issues"] + [f"earliest delivery {r['late_date']}"]
-                late.append(rr)
-        if late:
-            _score(late, mandate["weights"])
-            options = build_options(late, intent)
-            for o in options:
-                o["label"], o["why"] = f"Later delivery ({o['lines'][0]['deliveryDate']})", "nothing can arrive by the date asked"
-            steps[-1]["options"] = options
-            steps[-1]["note"] = f"Nothing arrives by {intent['deliver_by']}; the earliest option goes to a person to accept."
-    if not options:  # Gate 2: Valio can't supply it as asked; say exactly why, per reason
-        return exit_at("possible", "ask_back", "no_option", explain_no_option(rows, intent))
+    options, rows, gaps = line["options"], line["rows"], line["gaps"]
 
     # The agent knows the buyer's hard limit: it never asks for an offer it knows the gateway must block.
     hard = mandate["hard_limits"]["max_order_total_eur"]
@@ -1344,6 +1173,372 @@ def _run(text, mandate_id, overrides=None, simulate_price_change=False, inject=F
               {"order_id": order["id"], "status": order["status"], "api_calls": len(client.calls)})
     return {"run_id": run_id, "steps": steps, "order": order, "api_calls": client.calls, "mandate": mandate,
             "result": {"status": order["status"]}, "ladder": order["policy"]["ladder"]}
+
+
+MAX_BASKET_LINES = 10
+
+
+def _names_product(text):
+    """Does this part of a list say anything about what to buy (a product word, a requirement like lactose-free)?"""
+    t = catalog.fold(text)
+    if any(re.search(pat, t) for pat in ATTRS):
+        return True
+    vocab = catalog.vocabulary()
+    skip = STOP | FUNCTION_WORDS | CONTEXT_WORDS | QUESTION_WORDS | set(WEEKDAYS)
+    return any(w in {"fresh", "chilled", "uht", "skimmed", "tuore", "rasvaton"} or _known(w, vocab) for w in re.findall(r"[a-zåäö]{3,}", t) if w not in skip)
+
+
+def _plain(reason):
+    return re.sub(r"\s*Nothing was ordered[.:]?\s*", " ", str(reason or "")).strip().rstrip(".")
+
+
+def _run_basket(text, raw, intent, mandate, client, steps, run_id, exit_at, simulate_price_change, budget, exact,
+                allergy_codes):
+    """Several products in one request ("100 L milk, 20 kg butter and 300 eggs by Monday").
+
+    Each line goes through gates 1-2 exactly like a single request. If any line fails there, the whole list goes
+    back to the requester and nothing is ordered: ordering the rest would drop a line silently. Otherwise one signed
+    offer covers every line, the gateway checks it once (gates 3-5, the hard and auto-approve limits on the basket
+    total), and the whole basket is ordered, waits for one person, or stops."""
+    actor = f"agent:{mandate['agent']}"
+    if problem := request_checks.conditional(text):
+        return exit_at("clear", "ask_back", "conditional", f"Nothing was ordered: {problem}.")
+    parts = request_checks.split_lines(text)
+    lines = [p["text"] for p in parts if p["quantities"] == 1]
+    tangled = [p["text"] for p in parts if p["quantities"] > 1]
+    loose = [p["text"] for p in parts if p["quantities"] == 0 and _names_product(p["text"])]
+    if tangled or len(lines) < 2:
+        return exit_at("clear", "ask_back", "several_lines",
+                       "Nothing was ordered: the request names several quantities, but the agent couldn't tell where each "
+                       "line ends" + (f" (“{tangled[0]}”)" if tangled else "") + ". Put each product on its own line, or "
+                       "separate them with commas, for example “100 L milk, 20 kg butter”.")
+    if loose:
+        return exit_at("clear", "ask_back", "unclear_request",
+                       f"Nothing was ordered: “{'”, “'.join(loose)}” doesn't belong to one line of the list. Say it on "
+                       "each line it applies to, for example “100 L lactose-free milk, 20 L lactose-free cream”.")
+    if len(lines) > MAX_BASKET_LINES:
+        return exit_at("clear", "ask_back", "too_many_lines",
+                       f"Nothing was ordered: the list has {len(lines)} lines; the agent takes at most {MAX_BASKET_LINES} "
+                       "per request. Split it into smaller lists.")
+    dates = sorted({parse_request(l)["deliver_by"] for l in lines if request_checks.date_stated(l)})
+    if len(dates) > 1:
+        return exit_at("clear", "ask_back", "several_dates",
+                       f"Nothing was ordered: the lines ask for different delivery days ({', '.join(dates)}). "
+                       "Send one list per delivery day.")
+    store.log(run_id, actor, "basket.read", {"lines": lines})
+    steps[0]["intent"]["basket_lines"] = lines
+    banned = set(mandate["hard_limits"].get("forbidden_allergens") or [])
+
+    results = []
+    for n, line in enumerate(lines, 1):
+        lsteps = []
+        li, _, mismatch = _read_intent(ai.parse(line), line)
+        li["deliver_by"], li["request_type"], li["purpose"] = intent["deliver_by"], "buy", intent.get("purpose")
+        if intent.get("allergies"):
+            li["allergies"] = intent["allergies"]
+        lsteps.append({"step": "request", "title": f"Understand line {n}", "intent": li})
+
+        def line_exit(gate, action, status, reason, _n=n, _steps=lsteps):
+            store.log(run_id, actor, f"basket.line.{gate}.{action}", {"line": _n, "reason": reason})
+            return {"steps": _steps, "result": {"status": status, "error": reason}, "ladder": gates.ladder(gate, action, reason)}
+
+        got, res = None, None
+        if clash := request_checks.inherent_allergen(li.get("product") or "", banned):
+            name = catalog.ALLERGENS.get(clash[1], clash[1]).lower()
+            res = line_exit("allowed", "stop", "allergen_conflict",
+                            f"the product asked for ({clash[0]}) is {name}, which this request or the mandate rules out")
+        else:
+            got, res = _resolve_line(line, li, mandate, client, lsteps, run_id, line_exit, "buy", False, mismatch)
+        entry = {"n": n, "request": line, "intent": li, "steps": lsteps}
+        if res:
+            entry.update(result=res["result"], ladder=res["ladder"])
+        else:
+            entry.update(got)
+        results.append(entry)
+
+    def back(gate, status, reason):
+        res = exit_at(gate, "ask_back", status, reason)
+        res["basket"] = results
+        return res
+
+    failed = [e for e in results if "options" not in e]
+    if failed:
+        keys = [g["key"] for g in gates.GATES]
+        first = min(failed, key=lambda e: keys.index(e["ladder"]["decided_by"] or "authority"))
+        why = "; ".join(f"line {e['n']} (“{e['request']}”): {_plain(e['result']['error'])}" for e in failed)
+        rest = len(results) - len(failed)
+        return back(first["ladder"]["decided_by"], "basket_line_failed",
+                    f"Nothing was ordered: {why}. " + (f"The other {rest} line{'s' if rest > 1 else ''} could be ordered: "
+                    f"fix or remove {'that line' if len(failed) == 1 else 'those lines'} and send the list again."
+                    if rest else "No line could be ordered as asked."))
+
+    # One option per line: the recommended one, or each line's cheapest if the basket would break the hard limit.
+    hard = mandate["hard_limits"]["max_order_total_eur"]
+    picks = [e["options"][0] for e in results]
+    if sum(o["total_eur"] for o in picks) > hard:
+        picks = [min(e["options"], key=lambda o: o["total_eur"]) for e in results]
+    total = round(sum(o["total_eur"] for o in picks), 2)
+    if total > hard:
+        cost = ", ".join(f"line {e['n']} €{o['total_eur']:,.2f}" for e, o in zip(results, picks))
+        store.log(run_id, actor, "run.over_hard_limit", {"cheapest_eur": total, "hard_limit": hard})
+        res = exit_at("allowed", "stop", "over_hard_limit",
+                      f"Even at each line's cheapest option the list costs €{total:,.2f} ({cost}), above this buyer's hard "
+                      f"limit of €{hard:,} per order. Nothing was ordered: drop a line or order less.")
+        res["basket"] = results
+        return res
+    owner = {}
+    for e, o in zip(results, picks):
+        e["chosen"] = o
+        for l in o["lines"]:
+            if owner.setdefault(l["productId"], e["n"]) != e["n"]:
+                return back("clear", "same_product_twice",
+                            f"Nothing was ordered: lines {owner[l['productId']]} and {e['n']} both come to the same product "
+                            f"({l['name']}). Put them on one line with the total quantity.")
+    if len(owner) > MAX_OFFER_LINES:
+        return back("clear", "too_many_lines", f"Nothing was ordered: the list needs {len(owner)} products; one offer "
+                                               f"holds at most {MAX_OFFER_LINES}. Split it into smaller lists.")
+
+    basket = [{"line": e["n"], "request": e["request"], "product": e["intent"].get("product"),
+               "requested_quantity": e["intent"].get("quantity"), "requested_unit": e["intent"].get("unit"),
+               "products": [l["productId"] for l in o["lines"]], "required_attributes": e["intent"].get("attributes") or [],
+               "partial": bool(o["partial"]), "exact": bool(exact)} for e, o in zip(results, picks)]
+    option = {"label": "Basket", "why": f"{len(results)} lines, each checked on its own",
+              "lines": [l for o in picks for l in o["lines"]], "total_eur": total,
+              "partial": any(o["partial"] for o in picks)}
+    steps.append({"step": "basket", "title": f"Check each of the {len(results)} lines (gates 1-2)",
+                  "lines": [{"n": e["n"], "request": e["request"], "product": e["intent"].get("product"),
+                             "quantity": e["intent"].get("quantity"), "unit": e["intent"].get("unit"),
+                             "chosen": {k: e["chosen"][k] for k in ("label", "why", "lines", "total_eur", "partial")}}
+                            for e in results], "total_eur": total})
+    offer_intent = {"deliver_by": intent["deliver_by"], "quantity": None, "unit": None, "basket": basket}
+    offer, jws = create_offer(mandate, option, offer_intent)
+    steps.append({"step": "offer", "title": "Get one signed, fixed-price offer for the whole list", "offer": offer, "jws": jws})
+    context = {"deliver_by": intent["deliver_by"], "delivery_date": max(l["deliveryDate"] for l in option["lines"]),
+               "partial": False,  # per line, from the signed basket
+               "simulate_price_change": simulate_price_change, "exact_quantity": exact,
+               "request_budget": budget, "request_allergens": allergy_codes, "request": raw, "run_id": run_id,
+               "options_considered": sum(len(e["options"]) for e in results), "requested_quantity": None,
+               "required_attributes": [], "basket_lines": len(results),
+               "from_profile": sorted({x for e in results for x in e["intent"].get("from_profile") or []}),
+               "ignored_terms": [],
+               "date_assumed": not request_checks.date_stated(text),
+               "spec_gaps": [{"field": f"{e['intent'].get('product')}: {g['field']}", "cost_spread_eur": g.get("cost_spread_eur", 0)}
+                             for e in results for g in e["gaps"]],
+               "rationale": "; ".join(f"line {e['n']}: {e['chosen']['label']} ({e['chosen']['why']})" for e in results) + "."}
+    order, err = place_order(jws, f"{run_id}:{offer['offer_id']}", mandate, context, client)
+    if err and simulate_price_change:
+        steps.append({"step": "order_rejected", "title": "Order rejected by the gateway", "error": err})
+        context["simulate_price_change"] = False
+        offer, jws = create_offer(mandate, option, offer_intent)
+        steps.append({"step": "offer", "title": "Agent requests a fresh signed offer", "offer": offer, "jws": jws})
+        order, err = place_order(jws, f"{run_id}:{offer['offer_id']}", mandate, context, client)
+    if err:
+        steps.append({"step": "order_rejected", "title": "Order rejected by the gateway", "error": err})
+        res = exit_at("possible", "ask_back", "error", err)
+        res["basket"] = results
+        return res
+    order["record"]["api_calls"] = client.calls
+    order["record"]["rows"] = [{k: r.get(k) for k in ("productId", "name", "status", "issues", "total", "score",
+                                                      "reliability", "earliest_alternative")} for e in results for r in e["rows"]]
+    order["record"]["options"] = [e["chosen"] for e in results]
+    store.merge_record(order["id"], {k: order["record"][k] for k in ("api_calls", "rows", "options")})
+    steps.append({"step": "policy", "title": "Check the whole order against the mandate", "policy": order["policy"]})
+    store.log(run_id, actor, "run.completed", {"order_id": order["id"], "status": order["status"],
+                                               "lines": len(results), "api_calls": len(client.calls)})
+    return {"run_id": run_id, "steps": steps, "order": order, "api_calls": client.calls, "mandate": mandate,
+            "result": {"status": order["status"]}, "ladder": order["policy"]["ladder"], "basket": results}
+
+
+def _resolve_line(text, intent, mandate, client, steps, run_id, exit_at, rtype, inject, quantity_mismatch):
+    """Gates 1-2 for one product line: what is wanted, which products fit, Valio's prices and availability, and
+    the options. Returns ({options, rows, gaps}, None), or (None, result) when the line leaves the ladder here."""
+    if quantity_mismatch:
+        return None, exit_at("clear", "ask_back", "quantity_unclear", f"Nothing was ordered: {quantity_mismatch}.")
+    if not (intent.get("product") or "").strip():
+        return None, exit_at("clear", "ask_back", "unclear_request", "Which product? The request doesn't name one.")
+    if problem := request_checks.too_broad(intent["product"]):
+        return None, exit_at("clear", "ask_back", "too_broad", f"Nothing was ordered: {problem}.")
+    if rtype == "buy" and not intent.get("quantity"):
+        return None, exit_at("clear", "ask_back", "unclear_request", f"How much {intent['product']}? The request gives no quantity.")
+
+    if intent.get("unit") == "PCS":
+        intent["count_kind"] = count_kind(text)
+    spec = {"fat_pct": intent.get("fat_pct"), "shelf_life": intent.get("shelf_life")}
+    candidates, trace = catalog.search(intent["product"], intent["attributes"], spec=spec,
+                                       type_check=ai.type_check if ai.enabled() else None)
+    # Products the buyer named by id are the candidates (still checked against the requirements).
+    if named := request_checks.named_products(text):
+        named_ok = []
+        for pid in named:
+            p = catalog.get(pid)
+            ok, why, gaps = catalog.matches_attributes(p, intent["attributes"])
+            if not ok:
+                return None, exit_at("possible", "ask_back", "named_product_fails",
+                               f"Product {pid} ({p['name']}) doesn't meet the request: {why}. Nothing was ordered.")
+            p["_gaps"] = gaps
+            named_ok.append(p)
+        candidates, trace["named_products"] = named_ok, named
+    # Products the buyer excluded ("do NOT send Arla Cafè milk 463380", "ei kahvimaitoa").
+    asked_words = set(re.findall(r"[a-zåäö]+", catalog.fold(intent["product"])))
+    for ex in request_checks.exclusions(text):
+        words = {w for w in ex["words"] - asked_words if w in catalog.vocabulary()}
+        if not words and not ex["ids"]:
+            continue
+        before = len(candidates)
+        candidates = [p for p in candidates if p["id"] not in ex["ids"]
+                      and not (words and words <= set(re.findall(r"[a-zåäö]+", p["_text"])))]
+        if len(candidates) < before:
+            trace.setdefault("excluded_by_request", []).append(" ".join(sorted(words | ex["ids"])))
+    # Gate 1 again, now that we know what the words matched: nothing in the request may be silently dropped.
+    intent["ignored_terms"] = sorted(set(intent.get("ignored_terms") or []) |
+                                     set(unmatched_terms(text, intent, [p["_text"] for p in candidates],
+                                                         strict=intent["parser"].startswith("rules"))))
+    if rtype == "buy" and intent["ignored_terms"]:
+        return None, exit_at("clear", "ask_back", "unclear_request",
+                       f"Understood: {intent.get('quantity') or ''} {intent.get('unit', '')} {intent['product']}. "
+                       f"Not understood or not covered: {', '.join(intent['ignored_terms'])}. "
+                       "Send them as separate lines, or confirm the order without them.")
+    # The agent drops what the mandate forbids, or can't be verified, before asking for prices.
+    excluded = []
+    kept = []
+    for p in candidates:
+        why = policy.allergen_problem(mandate, p)
+        if why and why[1] == "block":
+            excluded.append({"productId": p["id"], "name": p["name"], "reason": why[0]})
+        else:
+            kept.append(p)
+    verified = [p for p in kept if not policy.allergen_problem(mandate, p)]
+    if verified and len(verified) < len(kept):  # prefer products whose allergen data proves safety
+        for p in kept:
+            if p not in verified:
+                excluded.append({"productId": p["id"], "name": p["name"], "reason": policy.allergen_problem(mandate, p)[0]})
+        kept = verified
+    candidates = kept
+    # Add Valio's official substitutes, but only if they are the same kind of product (fit check).
+    seen = {p["id"] for p in candidates}
+    subs, misfits = [], []
+    for p in list(candidates):
+        for sid in p["substitutes"]:
+            sp = catalog.get(sid)
+            if not sp or sid in seen:
+                continue
+            seen.add(sid)
+            if sp["category"] != p["category"]:
+                misfits.append({"productId": sid, "name": sp["name"], "reason": f"fit check: different product type than {p['name']}"})
+            elif policy.allergen_problem(mandate, sp):
+                misfits.append({"productId": sid, "name": sp["name"], "reason": policy.allergen_problem(mandate, sp)[0]})
+            else:
+                subs.append(sid)
+                sp["_gaps"] = []
+                candidates.append(sp)
+    # Unit sense check: 1,000 litres of chicken nuggets can't be converted, so stop before any API call.
+    if intent["unit"] in ("L", "KG") and candidates:
+        measures = Counter(m for m in (catalog.measure(p) for p in candidates) if m)
+        if measures and intent["unit"] not in measures and sum(measures.values()) >= len(candidates) / 2:
+            alt = measures.most_common(1)[0][0]
+            words = {"L": "volume (litres)", "KG": "weight (kg)"}
+            msg = (f"{intent['product'].capitalize()} are sold by {words[alt]}, not by {words[intent['unit']]}, so "
+                   f"{intent['quantity']:,g} {UNIT_WORDS[intent['unit']]} can't be ordered. Nothing was ordered.")
+            steps.append({"step": "lookup", "title": "Find candidates in the catalog (local, no API calls)",
+                          "search": trace, "excluded_by_mandate": excluded, "official_substitutes_added": [],
+                          "substitutes_rejected": [], "spec_gaps": [], "candidates": []})
+            store.log(run_id, f"agent:{mandate['agent']}", "run.unit_mismatch", {"asked": intent["unit"], "sold_by": alt})
+            res = exit_at("clear", "ask_back", "unit_mismatch", msg)  # gate 1: the quantity can't mean anything
+            res["result"]["fix"] = {"from": intent["unit"], "to": alt, "label": f"Use {intent['quantity']:,g} {UNIT_WORDS[alt]} instead"}
+            return None, res
+    candidates = apply_profile(candidates, intent, mandate)
+    gaps = spec_gaps(candidates, intent)
+    steps.append({"step": "lookup", "title": "Find candidates in the catalog (local, no API calls)",
+                  "search": trace, "excluded_by_mandate": excluded, "official_substitutes_added": subs,
+                  "substitutes_rejected": misfits, "spec_gaps": gaps,
+                  "candidates": [dict(catalog.describe(p), evidence=catalog.evidence(p, intent["attributes"])) for p in candidates]})
+    if not candidates:
+        if excluded:
+            reasons = sorted({e["reason"] for e in excluded})
+            msg = (f"All {len(excluded)} matching products fail this mandate's allergen rules ({'; '.join(reasons)}). "
+                   "Nothing was ordered. Lactose-free is not milk-free: ask for a plant-based alternative instead."
+                   if any("milk" in r for r in reasons) else
+                   f"All {len(excluded)} matching products fail this mandate's allergen rules ({'; '.join(reasons)}). Nothing was ordered.")
+            return None, exit_at("allowed", "stop", "no_safe_product", msg)  # gate 3: every candidate breaks a hard rule
+        # Gate 2 (possible?): the reality check failed. Say what doesn't exist and what does, but order nothing.
+        what = intent["product"]
+        attrs = " and ".join(a.lower().replace("_", " ").replace("free from ", "") + "-free" if a.startswith("FREE_FROM_")
+                             else a.lower() for a in intent["attributes"])
+        rc = trace.get("reality_check")
+        bare = []
+        if intent["attributes"]:  # does the product itself exist, without the requirements?
+            bare, btrace = catalog.search(what, [], type_check=ai.type_check if ai.enabled() else None)
+        if bare:
+            msg = f"Valio has {what} products, but none is verifiably {attrs}. Nothing was ordered."
+            sugg = []
+        else:
+            msg = (f"“{what}” is not a product in Valio's catalog" + (f" ({rc['reason']})" if rc and rc.get("reason") else "")
+                   + ". Nothing was ordered.")
+            sugg = catalog.suggest(what, intent["attributes"])
+        res = exit_at("possible", "ask_back", "not_in_catalog", msg)
+        res["result"]["suggestions"] = sugg
+        return None, res
+
+    ids = [p["id"] for p in candidates]
+    prices = client.prices(mandate["customer"], intent["deliver_by"], ids)
+    now_s, avail = client.availability(mandate["customer"], intent["deliver_by"], ids)
+    rows = [_assess(p, prices.get(p["id"]), avail.get(p["id"]), intent, now_s) for p in candidates]
+    for r in rows:
+        if r["productId"] in subs:
+            r["substitution"] = "official_substitute"
+    # Note: the mock answers the same for every requested date (see docs/ASSUMPTIONS.md), so asking
+    # for "the next possible date" would add API calls without information. We don't.
+    usable = [r for r in rows if r["status"] in ("ok", "partial")]
+    if inject and len(usable) > 1:
+        # Red team: a deliverable product's supplier text is poisoned. The honest agent drops it.
+        target = catalog.get(sorted(usable, key=lambda r: r["price_per_req_unit"])[1]["productId"])
+        steps += _injection_attack(target, mandate, intent, client, run_id)
+        usable = [r for r in usable if r["productId"] != target["id"]]
+        rows = [r for r in rows if r["productId"] != target["id"]]
+    _score(usable, mandate["weights"])
+    rows.sort(key=lambda r: (r["status"] not in ("ok", "partial"), -(r.get("score") or 0)))
+    steps.append({"step": "price_availability", "title": "Ask Valio for price and availability (shortlist only)",
+                  "now": now_s, "rows": rows})
+
+    options = build_options(usable, intent)
+    priced = [r for r in usable if r["status"] == "ok"]
+    for g in gaps:
+        # Cheapest deliverable product for each value of the unspecified detail.
+        key = (lambda r: f"{r['product']['fatPct']:g} %" if r["product"]["fatPct"] is not None else None) \
+            if g["field"] == "fat level" else (lambda r: "long-life (UHT)" if r["product"]["longLife"] else "fresh")
+        best = {}
+        for r in priced:
+            k = key(r)
+            if k and (k not in best or r["price_per_req_unit"] < best[k]):
+                best[k] = r["price_per_req_unit"]
+        g["cheapest_per_value"] = dict(sorted(best.items(), key=lambda kv: kv[1]))
+        if len(best) > 1:
+            g["cost_spread_eur"] = round((max(best.values()) - min(best.values())) * (intent["quantity"] or 0), 2)
+    steps.append({"step": "options", "title": "Compare options (good-better-best)", "options": options, "spec_gaps": gaps})
+    if rtype == "question":  # Gate 0 said "not a purchase": answer with prices and trust flags, order nothing
+        return None, {"run_id": run_id, "steps": steps, "api_calls": client.calls, "mandate": mandate,
+                "result": {"status": "answered"},
+                "ladder": gates.ladder("purchase", "answer", f"{len(usable)} products can be delivered by {intent['deliver_by']}")}
+    if not options:
+        # Nothing in time. A later delivery is still "possible" (gate 2) but it is a compromise, so the order goes
+        # on and gate 5 ("Delivery on time") sends it to a person. Stated requirements are never relaxed here.
+        late = []
+        for r in rows:
+            if r.get("late_date"):
+                rr = dict(r, status="ok", delivery_date=r["late_date"], units=r["units_needed"],
+                          total=round(r["units_needed"] * r["unit_price"], 2))
+                rr["issues"] = r["issues"] + [f"earliest delivery {r['late_date']}"]
+                late.append(rr)
+        if late:
+            _score(late, mandate["weights"])
+            options = build_options(late, intent)
+            for o in options:
+                o["label"], o["why"] = f"Later delivery ({o['lines'][0]['deliveryDate']})", "nothing can arrive by the date asked"
+            steps[-1]["options"] = options
+            steps[-1]["note"] = f"Nothing arrives by {intent['deliver_by']}; the earliest option goes to a person to accept."
+    if not options:  # Gate 2: Valio can't supply it as asked; say exactly why, per reason
+        return None, exit_at("possible", "ask_back", "no_option", explain_no_option(rows, intent))
+    return {"options": options, "rows": rows, "gaps": gaps}, None
 
 
 def _injection_attack(target, mandate, intent, client, run_id):

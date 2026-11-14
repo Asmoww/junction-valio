@@ -26,8 +26,12 @@ agent."*
 - **The gates differ by who can fix the problem.** 1-2: only the requester can (more information, another
   date). 3: nobody can. 4: a person who can check what the data can't. 5: a person with authority. If the
   same person could fix two gates, they would be one gate.
-- **Several lines:** today the agent takes one product line per request and sends a list back to be split (safe,
-  but not yet convenient). Next step: each line climbs the ladder, and the order takes the earliest "no".
+- **Several lines:** a shopping list ("100 L milk, 20 kg butter and 300 eggs by Monday") is cut at commas, new
+  lines and "and"; each line climbs gates 1-2 on its own. If any line fails there, the whole list goes back and
+  nothing is ordered (ordering the rest would drop a line silently). Otherwise one signed offer covers the basket,
+  gates 3-5 check it once (spend limits on the total, every line against its own request), and the order takes
+  the earliest "no". A requirement that belongs to no single line ("both lactose-free"), different delivery days
+  or two lines landing on one product also go back.
 - **A split order is still one product kind.** When no single product covers the quantity, the agent only
   combines products of the same fat %, shelf life and lactose status; mixing kinds would change what was
   asked for.
@@ -58,7 +62,7 @@ agent."*
 | Gate | Checks (rule names as in the policy engine) | Where it runs |
 |---|---|---|
 | 0 Purchase? | Request type: buy, question, change, other (Claude reads it; rule-based fallback) | Buyer agent |
-| 1 Clear? | One product line per request (a shopping list is sent back as separate lines) · a real quantity in a unit Valio sells (dl/cl/ml converted; negative, zero, half packs, km or teaspoons refused) · a real, future date · not too broad ("something white", "Valio products") · no conditions the agent can't check · no instructions aimed at the agent inside the request ("ignore previous instructions…"); a product is named; a quantity is given; no product words were dropped ("chili cheese chicken … 100 litre milk" is not just milk) | Buyer agent |
+| 1 Clear? | Each line of a list is clear on its own (a requirement that fits no single line, or two delivery days, goes back) · a real quantity in a unit Valio sells (dl/cl/ml converted; negative, zero, half packs, km or teaspoons refused) · a real, future date · not too broad ("something white", "Valio products") · no conditions the agent can't check · no instructions aimed at the agent inside the request ("ignore previous instructions…"); a product is named; a quantity is given; no product words were dropped ("chili cheese chicken … 100 litre milk" is not just milk) | Buyer agent |
 | 2 Possible? | Some matching product is in the catalog; at least one can be priced and delivered (in full, split, late or as a substitute) | Buyer agent + Valio APIs |
 | 3 Allowed? | Offer genuine (signature, unchanged, unexpired, key used once) · Mandate valid · Hard spend limit · Forbidden allergens (mandate + allergies stated in the request) · Required claims · Substitutions allowed · Matches the buyer's request (no over-ordering) · well-formed order lines | Valio's gateway |
 | 4 Proven? | Allergens verifiable from data · Claims verified in product data · Stock confirmed by Valio · Delivery history known (if the mandate requires it) | Valio's gateway |
