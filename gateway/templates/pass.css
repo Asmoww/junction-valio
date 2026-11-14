@@ -151,7 +151,7 @@ body.pass {
 .pass .hist .tk.stop .tkst b { color: var(--stop); } .pass .hist .tk.back .tkst b { color: var(--pen); }
 .pass .hist .tkwhy { font-size: 12px; color: #34445f; margin-top: 3px; }
 .pass .hist .tk .mk.stop { position: absolute; right: 14px; bottom: 10px; margin: 0; font-size: 30px; transform: rotate(-10deg); opacity: .85; }
-.pass .hist .tk.stop .tkwhy { padding-right: 38px; }
+
 
 /* Earlier tickets are printed on paper in the colour of their outcome */
 .pass .hist .tk.go { --paper: #e6f4e8; }

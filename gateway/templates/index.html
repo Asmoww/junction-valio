@@ -759,14 +759,14 @@ function outcome(res, status) {
   if (s === 'placed') return ['go', 'Fired. Agent did it.'];
   if (s === 'pending_approval') { const who = firstName(o.policy.approver?.name);
     return ['hold', o.policy.ladder?.decided_by === 'proven' ? `${esc(who)}: check a fact.` : `Over its limit. ${esc(who)}'s call.`]; }
-  if (s === 'blocked' || l.action === 'stop' || l.action === 'decline' || s === 'rejected') return ['stop', '86'];
+  if (s === 'blocked' || l.action === 'stop' || l.action === 'decline' || s === 'rejected') return ['stop', 'Not ordered.'];
   if (l.action === 'ask_back') return ['back', 'Back to you.'];
   if (l.action === 'answer' || res.result?.status === 'answered') return ['back', 'Answered. Nothing ordered.'];
   return ['back', 'Nothing ordered.'];
 }
 function markNote(res) {
   const [tone, text] = outcome(res);
-  note(tone, text === '86' ? 'Not ordered.' : text, document.querySelector('#decision .decision') || document.querySelector('#decision'));
+  note(tone, text, document.querySelector('#decision .decision') || document.querySelector('#decision'));
 }
 function remember(res, over = {}) {
   if (!TICKET || !res) return;
@@ -793,8 +793,7 @@ function remember(res, over = {}) {
     : s === 'blocked' || l.action === 'stop' || l.action === 'decline' ? ['stop', 'Not ordered', reason || 'A hard rule stops it']
     : l.action === 'ask_back' ? ['back', 'Sent back to the kitchen', reason]
     : ['back', 'Nothing ordered', reason];
-  const mark = {go: 'Fired.', hold: `${who}'s call.`, stop: '86', back: 'Back to you.'}[tone];
-  const entry = {n: TICKET.n, buyer: TICKET.buyer, request: TICKET.request, tone, label, why, mark, total: tot, gates};
+  const entry = {n: TICKET.n, buyer: TICKET.buyer, request: TICKET.request, tone, label, why, total: tot, gates};
   st.list = [entry, ...st.list.filter(x => x.n !== entry.n)].slice(0, 6);
   localStorage.setItem(PASS_KEY, JSON.stringify(st));
   renderHist();
@@ -814,7 +813,7 @@ function renderHist() {
     <div class="tkq">“${esc(clip(x.request, 70))}”</div>
     <div class="mini" title="The six checks">${(x.gates || []).map(g => box(g, x.tone)).join('')}</div>
     <div class="tkst"><b>${icon[x.tone]} ${esc(x.label)}</b>${x.total ? `<span>${esc(x.total)}</span>` : ''}</div>
-    <div class="tkwhy">${esc(x.why || '')}</div>${x.tone === 'stop' ? `<span class="mk stop">${esc(x.mark)}</span>` : ''}</div>` : '';
+    <div class="tkwhy">${esc(x.why || '')}</div></div>` : '';
   const label = list.length ? '<div class="histlabel">Earlier orders</div>' : '';
   $('#histL').innerHTML = label + tk(list[0]) + tk(list[2]); $('#histR').innerHTML = (list.length > 1 ? '<div class="histlabel">&nbsp;</div>' : '') + tk(list[1]) + tk(list[3]);
 }
