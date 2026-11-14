@@ -203,3 +203,16 @@ Still open (stated, not hidden): one shared sign-in for people (phone approval l
 anyone signed in can issue one); a requester can't cancel or lower the budget of a waiting order; MCP parity
 is untested here (same functions, `mcp` not installed). Framework question raised: "nut allergy + muesli whose
 data lists no nuts and no may-contain" is ordered alone (data proves it); the benchmark wanted a fact check.
+
+## Week plans and learning (14 Nov, branch `feat/week-plan`)
+- **Where a week plan sits on the ladder:** gate 5 ("Agent's call?"), as authority given in advance. A plan
+  the approver signed answers "may the agent spend this?" for the products, units, budget and dates it
+  names. It never touches gates 0-4: a banned allergen, a fact the data can't prove or a changed price still
+  stops or escalates an order inside a plan. Rule 5 (authority adds up) holds: the plan's units and budget
+  are counted across orders.
+- **Who may sign:** an approver from the mandate with authority for the whole plan budget. The agent can't
+  create, sign or claim a plan; the gateway finds the plan at commit.
+- **Recipes** only fill the planner; everything worked out from them is marked as assumed (rule 2: an
+  assumed value is confirmed by a person, here the chef before sending the plan).
+- **Learning** produces suggestions only. Turning one into a rule needs the buyer (plan or re-signed
+  mandate): the agent never widens its own authority.

@@ -12,7 +12,7 @@ from urllib.parse import quote as urlquote
 from fastapi import Body, FastAPI, Form, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from . import plans, recipe, agent, ai, catalog, gates, policy, security, signing, standards, store
+from . import learning, plans, recipe, agent, ai, catalog, gates, policy, security, signing, standards, store
 from .config import AGENT_TOKEN as AGENT_TOKEN_ENV, AGENT_TOKEN_SCOPE, DEMO_CLOCK, DEMO_PASSWORD
 from .mcp_server import app as mcp_app
 from .mcp_server import mcp
@@ -229,6 +229,14 @@ def planner_from_recipe(request: Request, body: dict = Body(...)):
     if err:
         raise HTTPException(409, err)
     return out
+
+
+@app.get("/api/learning", tags=["demo"])
+def learned(mandate_id: str = "mnd_hotel_helsinki"):
+    """Suggestions from past human decisions and ask-backs. Suggestions only: nothing is applied automatically."""
+    if mandate_id not in policy.mandates():
+        raise HTTPException(404, "unknown mandate")
+    return learning.suggestions(mandate_id)
 
 
 @app.get("/api/plans", tags=["demo"])

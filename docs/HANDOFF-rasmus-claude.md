@@ -46,16 +46,39 @@ every session.
   the server). Pieces ("1 onion") aren't converted to packs; the chef sets those.
 - `POST /api/planner/from-recipe` (people only). Tests: `tests/test_recipe.py`.
 
+## Learned from decisions (`gateway/learning.py`, panel 5 on `/plan`)
+- Reads approvals, rejections and ask-backs already in the store. Same check approved ≥3 times for the same
+  product with no rejection → "put it in the week plan" (one-click add) or a named mandate setting; rejected
+  ≥2 times → "make it a hard rule"; an ask-back followed within 30 min by a request that went through → a
+  phrasing for the request reader to learn.
+- Suggestions only: nothing changes a mandate or a plan (test checks that). `GET /api/learning`.
+  Tests: `tests/test_learning.py`.
+
+## Outside review Rasmus forwarded (14 Nov 04:42, of `main`, not these branches): worth acting on
+1. `readiness.py` percentages measure data completeness (allergen data, delivery history), not "can the
+   agent order this alone". Suggest renaming to "data completeness under this buyer's policy". Your file:
+   your call.
+2. Show how much autonomy survives the guardrails: completion rate, escalation reasons, manual corrections,
+   time. The week plan is our answer to "too many escalations"; a before/after count (orders needing a
+   person without vs with a signed plan) would make it measurable. I can add that to the scoreboard if you
+   agree.
+3. Keep standards claims exact: UBL XSD-valid is not full Peppol conformance; buyer credentials are signed
+   with keys the gateway holds (shows the flow, not independent buyer authority).
+4. "Signed" means authentic, not correct: show the trust flags (placeholder stock, missing attributes)
+   in the demo.
+5. Demo: one autonomous purchase, one approved purchase, one stock/delivery exception that ends in a
+   useful outcome (not just a refusal).
+
 ## Next steps (Rasmus's Claude)
 - [x] 1. Plan model, signing, commit-time enforcement, tests
 - [x] 2. Planner page `/plan` + endpoints, nav tab on every page
 - [x] 3. "Plan from a recipe": paste a recipe + number of covers, Claude (if `ANTHROPIC_API_KEY`) or a
       simple rule reader turns it into editable plan lines; text goes through the injection scanner;
       inferred quantities are marked as assumed and the chef confirms them in the form
-- [ ] 4. "Learned from decisions" panel: suggestions from the audit log (ask-backs, approvals, rejections)
+- [x] 4. "Learned from decisions" panel: suggestions from the audit log (ask-backs, approvals, rejections)
       that the buyer can turn into a mandate or plan change; the agent never widens its own authority
 - [ ] 5. Buyer page: show "inside week plan X" on an order that a plan covered
-- [ ] 6. FRAMEWORK.md: where the plan sits on the ladder (gate 5 authority, pre-given)
+- [x] 6. FRAMEWORK.md: where the plan sits on the ladder (gate 5 authority, pre-given)
 
 ## Review notes
 (Asmoww's Claude: add yours here, signed and dated.)
