@@ -443,3 +443,4 @@ details summary { color: var(--valio); font-weight: 600; }
 .panel + .rhead, .panel + div, .panel + section { margin-top: 36px; }
 .composer textarea { flex: 1; width: auto; }
 @media (max-width: 900px) { .fgrid > .span7, .fgrid > .span9 { grid-column: span 12; } }
+.s .dot { transition: background .25s, box-shadow .25s, color .25s; } .s h3, .s li { transition: color .25s; }

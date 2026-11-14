@@ -161,7 +161,7 @@ async function run() {
       simulate_price_change: $('#priceChange').checked, inject: $('#inject').checked, real_clock: $('#realClock').checked });
     clearTimeout(workTimer);
     LAST = res;
-    $('#out').innerHTML = saidHtml(res) + stepsHtml(res) + alertHtml(res) + `<div id="decision">${decisionHtml(res)}</div>` + linksHtml(res);
+    await settle(res);
   } catch (e) {
     $('#out').innerHTML = `<div class="decision red"><div class="what"><h2>Something went wrong</h2><p>${esc(e.message)}</p></div></div>`;
   }
@@ -169,6 +169,26 @@ async function run() {
 }
 
 let LAST = null;
+
+// The progress row that was animating while the agent worked becomes the result in place: no redraw.
+async function settle(res) {
+  const live = document.querySelector('.steps.live'), fresh = document.createElement('div');
+  fresh.innerHTML = stepsHtml(res);
+  const next = fresh.querySelector('.steps');
+  if (!live || !next) {  // nothing to continue from (e.g. no ladder): show the result directly
+    $('#out').innerHTML = saidHtml(res) + stepsHtml(res) + alertHtml(res) + `<div id="decision">${decisionHtml(res)}</div>` + linksHtml(res);
+    return;
+  }
+  const said = document.querySelector('.said.working');
+  if (said) { said.nextElementSibling?.classList.contains('saidnote') && said.nextElementSibling.remove(); said.outerHTML = saidHtml(res); }
+  live.className = 'steps';
+  const olds = live.querySelectorAll('.s'), news = next.querySelectorAll('.s');
+  for (let i = 0; i < olds.length; i++) {
+    olds[i].className = news[i].className; olds[i].innerHTML = news[i].innerHTML; olds[i].style.animationDelay = '';
+    if (i >= 2 && i < olds.length - 1 && !news[i].classList.contains('off')) await sleep(140);
+  }
+  live.insertAdjacentHTML('afterend', alertHtml(res) + `<div id="decision">${decisionHtml(res)}</div>` + linksHtml(res));
+}
 const GATE_NAMES = {purchase: 'A purchase', clear: 'Clear', possible: 'Valio has it', allowed: 'Safe', proven: 'Proven', authority: "Agent's call"};
 const GATE_HINT = {purchase: 'An order, not a question', clear: 'Amount, product and date known', possible: 'Real products, priced, in time',
                    allowed: 'Hard rules no one can override', proven: 'Facts backed by Valio data', authority: 'Within what the agent may spend'};
@@ -187,7 +207,7 @@ function stepsIdle(cls = '') {
 }
 
 function idleHtml(working) {
-  if (working) return `<p class="said working">“${esc($('#request').value)}”</p>` + stepsIdle('live');
+  if (working) return `<p class="said working">“${esc($('#request').value)}”</p><div class="saidnote"></div>` + stepsIdle('live');
   return `<h2 class="rhead">What happens next</h2>${stepsIdle()}
     <p class="idlehint">The first “no” decides who acts next: the agent, a person, or nobody.</p>`;
 }
@@ -280,7 +300,7 @@ function stepsHtml(res) {
     if (key === 'authority') return ruleList('authority');
     return '';
   }
-  return `<div class="steps go">${l.gates.map((g, i) => {
+  return `<div class="steps">${l.gates.map((g, i) => {
     const state = g.state, cls = state === 'pass' ? (l.action === 'order' && !l.decided_by ? 'done' : '') : state === 'fail' ? 'fail ' + tone : 'off';
     const icon = state === 'pass' ? '✓' : state === 'fail' ? (tone === 'stop' ? '×' : tone === 'back' ? '?' : '!') : i + 1;
     const body = state === 'not_reached' ? '' : facts(g.key, state);
