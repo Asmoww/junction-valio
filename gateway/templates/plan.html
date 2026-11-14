@@ -213,14 +213,33 @@ async function loadPlans() {
   }).filter((x, i) => i < 4).join('') || '<span class="muted">No plans yet.</span>';
 }
 
+let GLOSSARY = [];
+const keyOf = s => String(s || '').toLowerCase().replace(/[^\w\s%€.,-]/g, ' ').replace(/[.,!?;:]+(\s|$)/g, '$1').replace(/\s+/g, ' ').trim();
+const glossaryHas = p => GLOSSARY.some(e => e.status === 'active' && keyOf(e.phrase) === keyOf(p));
+async function teach(x) {
+  try { await post('/api/glossary', {mandate_id: mid(), phrase: x.phrase, meaning: x.meaning, by: $('#who') ? $('#who').value : 'buyer',
+    source: {from: 'learned suggestion'}}); loadLearned(); }
+  catch (e) { $('#err').textContent = e.message; }
+}
+async function untaught(ev, id) {
+  ev.preventDefault();
+  try { await post(`/api/glossary/${id}/revoke`, {by: $('#who') ? $('#who').value : 'buyer'}); loadLearned(); }
+  catch (e) { $('#err').textContent = e.message; }
+}
 async function loadLearned() {
+  GLOSSARY = await api('/api/glossary?mandate_id=' + mid()).catch(() => []);
   const r = await api('/api/learning?mandate_id=' + mid());
   const rules = r.rule_suggestions.map(x => `<div class="planbox"><div class="small"><span class="chip ${x.kind === 'loosen' ? 'navy' : ''}">${x.kind === 'loosen' ? `approved ${x.approved}/${x.approved}` : `rejected ${x.rejected}/${x.rejected}`}</span> ${esc(x.text)}</div>
       <div class="small muted" style="margin-top:6px">Suggestion: ${esc(x.action)}. ${x.evidence.slice(-3).map(e => `${esc(e.approver || '')}: “${esc(e.comment || e.decision)}”`).join(' · ')}</div>
       ${x.where === 'plan' ? `<button class="btn btn-soft" style="margin-top:8px" onclick='add(${JSON.stringify({id: x.productId, name: x.product, unit: ""})})'>Add to this week's plan</button>` : ''}</div>`);
   const asks = r.clarifications.map(x => `<div class="planbox small"><div>The agent asked back about “${esc(x.asked)}”<div class="muted">${esc(x.why)}</div></div>
-      <div style="margin-top:6px">Next request went through: “${esc(x.clarified)}”</div><div class="muted" style="margin-top:4px">Suggestion: ${esc(x.action)}.</div></div>`);
-  const all = [...rules, ...asks];
+      <div style="margin-top:6px">Next request went through: “${esc(x.clarified)}”</div>
+      ${glossaryHas(x.asked) ? '<div class="muted" style="margin-top:6px">Already in the glossary.</div>' :
+        `<button class="btn btn-soft" style="margin-top:8px" onclick='teach(${JSON.stringify({phrase: x.asked, meaning: x.clarified})})'>Teach the reader: next time, read it this way</button>`}</div>`);
+  const gl = GLOSSARY.filter(e => e.status === 'active').map(e => `<div class="planbox small"><b>Glossary</b> · “${esc(e.phrase)}” is read as “${esc(e.meaning)}”
+      <div class="muted" style="margin-top:4px">Taught by ${esc(e.taught_by)} · only says what is meant; every rule still applies
+      · <a href="#" onclick="untaught(event,'${e.id}')">remove</a></div></div>`);
+  const all = [...gl, ...rules, ...asks];
   $('#learned').innerHTML = all.slice(0, 3).join('') || 'Nothing yet.';
   $('#learnedMore').innerHTML = all.length > 3 ? `<details style="margin-top:14px"><summary>${all.length - 3} more</summary><div class="plangrid small" style="margin-top:12px">${all.slice(3).join('')}</div></details>` : '';
   $('#learnedN').textContent = all.length ? `(${all.length})` : '';

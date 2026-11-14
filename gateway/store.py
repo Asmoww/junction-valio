@@ -27,6 +27,7 @@ _db.executescript("""
 CREATE TABLE IF NOT EXISTS offers (id TEXT PRIMARY KEY, mandate_id TEXT, payload TEXT, jws TEXT, created TEXT);
 CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, offer_id TEXT, idempotency_key TEXT UNIQUE,
   status TEXT, total REAL, mandate_id TEXT, policy TEXT, record TEXT, created TEXT, updated TEXT);
+CREATE TABLE IF NOT EXISTS glossary (id TEXT PRIMARY KEY, mandate_id TEXT, status TEXT, data TEXT, created TEXT);
 CREATE TABLE IF NOT EXISTS plans (id TEXT PRIMARY KEY, mandate_id TEXT, status TEXT, data TEXT, created TEXT, updated TEXT);
 CREATE TABLE IF NOT EXISTS game_attempts (id TEXT PRIMARY KEY, ts TEXT, data TEXT);
 CREATE TABLE IF NOT EXISTS events (seq INTEGER PRIMARY KEY AUTOINCREMENT, ref TEXT, ts TEXT, actor TEXT,
@@ -206,3 +207,24 @@ def save_attempt(a):
 
 def attempts(limit=2000):
     return [dict(json.loads(r["data"]), ts=r["ts"]) for r in _q("SELECT ts, data FROM game_attempts ORDER BY ts DESC LIMIT ?", (limit,))]
+
+
+# ---- Buyer glossaries (glossary.py) -------------------------------------------------------------------------
+
+def save_glossary(e):
+    with _lock:
+        _db.execute("INSERT INTO glossary VALUES (?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status, "
+                    "data=excluded.data", (e["id"], e["mandate_id"], e["status"], json.dumps(e, default=str), e["created"]))
+        _db.commit()
+
+
+def get_glossary(entry_id):
+    with _lock:
+        r = _db.execute("SELECT data FROM glossary WHERE id = ?", (entry_id,)).fetchone()
+    return json.loads(r["data"]) if r else None
+
+
+def glossary_for(mandate_id):
+    with _lock:
+        rows = _db.execute("SELECT data FROM glossary WHERE mandate_id = ? ORDER BY created DESC", (mandate_id,)).fetchall()
+    return [json.loads(r["data"]) for r in rows]

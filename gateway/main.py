@@ -13,7 +13,7 @@ from fastapi import Body, FastAPI, File, Form, Header, HTTPException, Request, S
 from fastapi.security import HTTPBearer
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from . import learning, unlock, plans, recipe, agent, ai, catalog, gates, policy, security, recalls, signing, standards, store, vision, preplanner, game, receipt, trust, a2a, ap2, onboard, schemas
+from . import glossary, learning, unlock, plans, recipe, agent, ai, catalog, gates, policy, security, recalls, signing, standards, store, vision, preplanner, game, receipt, trust, a2a, ap2, onboard, schemas
 from .config import AGENT_TOKEN as AGENT_TOKEN_ENV, AGENT_TOKEN_SCOPE, DEMO_CLOCK, DEMO_PASSWORD
 from .mcp_server import app as mcp_app
 from .mcp_server import mcp
@@ -264,6 +264,34 @@ def learned(mandate_id: str = "mnd_hotel_helsinki"):
     if mandate_id not in policy.mandates():
         raise HTTPException(404, "unknown mandate")
     return learning.suggestions(mandate_id)
+
+
+@app.get("/api/glossary", tags=["demo"])
+def glossary_list(mandate_id: str = "mnd_hotel_helsinki"):
+    """The buyer's taught phrasings (active and past)."""
+    if mandate_id not in policy.mandates():
+        raise HTTPException(404, "unknown mandate")
+    return glossary.entries(mandate_id, active_only=False)
+
+
+@app.post("/api/glossary", tags=["demo"])
+def glossary_teach(request: Request, body: dict = Body(...)):
+    """A person teaches a phrasing (usually by accepting a learned suggestion). Agents can't reach /api."""
+    _human(request)
+    e, err = glossary.teach(body.get("mandate_id"), body.get("phrase"), body.get("meaning"),
+                            str(body.get("by") or "buyer"), body.get("source"))
+    if err:
+        raise HTTPException(409, err)
+    return e
+
+
+@app.post("/api/glossary/{entry_id}/revoke", tags=["demo"])
+def glossary_revoke(request: Request, entry_id: str, body: dict = Body(default={})):
+    _human(request)
+    e, err = glossary.revoke(entry_id, str((body or {}).get("by") or "buyer"))
+    if err:
+        raise HTTPException(409, err)
+    return e
 
 
 @app.get("/api/plans", tags=["demo"])

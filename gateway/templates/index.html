@@ -344,6 +344,7 @@ function saidHtml(res) {
   marks.forEach(re => { raw = raw.replace(re, m => `\u0001${m}\u0002`); });
   raw = raw.replace(/\u0001/g, '<mark>').replace(/\u0002/g, '</mark>');
   const notes = [
+    ...(i.glossary || []).map(g => `<span>read using your glossary: “${esc(g.phrase)}” = “${esc(g.meaning)}” (taught by ${esc(g.taught_by)})</span>`),
     ...(i.from_profile || []).map(x => `<span>${esc(x)} from the buyer’s profile</span>`),
     ...(i.allergies || []).map(x => `<span class="bad">no ${esc(x)}</span>`),
     ...(i.ignored_terms || []).length ? [`<span class="warn">not understood: ${esc(i.ignored_terms.join(', '))}</span>`] : [],
