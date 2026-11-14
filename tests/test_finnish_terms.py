@@ -42,3 +42,15 @@ def test_the_finnish_name_of_the_ordered_product_is_not_a_dropped_word():
     assert "voita" not in agent.unmatched_terms("10 kg voita maanantaiksi", {"product": "butter"}, ["Valio butter 500 g"])
     assert agent._native_name("voita", "butter") and not agent._native_name("voita", "milk")
     assert agent._native_name("maitoa", "milk") and agent._native_name("mjölk", "milk")
+
+
+def test_what_an_order_is_for_is_not_a_dropped_word():
+    i = _intent("eggs", ignored_terms=["breakfast buffet"])
+    ai._purpose_terms(i, "Need 200 eggs for Monday's breakfast buffet.")
+    assert i["ignored_terms"] == []
+    i = _intent("eggs", ignored_terms=["10 kg flour"])
+    ai._purpose_terms(i, "200 eggs for the cake and 10 kg flour")
+    assert i["ignored_terms"] == ["10 kg flour"]  # a quantity is another line, never a purpose
+    i = _intent("milk", ignored_terms=["plutonium"])
+    ai._purpose_terms(i, "100 litres of milk and plutonium by Monday")
+    assert i["ignored_terms"] == ["plutonium"]  # not in a purpose clause

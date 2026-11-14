@@ -53,6 +53,7 @@ SYSTEM = ("You convert a professional kitchen's purchasing request into a struct
           "Finnish milk names state the fat level, so they count as stated: kevytmaito = product milk, fat_pct 1.5; "
           "rasvaton maito = milk, fat_pct 0; ykkösmaito = milk, fat_pct 1; täysmaito = milk, fat_pct 3.5. "
           "Finnish shelf life: pitkään säilyvä or UHT = long_life; tuore = fresh. "
+          "Plain, unflavoured or maustamaton yoghurt/quark is natural (product: natural yoghurt). "
           "If the request names no product, return an empty string as product: never invent one. "
           "Low-lactose (vähälaktoosinen) is not lactose-free: only add FREE_FROM_LACTOSE when the buyer says "
           "lactose-free (laktoositon, in any inflection: laktoositonta, laktoosittomana). The intent holds one product: if the request names more than one product, "
@@ -150,6 +151,7 @@ def parse(text, today=None):
     if intent.get("product", "").strip().lower() in ("unspecified", "unknown", "none", "n/a", "product"):
         intent["product"] = ""
     _finnish_terms(intent, text)
+    _purpose_terms(intent, text)
     intent["raw"] = text
     intent["reader"] = reader_name()
     return intent
@@ -160,7 +162,10 @@ def parse(text, today=None):
 # product called "light milk". Only fills what the model left empty; never overrides a value it read.
 _FI_LACTOSE_FREE = re.compile(r"\blaktoosit\w*", re.I)  # laktoositon, -ta, laktoositonta, laktoosittomana ...
 _FI_MILK_FAT = [(re.compile(r"\bkevytmai\w*", re.I), 1.5), (re.compile(r"\bykkösmai\w*", re.I), 1.0),
-                (re.compile(r"\btäysmai\w*", re.I), 3.5), (re.compile(r"\brasvat\w*\s+mai\w*", re.I), 0.0)]
+                (re.compile(r"\btäysmai\w*", re.I), 3.5), (re.compile(r"\brasvat\w*\s+mai\w*", re.I), 0.0),
+                # English names that state the fat level of milk (semi first: "semi-skimmed" also contains "skimmed")
+                (re.compile(r"\bsemi[- ]?skim(med)?\b", re.I), 1.5), (re.compile(r"\bskim(med)?\s+milk", re.I), 0.0),
+                (re.compile(r"\bwhole\s+milk", re.I), 3.5)]
 _FI_LONG_LIFE = re.compile(r"\bpitkään\s+säilyv\w*|\bUHT\b", re.I)
 
 
@@ -187,6 +192,21 @@ def _finnish_terms(intent, text):
         stems = [catalog_fold(w)[:6] for w in found]
         intent["ignored_terms"] = [w for w in intent.get("ignored_terms") or []
                                    if not any(catalog_fold(w).startswith(s) or s in catalog_fold(w) for s in stems)]
+
+
+# What the order is for ("200 eggs for Monday's breakfast buffet") isn't a product the reading dropped. Models file
+# such words as unplaced, which sent everyday requests back to the kitchen. A term inside a "for ..." clause with no
+# quantity in it is dropped from ignored_terms; anything with a number ("for the cake and 10 kg flour") stays.
+_PURPOSE = re.compile(r"\b(?:for|to|varten|till|för)\b(.*)$", re.I | re.S)
+
+
+def _purpose_terms(intent, text):
+    m = _PURPOSE.search(str(text or ""))
+    if not m or not intent.get("ignored_terms"):
+        return
+    clause = catalog_fold(m.group(1))
+    intent["ignored_terms"] = [w for w in intent["ignored_terms"]
+                               if re.search(r"\d", w) or catalog_fold(w).strip(" .,'’") not in clause]
 
 
 def catalog_fold(s):

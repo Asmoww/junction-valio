@@ -6,7 +6,7 @@ the decision ladder (gates.py).
 """
 import re
 import unicodedata
-from datetime import date
+from datetime import date, timedelta
 
 from . import catalog
 
@@ -450,7 +450,7 @@ def date_stated(text):
     t = catalog.fold(normalise(text))
     return bool(re.search(r"\d{4}-\d{2}-\d{2}|\b\d{1,2}\.\d{1,2}\.|\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday"
                           r"|today|tonight|tomorrow|asap|right now|immediately|in \d{1,2} days?)\b|\b(maanantai|tiistai|keskiviikko"
-                          r"|torstai|perjantai|lauantai|sunnuntai|huomen|måndag|tisdag|onsdag|torsdag|fredag|lördag|söndag|imorgon)"
+                          r"|torstai|perjantai|lauantai|sunnuntai|huomen|huomi|keskiviik|tänään|tanaan|idag|måndag|tisdag|onsdag|torsdag|fredag|lördag|söndag|imorgon)"
                           r"|\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2}\b"
                           r"|\b\d{1,2}(st|nd|rd|th)?\s+(of\s+)?(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)", t))
 
@@ -578,3 +578,32 @@ GAMING = re.compile(r"\b(stay|keep (it|this|them|the (total|order|amount|price|s
 def policy_gaming(text):
     m = GAMING.search(catalog.fold(normalise(text)))
     return f"it asks the agent to work around a limit (“{m.group(0)}”)" if m else ""
+
+
+# ---- The delivery day, read without a model ---------------------------------------------------------------------
+_DAY_WORDS = [  # (weekday 0-6 or "today"/"tomorrow", stems in English, Finnish, Swedish)
+    (0, ("monday", "maanantai", "måndag", "mandag")), (1, ("tuesday", "tiistai", "tisdag")),
+    (2, ("wednesday", "keskiviik", "onsdag")), (3, ("thursday", "torstai", "torsdag")),
+    (4, ("friday", "perjantai", "fredag")), (5, ("saturday", "lauantai", "lördag", "lordag")),
+    (6, ("sunday", "sunnuntai", "söndag", "sondag")),
+    ("today", ("today", "tänään", "tanaan", "idag")), ("tomorrow", ("tomorrow", "huomen", "huomi", "imorgon")),
+]
+
+
+def plain_day(text, today):
+    """The date a plain day word means ("by Monday", "maanantaiksi", "tomorrow"), or None when the request names a
+    calendar date, more than one day, or none. Weekdays mean the next such day after today, as in the reader's prompt.
+    Used to hold the model's date to the words: a model once read "by Monday" as Tuesday."""
+    t = str(text or "").lower()
+    if re.search(r"\d{4}-\d{2}-\d{2}|\b\d{1,2}\.\d{1,2}\.", t) or re.search(r"\bnext (week|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b", t):
+        return None
+    words = re.findall(r"[a-zåäö]+", t)
+    hits = {key for key, stems in _DAY_WORDS for w in words if any(w.startswith(s) for s in stems)}
+    if len(hits) != 1:
+        return None
+    key = hits.pop()
+    if key == "today":
+        return today
+    if key == "tomorrow":
+        return today + timedelta(days=1)
+    return today + timedelta(days=(key - today.weekday() - 1) % 7 + 1)

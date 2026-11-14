@@ -295,7 +295,8 @@ NATIVE_NAMES = {"butter": ("voi", "voita", "voin", "smör"), "milk": ("maito", "
                 "yoghurt": ("jogurt", "yoghurt"), "egg": ("kananmun", "munia", "munaa", "ägg"),
                 "eggs": ("kananmun", "munia", "munaa", "ägg"), "flour": ("jauho", "vehnäjauho", "mjöl"),
                 "sugar": ("sokeri", "socker"), "potato": ("peruna", "potatis"), "potatoes": ("peruna", "potatis"),
-                "oat drink": ("kaurajuoma", "havredryck"), "quark": ("rahka", "kvarg"), "coffee": ("kahvi", "kaffe")}
+                "oat drink": ("kaurajuoma", "havredryck"), "quark": ("rahka", "kvarg"), "coffee": ("kahvi", "kaffe"),
+                "chicken": ("broiler", "kana", "kyckling"), "chicken breast fillet": ("broiler", "kana", "rintafile")}
 
 
 def _native_name(w, product):
@@ -329,7 +330,7 @@ def unmatched_terms(text, intent, covered_texts=(), strict=False):
     for ct in covered_texts:
         cover_words |= set(re.findall(r"[a-zåäö]+", catalog.fold(ct)))
     vocab = catalog.vocabulary()
-    ignore = STOP | set(WEEKDAYS) | set(UNITS) | CONTEXT_WORDS | QUESTION_WORDS | FUNCTION_WORDS \
+    ignore = STOP | set(WEEKDAYS) | set(UNITS) | CONTEXT_WORDS | QUESTION_WORDS | FUNCTION_WORDS | COUNT_WORDS \
         | set(request_checks.VOLUME) | set(request_checks.MASS) | request_checks.COUNT | {"lactose", "free"}
 
     def is_covered(w):
@@ -436,9 +437,10 @@ def _assess(p, price, avail, intent, now_s):
     elif available < need:
         row["status"] = "partial"
         row["issues"].append(f"only {available:g} {p['salesUnit']} available, need {need}")
-    if a.get("logisticModel") == "Terminal" and row["status"] == "ok":
-        row["issues"].append("delivered from supplier's warehouse: quantity not confirmed by Valio")
-        row["unconfirmed_stock"] = True
+    if a.get("logisticModel") == "Terminal":
+        row["unconfirmed_stock"] = True  # also on later-delivery rows, so the agent can prefer confirmed stock there
+        if row["status"] == "ok":
+            row["issues"].append("delivered from supplier's warehouse: quantity not confirmed by Valio")
     row["available_units"] = available
     row["delivery_date"] = min((s["availableDate"] for s in lines), default=None)
     row["trust"] = trust_flags(p, price, a, available, now_s)
@@ -585,12 +587,23 @@ def _kind_text(k):
     return ", ".join(parts)
 
 
-def build_options(rows, intent):
+def build_options(rows, intent, tolerance=25):
     """Good-better-best: recommended, cheapest, most reliable; or a split order if no single product covers it."""
     full = sorted([r for r in rows if r["status"] == "ok"], key=lambda r: -r["score"])
     options = []
+    why_first = "best overall score under your mandate's weights"
+    # Prefer stock Valio confirms: a supplier-warehouse product's stock is unknown, so a person must check it. If a
+    # confirmed product of the same request costs at most the buyer's tolerance more, recommend that one instead.
+    if full and full[0].get("unconfirmed_stock"):
+        confirmed = [r for r in full if not r.get("unconfirmed_stock") and r["total"] - full[0]["total"] <= tolerance]
+        if confirmed:
+            best = confirmed[0]  # highest score among them (full is sorted by score)
+            extra = best["total"] - full[0]["total"]
+            full.remove(best); full.insert(0, best)
+            why_first = (f"stock confirmed by Valio (€{extra:,.2f} more than the best-scored option, whose stock "
+                         f"ships unconfirmed from a supplier's warehouse)" if extra > 0.005 else "stock confirmed by Valio")
     if full:
-        picks = [("Recommended", full[0], "best overall score under your mandate's weights")]
+        picks = [("Recommended", full[0], why_first)]
         cheapest = min(full, key=lambda r: r["total"])
         reliable = max(full, key=lambda r: (r["reliability"] or 0, -r["total"]))
         if cheapest is not full[0]:
@@ -1096,6 +1109,9 @@ def _read_intent(ai_intent, text):
     forced, forced_why = request_checks.request_type(text)
     if forced:
         intent["request_type"], intent["request_type_reason"] = forced, forced_why
+    # A plain day word ("by Monday", "maanantaiksi", "tomorrow") means one date; hold the model to it.
+    if (day := request_checks.plain_day(text, date.today())) and intent.get("deliver_by") != day.isoformat():
+        intent["deliver_by"] = day.isoformat()
     oq = request_checks.order_quantity(text)
     quantity_mismatch = ""
     if oq and parser.startswith("rules"):
@@ -1207,7 +1223,9 @@ def _run(text, mandate_id, overrides=None, simulate_price_change=False, inject=F
                        "Write it as, for example, “budget €50”, so the gateway can enforce it, or leave it out.")
     if rtype == "buy" and request_checks.multi_line(text):
         # A shopping list: every line climbs gates 1-2 on its own, then one signed offer for the whole basket goes
-        # through gates 3-5, and the order takes the earliest "no" of any line.
+        # through gates 3-5, and the order takes the earliest "no" of any line. The whole-request reading named only
+        # one product and filed the other lines as "not understood"; each line is read and checked on its own instead.
+        intent["ignored_terms"] = []
         return _run_basket(text, raw, intent, mandate, client, steps, run_id, exit_at, simulate_price_change,
                            budget, exact, allergy_codes)
     if problem := request_checks.conditional(text):
@@ -1450,6 +1468,31 @@ def _run_basket(text, raw, intent, mandate, client, steps, run_id, exit_at, simu
             "result": {"status": order["status"]}, "ladder": order["policy"]["ladder"], "basket": results}
 
 
+# How a request counts things ("20 loaves", "5 bags"): read as the unit, never an unplaced word. Builds on PACK_WORDS.
+COUNT_WORDS = PACK_WORDS | {"loaf", "loaves", "bag", "bags", "tray", "trays", "jar", "jars", "can", "cans", "tin", "tins",
+                            "packet", "packets", "bottle", "bottles", "piece", "pieces", "pcs", "kpl", "unit", "units"}
+
+
+def _place_terms(intent, candidates, named):
+    """(candidates, words used to narrow). Drops from ignored_terms what the reading did understand after all."""
+    keep, narrowed = [], []
+    for term in intent.get("ignored_terms") or []:
+        t = catalog.fold(str(term)).strip(" .,'’")
+        words = re.findall(r"[a-zåäö0-9]+", t)
+        if not words or all(w in COUNT_WORDS for w in words):
+            continue  # "loaves", "packs": how it is counted, already read as the unit
+        if named and all(w in named for w in words):
+            continue  # a product id the buyer named: those products are the candidates
+        hit = [p for p in candidates if all(re.search(rf"\b{re.escape(w)}", catalog.fold(p["_text"])) for w in words)]
+        if hit and not re.search(r"\d", t):
+            candidates = hit  # a brand or qualifier ("Valio", "unsalted", "barista"): only products that carry it
+            narrowed.append(term)
+            continue
+        keep.append(term)
+    intent["ignored_terms"] = keep
+    return candidates, narrowed
+
+
 def _resolve_line(text, intent, mandate, client, steps, run_id, exit_at, rtype, inject, quantity_mismatch):
     """Gates 1-2 for one product line: what is wanted, which products fit, Valio's prices and availability, and
     the options. Returns ({options, rows, gaps}, None), or (None, result) when the line leaves the ladder here."""
@@ -1465,10 +1508,17 @@ def _resolve_line(text, intent, mandate, client, steps, run_id, exit_at, rtype, 
     if intent.get("unit") == "PCS":
         intent["count_kind"] = count_kind(text)
     spec = {"fat_pct": intent.get("fat_pct"), "shelf_life": intent.get("shelf_life")}
-    candidates, trace = catalog.search(intent["product"], intent["attributes"], spec=spec,
-                                       type_check=ai.type_check if ai.enabled() else None)
+    tc = ai.type_check if ai.enabled() else None
+    candidates, trace = [], {}
+    if spec["fat_pct"] is None and (pfat := _profile_fat(intent, mandate)) is not None:
+        # The buyer's usual fat level narrows the search before the shortlist is cut, so a cheap confirmed-stock
+        # product late in the alphabet isn't dropped before the profile is applied. Shown as from the profile.
+        candidates, trace = catalog.search(intent["product"], intent["attributes"], spec=dict(spec, fat_pct=pfat), type_check=tc)
+    if not candidates:
+        candidates, trace = catalog.search(intent["product"], intent["attributes"], spec=spec, type_check=tc)
     # Products the buyer named by id are the candidates (still checked against the requirements).
-    if named := request_checks.named_products(text):
+    named = request_checks.named_products(text)
+    if named:
         named_ok = []
         for pid in named:
             p = catalog.get(pid)
@@ -1490,6 +1540,10 @@ def _resolve_line(text, intent, mandate, client, steps, run_id, exit_at, rtype, 
                       and not (words and words <= set(re.findall(r"[a-zåäö]+", p["_text"])))]
         if len(candidates) < before:
             trace.setdefault("excluded_by_request", []).append(" ".join(sorted(words | ex["ids"])))
+    # Before gate 1 again: words that aren't really unplaced.
+    candidates, narrowed = _place_terms(intent, candidates, named)
+    if narrowed:
+        trace["narrowed_by"] = narrowed
     # Gate 1 again, now that we know what the words matched: nothing in the request may be silently dropped.
     intent["ignored_terms"] = sorted(set(intent.get("ignored_terms") or []) |
                                      set(unmatched_terms(text, intent, [p["_text"] for p in candidates],
@@ -1528,10 +1582,12 @@ def _resolve_line(text, intent, mandate, client, steps, run_id, exit_at, rtype, 
                 misfits.append({"productId": sid, "name": sp["name"], "reason": f"fit check: different product type than {p['name']}"})
             elif policy.allergen_problem(mandate, sp):
                 misfits.append({"productId": sid, "name": sp["name"], "reason": policy.allergen_problem(mandate, sp)[0]})
+            elif not (fit := catalog.matches_attributes(sp, intent["attributes"]))[0]:
+                misfits.append({"productId": sid, "name": sp["name"], "reason": f"doesn't meet the request: {fit[1]}"})
             else:
-                subs.append(sid)
-                sp["_gaps"] = []
+                sp["_gaps"] = fit[2]
                 candidates.append(sp)
+                subs.append(sid)
     # Unit sense check: 1,000 litres of chicken nuggets can't be converted, so stop before any API call.
     if intent["unit"] in ("L", "KG") and candidates:
         measures = Counter(m for m in (catalog.measure(p) for p in candidates) if m)
@@ -1601,7 +1657,8 @@ def _resolve_line(text, intent, mandate, client, steps, run_id, exit_at, rtype, 
     steps.append({"step": "price_availability", "title": "Ask Valio for price and availability (shortlist only)",
                   "now": now_s, "rows": rows})
 
-    options = build_options(usable, intent)
+    tol = (mandate.get("auto_approve") or {}).get("max_unstated_detail_spread_eur", 25)
+    options = build_options(usable, intent, tol)
     priced = [r for r in usable if r["status"] == "ok"]
     for g in gaps:
         # Cheapest deliverable product for each value of the unspecified detail.
@@ -1632,7 +1689,7 @@ def _resolve_line(text, intent, mandate, client, steps, run_id, exit_at, rtype, 
                 late.append(rr)
         if late:
             _score(late, mandate["weights"])
-            options = build_options(late, intent)
+            options = build_options(late, intent, tol)
             for o in options:
                 o["label"], o["why"] = f"Later delivery ({o['lines'][0]['deliveryDate']})", "nothing can arrive by the date asked"
             steps[-1]["options"] = options
@@ -1672,6 +1729,19 @@ def _injection_attack(target, mandate, intent, client, run_id):
     return steps
 
 
+DRINK_CATEGORIES = {"10400", "10401", "10402", "10406"}  # milk, cream and dairy drinks (spec_gaps, docs/ASSUMPTIONS.md)
+
+
+DRINK_CATEGORIES = {"10400", "10401", "10402", "10406"}  # milk, cream and dairy drinks (spec_gaps, docs/ASSUMPTIONS.md)
+
+
+def _is_asked_product(p, intent):
+    """Does the product's name contain every word of what was asked (allowing Finnish/plural endings)?"""
+    words = [catalog._stem(w) for w in re.findall(r"[a-zåäö]+", catalog.fold(intent.get("product") or "")) if len(w) > 2]
+    text = {catalog._stem(w) for w in re.findall(r"[a-zåäö]+", catalog.fold(p.get("name") or ""))}
+    return bool(words) and all(any(t.startswith(w) or w.startswith(t) for t in text if len(t) > 2) for w in words)
+
+
 def spec_gaps(candidates, intent):
     """Details the buyer didn't specify but that split the candidates (e.g. fat %, fresh vs long-life).
 
@@ -1680,13 +1750,23 @@ def spec_gaps(candidates, intent):
     # Fat level and fresh vs long-life are buying decisions for milk, cream and other dairy drinks (category
     # 104xx). For muesli or butter a fat difference between products isn't a detail the buyer left open.
     dairy = [p for p in candidates if str(p.get("category", "")).startswith("104")]
-    fats = sorted({p["fatPct"] for p in dairy if p.get("fatPct") is not None})
+    drinks = [p for p in dairy if str(p.get("category", ""))[:5] in DRINK_CATEGORIES]  # yoghurt's fat isn't left "open"
+    fats = sorted({p["fatPct"] for p in drinks if p.get("fatPct") is not None})
     if intent.get("fat_pct") is None and len(fats) > 1:
         gaps.append({"field": "fat level", "values": [f"{f:g} %" for f in fats]})
     shelves = {catalog.is_long_life(p) for p in dairy}
     if intent.get("shelf_life") is None and not intent.get("shelf_life_any") and len(shelves) > 1:
         gaps.append({"field": "fresh or long-life", "values": ["fresh", "long-life (UHT)"]})
     return gaps
+
+
+def _profile_fat(intent, mandate):
+    """The buyer profile's fat level for this product, unless the product words already state one."""
+    words = {catalog._stem(w) for w in re.findall(r"[a-zåäö]+", catalog.fold(intent.get("product") or ""))}
+    prof = next((v for k, v in (mandate.get("profile") or {}).items() if catalog._stem(k) in words), None)
+    stated = re.search(r"skim|semi|whole|full[- ]?fat|low[- ]?fat|fat[- ]?free|light|rasvat|kevyt|täys|ykkös",
+                       catalog.fold(intent.get("product") or ""))
+    return None if (not prof or stated) else prof.get("fat_pct")
 
 
 def apply_profile(candidates, intent, mandate):
@@ -1699,7 +1779,9 @@ def apply_profile(candidates, intent, mandate):
     if not prof:
         return candidates
     used = []
-    if intent.get("fat_pct") is None and prof.get("fat_pct") is not None:
+    stated_fat = re.search(r"skim|semi|whole|full[- ]?fat|low[- ]?fat|fat[- ]?free|light|rasvat|kevyt|täys|ykkös",
+                           catalog.fold(intent.get("product") or ""))
+    if intent.get("fat_pct") is None and prof.get("fat_pct") is not None and not stated_fat:
         match = [p for p in candidates if p.get("fatPct") is not None and abs(p["fatPct"] - prof["fat_pct"]) <= 0.3]
         if match:
             candidates, intent["fat_pct"] = match, prof["fat_pct"]
