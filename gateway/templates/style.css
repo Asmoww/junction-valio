@@ -444,3 +444,18 @@ details summary { color: var(--valio); font-weight: 600; }
 .composer textarea { flex: 1; width: auto; }
 @media (max-width: 900px) { .fgrid > .span7, .fgrid > .span9 { grid-column: span 12; } }
 .s .dot { transition: background .25s, box-shadow .25s, color .25s; } .s h3, .s li { transition: color .25s; }
+
+/* Photographed list */
+.photo-btn { white-space: nowrap; cursor: pointer; padding: 12px 18px; }
+.photo { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 28px; align-items: start; margin-top: 8px; }
+.photo img { width: 100%; border-radius: 14px; border: 1px solid var(--line); }
+@media (max-width: 800px) { .photo { grid-template-columns: 1fr; } .photo img { max-height: 220px; object-fit: contain; } }
+.photo .tag { font-size: 12px; font-weight: 700; color: var(--valio); background: var(--valio-soft); border-radius: 99px; padding: 2px 9px; vertical-align: 3px; margin-left: 6px; }
+.pline { display: grid; grid-template-columns: 22px minmax(0, 1fr) 330px; gap: 14px; align-items: center; padding: 12px 10px; border-top: 1px solid var(--line); cursor: pointer; border-radius: 10px; }
+.pline:hover, .pline.on { background: #f5f8fc; }
+.pline .pw { display: flex; flex-direction: column; } .pline .hand { font-size: 13px; color: var(--mute); font-style: italic; } .pline .req { font-weight: 600; }
+.pline .pout { display: grid; grid-template-columns: 110px 1fr 70px; gap: 10px; align-items: center; } .pline .pout b { text-align: right; font-variant-numeric: tabular-nums; }
+.pline .st { font-weight: 650; font-size: 14px; } .pline .st.g { color: var(--ok); } .pline .st.a { color: var(--warn); } .pline .st.r { color: var(--bad); } .pline .st.q { color: var(--valio); }
+@media (max-width: 800px) { .pline { grid-template-columns: 22px 1fr; } .pline .pout { grid-column: 2; grid-template-columns: 1fr auto; } .pline .pout .mini { display: none; } }
+.spin2 { width: 16px; height: 16px; border: 2px solid var(--line); border-top-color: var(--valio); border-radius: 50%; display: inline-block; animation: spin .7s linear infinite; }
+#lineDetail { margin-top: 26px; }

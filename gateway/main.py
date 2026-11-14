@@ -9,10 +9,10 @@ from html import escape
 from pathlib import Path
 from urllib.parse import quote as urlquote
 
-from fastapi import Body, FastAPI, Form, Header, HTTPException, Request
+from fastapi import Body, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from . import learning, unlock, plans, recipe, agent, ai, catalog, gates, policy, security, signing, standards, store
+from . import learning, unlock, plans, recipe, agent, ai, catalog, gates, policy, security, signing, standards, store, vision
 from .config import AGENT_TOKEN as AGENT_TOKEN_ENV, AGENT_TOKEN_SCOPE, DEMO_CLOCK, DEMO_PASSWORD
 from .mcp_server import app as mcp_app
 from .mcp_server import mcp
@@ -288,9 +288,30 @@ def agent_plans(request: Request, mandate_id: str):
     return [plans.view(p) for p in store.plans_for(mandate_id, "approved")]
 
 
+@app.post("/api/photo", tags=["demo"])
+async def read_photo(request: Request, photo: UploadFile = File(...), deliver_by: str = Form("")):
+    """Read a photographed order list into request lines (Nemotron 3.5 Super VL, or Claude without an NVIDIA key).
+    Nothing is ordered here: each line then runs through the six checks like a typed request."""
+    if getattr(request.state, "principal", None) != "human":
+        raise HTTPException(403, "people only")
+    data = await photo.read()
+    import asyncio
+    out = await asyncio.to_thread(vision.read_list, data, photo.content_type or "", deliver_by or None)
+    if out.get("error"):
+        raise HTTPException(422, out["error"])
+    for line in out["lines"]:
+        findings = security.scan_request(line["written"] + " " + line["product"])
+        if findings:
+            line["blocked"] = "instructions aimed at the agent: not read"
+            store.log("security", "photo", "security.injection_in_request", {"findings": [f["why"] for f in findings][:3]})
+    store.log("photo", "person", "photo.read", {"reader": out["reader"], "lines": len(out["lines"])})
+    return out
+
+
 @app.get("/api/info", tags=["demo"])
 def info():
     return {"ai_parser": ai.enabled(), "model": ai.MODEL if ai.enabled() else None, "demo_clock": DEMO_CLOCK,
+            "photo_reader": vision.reader_name(),
             "ladder": gates.GATES}
 
 

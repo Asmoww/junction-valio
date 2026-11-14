@@ -22,6 +22,8 @@
       <div class="f span9"><label for="request">What the kitchen needs</label>
         <div class="composer" style="padding:6px 6px 6px 18px">
           <textarea id="request" rows="1" placeholder="e.g. 100 litres of lactose-free milk by Monday" oninput="fitRequest()" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();run()}">I need 1,000 litres of lactose-free milk by Monday.</textarea>
+          <label class="btn btn-soft photo-btn" title="Read a photo of a handwritten or printed list">Photo of a list
+            <input type="file" accept="image/*" capture="environment" hidden onchange="photoRead(this.files[0]); this.value=''"></label>
           <button class="btn btn-primary" id="runBtn" onclick="run()">Ask the agent</button>
         </div></div>
     </div>
@@ -169,6 +171,80 @@ async function run() {
 }
 
 let LAST = null;
+
+// ---- A photographed list: each line becomes a request and runs through the same six checks ----
+let PHOTO = null, PHOTO_RES = [];
+async function photoRead(file) {
+  if (!file) return;
+  const url = URL.createObjectURL(file);
+  $('#out').innerHTML = `<div class="photo"><img src="${url}" alt="The photographed list"><div><h2 class="rhead">Reading the list…</h2>
+    <p class="muted">The photo is transcribed into lines. Nothing is ordered yet.</p></div></div>`;
+  const fd = new FormData(); fd.append('photo', file);
+  try {
+    const r = await fetch('/api/photo', {method: 'POST', body: fd});
+    const j = await r.json(); if (!r.ok) throw new Error(j.detail || r.statusText);
+    PHOTO = j; PHOTO_RES = [];
+    $('#out').innerHTML = `<div class="photo"><img src="${url}" alt="The photographed list"><div>
+      <h2 class="rhead">${j.lines.length} line${j.lines.length === 1 ? '' : 's'} read from the photo <span class="tag">${esc(j.reader)}</span></h2>
+      <div id="plines">${j.lines.map((l, i) => `<div class="pline" id="pl-${i}" onclick="photoOpen(${i})">
+        <input type="checkbox" ${l.blocked || !l.legible ? '' : 'checked'} ${l.blocked ? 'disabled' : ''} onclick="event.stopPropagation()" aria-label="Order this line">
+        <div class="pw"><span class="hand">${esc(l.written)}</span><span class="req">${l.blocked ? `<b style="color:var(--bad)">${esc(l.blocked)}</b>` : esc(l.request) + (l.legible ? '' : ' <b style="color:var(--warn)">check the amount</b>')}</span></div>
+        <div class="pout"></div></div>`).join('')}</div>
+      ${j.note ? `<p class="small muted" style="margin:10px 0 0">${esc(j.note)}</p>` : ''}
+      <div class="pfoot"><div class="grow" id="psum"></div><button class="btn btn-primary" style="width:auto;margin:0" id="pRun" onclick="photoRun()">Ask the agent for these lines</button></div>
+      </div></div><div id="lineDetail"></div>`;
+  } catch (e) {
+    $('#out').innerHTML = `<div class="decision red"><div class="what"><h2>Couldn't read the photo</h2><p>${esc(e.message)}</p></div></div>`;
+  }
+}
+
+function miniTrack(res) {
+  const l = res.ladder; if (!l) return '<div class="mini"></div>';
+  const tone = {person_approves: 'a', person_checks: 'a'}[l.action] || 'r';
+  const all = l.action === 'order' && !l.decided_by;
+  return `<div class="mini ${all ? 'g' : ''}">${l.gates.map((g, i) => `<i class="${g.state === 'fail' ? tone : g.state === 'not_reached' ? 'o' : ''}"></i>${i < 5 ? `<s class="${g.state === 'not_reached' || (g.state === 'fail') ? 'o' : ''}"></s>` : ''}`).join('')}</div>`;
+}
+
+function lineOutcome(res) {
+  const o = res.order;
+  if (o?.status === 'placed') return ['g', 'Ordered', o.total];
+  if (o?.status === 'pending_approval') return ['a', `Waiting for ${firstName(o.policy.approver?.name)}`, o.total];
+  if (o?.status === 'blocked') return ['r', 'Stopped', o.total];
+  if (res.ladder?.action === 'ask_back' || res.result.status === 'not_in_catalog' || res.result.status === 'unit_mismatch') return ['q', 'Needs a word from you', null];
+  return ['r', 'Not ordered', null];
+}
+
+async function photoRun() {
+  const btn = $('#pRun'); btn.disabled = true; btn.textContent = 'Working…';
+  const todo = PHOTO.lines.map((l, i) => i).filter(i => document.querySelector(`#pl-${i} input`).checked);
+  todo.forEach(i => document.querySelector(`#pl-${i} .pout`).innerHTML = '<span class="spin2"></span>');
+  const one = async i => {
+    try {
+      const res = await post('/api/run', {request: PHOTO.lines[i].request, mandate_id: $('#mandate').value, auto_limit: Number($('#autoLimit').value),
+                                          real_clock: $('#realClock').checked});
+      PHOTO_RES[i] = res;
+      const [c, t, eurv] = lineOutcome(res);
+      document.querySelector(`#pl-${i} .pout`).innerHTML = `${miniTrack(res)}<span class="st ${c}">${esc(t)}</span><b>${eurv != null ? eur(eurv).replace('.00', '') : ''}</b>`;
+    } catch (e) { document.querySelector(`#pl-${i} .pout`).innerHTML = `<span class="st r">${esc(e.message)}</span>`; }
+  };
+  for (let k = 0; k < todo.length; k += 2) await Promise.all(todo.slice(k, k + 2).map(one));  // two at a time, gentle on Valio's API
+  const outs = todo.map(i => PHOTO_RES[i] && lineOutcome(PHOTO_RES[i])).filter(Boolean);
+  const sum = c => outs.filter(o => o[0] === c);
+  const tot = a => a.reduce((x, o) => x + (o[2] || 0), 0);
+  $('#psum').innerHTML = [sum('g').length && `<b style="color:var(--ok)">${sum('g').length} ordered</b> ${eur(tot(sum('g'))).replace('.00', '')}`,
+    sum('a').length && `<b style="color:var(--warn)">${sum('a').length} waiting for a person</b>`,
+    sum('r').length && `<b style="color:var(--bad)">${sum('r').length} stopped</b>`,
+    sum('q').length && `<b style="color:var(--valio)">${sum('q').length} need a word from you</b>`].filter(Boolean).join(' · ') + '<br><span class="small muted">Click a line to see its checks and decide.</span>';
+  btn.textContent = 'Done'; 
+}
+
+function photoOpen(i) {
+  const res = PHOTO_RES[i]; if (!res) return;
+  document.querySelectorAll('.pline').forEach(x => x.classList.toggle('on', x.id === 'pl-' + i));
+  LAST = res;
+  $('#lineDetail').innerHTML = saidHtml(res) + stepsHtml(res) + alertHtml(res) + `<div id="decision">${decisionHtml(res)}</div>` + linksHtml(res);
+  $('#lineDetail').scrollIntoView({behavior: 'smooth', block: 'start'});
+}
 
 // The progress row that was animating while the agent worked becomes the result in place: no redraw.
 async function settle(res) {
