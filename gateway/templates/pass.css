@@ -130,3 +130,36 @@ body.pass {
 .pass .s .count + ul li:first-child::before { content: none; }
 .pass .decision { margin-top: 58px; }
 @media (max-width: 700px) { .pass .s .count + ul { grid-column: 2; margin-top: 0; } }
+
+/* Earlier tickets: the outcome in plain words first, the six boxes, one reason; the marker is decoration */
+.pass .histlabel { font: 600 12px var(--mono); color: #4a5a78; margin: 26px 0 -12px; }
+.pass .hist .tk { padding: 22px 16px 16px; }
+.pass .hist .tk h4 { color: #4a5a78; font-weight: 600; font-size: 11.5px; }
+.pass .hist .tkq { font-size: 12.5px; color: var(--rail); }
+.pass .hist .mini { display: flex; gap: 4px; margin: 10px 0 8px; }
+.pass .hist .mini .bx { display: block; width: 14px; height: 14px; border-radius: 0; background: #fff; box-shadow: inset 0 0 0 1.5px #c7d0df; position: relative; }
+.pass .hist .mini .bx.p { box-shadow: inset 0 0 0 1.5px var(--rail); }
+.pass .hist .mini .bx.p::after { content: "✓"; position: absolute; left: 1px; top: -9px; font: 17px/1 var(--marker); color: var(--pen); }
+.pass .hist .mini .bx.f::after { position: absolute; font: 15px/1 var(--marker); }
+.pass .hist .mini .bx.f.hold { box-shadow: inset 0 0 0 1.5px var(--hold); } .pass .hist .mini .bx.f.hold::after { content: "!"; color: var(--hold); left: 4px; top: -3px; }
+.pass .hist .mini .bx.f.stop { box-shadow: inset 0 0 0 1.5px var(--stop); } .pass .hist .mini .bx.f.stop::after { content: "×"; color: var(--stop); left: 1px; top: -5px; font-size: 20px; }
+.pass .hist .mini .bx.f.back { box-shadow: inset 0 0 0 1.5px var(--pen); } .pass .hist .mini .bx.f.back::after { content: "?"; color: var(--pen); left: 3px; top: -3px; }
+.pass .hist .tkst { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; border-top: 1px dashed #b7c2d6; padding-top: 8px;
+                    font: 700 13.5px/1.25 "Archivo", sans-serif; }
+.pass .hist .tkst span { font: 700 14px var(--mono); color: var(--rail); }
+.pass .hist .tk.go .tkst b { color: var(--pen); } .pass .hist .tk.hold .tkst b { color: var(--hold); }
+.pass .hist .tk.stop .tkst b { color: var(--stop); } .pass .hist .tk.back .tkst b { color: var(--pen); }
+.pass .hist .tkwhy { font-size: 12px; color: #34445f; margin-top: 3px; }
+.pass .hist .tk .mk.stop { position: absolute; right: 14px; bottom: 10px; margin: 0; font-size: 30px; transform: rotate(-10deg); opacity: .85; }
+.pass .hist .tk.stop .tkwhy { padding-right: 38px; }
+
+/* Earlier tickets are printed on paper in the colour of their outcome */
+.pass .hist .tk.go { --paper: #e6f4e8; }
+.pass .hist .tk.hold { --paper: #fff5cc; }
+.pass .hist .tk.stop { --paper: #fde6e3; }
+.pass .hist .tk.back { --paper: #e6eefa; }
+.pass .hist .tk .mini .bx { background: transparent; }
+.pass .hist .tk.go .tkst b { color: #1d6b3a; }
+.pass .hist .tk.hold .tkst b { color: #a35400; }
+.pass .hist .tk.stop .tkst b { color: #b3261e; }
+.pass .hist .tk .tkst { border-top-color: rgba(10,31,77,.22); }

@@ -770,20 +770,53 @@ function markNote(res) {
 }
 function remember(res, over = {}) {
   if (!TICKET || !res) return;
-  const st = passLoad(), o = res.order;
-  const [tone, mark] = outcome(res, over.status);
-  const entry = {n: TICKET.n, buyer: TICKET.buyer, request: TICKET.request, tone, mark,
-                 total: o ? eur(o.total).replace('.00', '') : '', why: clip((res.ladder?.reason || res.result?.error || '').replace(/^Nothing was ordered: /, '').split(/[.;]/)[0], 70)};
+  const st = passLoad(), o = res.order, l = res.ladder || {};
+  const s = over.status || o?.status;
+  const who = firstName(o?.policy?.approver?.name || '');
+  const tot = o ? eur(o.total).replace('.00', '') : '';
+  // Where it stopped, as the six boxes (pass / fail / not reached); a person's decision settles the last one
+  let gates = (l.gates || []).map(g => g.state);
+  if (over.status === 'placed') gates = gates.map(() => 'pass');
+  const failed = (o?.policy?.rules || []).find(r => !r.ok);
+  const spend = r => r?.rule === 'Auto-approve spend limit' ? `${tot} is over what the agent may spend alone`
+    : r?.rule === "Agent's own spend in 24 h" ? `Over the agent's allowance for 24 h`
+    : r?.rule === 'Earned trust' ? 'More than a new agent may spend alone'
+    : r?.rule === 'Delivery on time' ? lateText(r.detail) : r ? cap((SHORT_RULE[r.rule] || r.rule) + ': ' + r.detail) : '';
+  const raw = (l.reason || res.result?.error || '').replace(/^Nothing was ordered: /, '');
+  const banned = raw.match(/\(([^)]+)\) is ([\w ]+?), which this request or the mandate rules out/);
+  const reason = banned ? `${cap(banned[2])} is ruled out for this buyer` : clip(cap(raw.split(/[.;]/)[0]), 64);
+  const [tone, label, why] =
+      s === 'placed' && over.status ? ['go', `Ordered`, `${who} approved it`]
+    : s === 'placed' ? ['go', 'Ordered by the agent', 'Within its own limits']
+    : s === 'pending_approval' ? ['hold', `Waiting for ${who}`, clip(spend(failed) || reason, 64)]
+    : s === 'rejected' ? ['stop', 'Not ordered', `${who} rejected it`]
+    : s === 'blocked' || l.action === 'stop' || l.action === 'decline' ? ['stop', 'Not ordered', reason || 'A hard rule stops it']
+    : l.action === 'ask_back' ? ['back', 'Sent back to the kitchen', reason]
+    : ['back', 'Nothing ordered', reason];
+  const mark = {go: 'Fired.', hold: `${who}'s call.`, stop: '86', back: 'Back to you.'}[tone];
+  const entry = {n: TICKET.n, buyer: TICKET.buyer, request: TICKET.request, tone, label, why, mark, total: tot, gates};
   st.list = [entry, ...st.list.filter(x => x.n !== entry.n)].slice(0, 6);
   localStorage.setItem(PASS_KEY, JSON.stringify(st));
   renderHist();
 }
-const clip = (t, n) => t.length <= n ? t : t.slice(0, n).replace(/\s+\S*$/, '') + '…';
+// "delivers 2026-11-16 vs needed by 2026-11-14" -> "Arrives Mon 16.11, needed Sat 14.11"
+function lateText(d) {
+  const [a, b] = (String(d).match(/\d{4}-\d\d-\d\d/g) || []);
+  const f = x => new Date(x + 'T12:00').toLocaleDateString('en-GB', {weekday: 'short', day: 'numeric', month: 'numeric'}).replace('/', '.');
+  return a && b ? `Arrives ${f(a)}, needed ${f(b)}` : cap(d);
+}
+const clip = (t, n) => (t = String(t || '')).length <= n ? t : t.slice(0, n).replace(/\s+\S*$/, '') + '…';
 function renderHist() {
-  const cur = TICKET?.n, list = passLoad().list.filter(x => x.n !== cur);
-  const tk = x => x ? `<div class="tk"><h4>#${String(x.n).padStart(4, '0')} · ${esc(x.buyer.toUpperCase())}</h4>${esc(x.request)}
-    <div class="line">${x.total ? esc(x.total) + ' · ' : ''}${esc(x.why || '')}</div><span class="mk ${x.tone}">${esc(x.mark)}</span></div>` : '';
-  $('#histL').innerHTML = tk(list[0]) + tk(list[2]); $('#histR').innerHTML = tk(list[1]) + tk(list[3]);
+  const cur = TICKET?.n, list = passLoad().list.filter(x => x.n !== cur && x.label);
+  const icon = {go: '✓', hold: '!', stop: '×', back: '?'};
+  const box = (g, tone) => `<span class="bx ${g === 'pass' ? 'p' : g === 'fail' ? 'f ' + tone : 'o'}"></span>`;
+  const tk = x => x ? `<div class="tk ${x.tone}"><h4>#${String(x.n).padStart(4, '0')} · ${esc(x.buyer.toUpperCase())}</h4>
+    <div class="tkq">“${esc(clip(x.request, 70))}”</div>
+    <div class="mini" title="The six checks">${(x.gates || []).map(g => box(g, x.tone)).join('')}</div>
+    <div class="tkst"><b>${icon[x.tone]} ${esc(x.label)}</b>${x.total ? `<span>${esc(x.total)}</span>` : ''}</div>
+    <div class="tkwhy">${esc(x.why || '')}</div>${x.tone === 'stop' ? `<span class="mk stop">${esc(x.mark)}</span>` : ''}</div>` : '';
+  const label = list.length ? '<div class="histlabel">Earlier orders</div>' : '';
+  $('#histL').innerHTML = label + tk(list[0]) + tk(list[2]); $('#histR').innerHTML = (list.length > 1 ? '<div class="histlabel">&nbsp;</div>' : '') + tk(list[1]) + tk(list[3]);
 }
 
 async function showRecord(id) {
