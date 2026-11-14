@@ -17,35 +17,31 @@
 <div class="page">
   <div class="phead"><div><h1>Agent orders at Valio</h1><p>What outside agents buy, what waits for a person, and what is stopped.</p></div></div>
 
-  <section class="section">
-    <div class="nums" id="nums"></div>
-    <div class="shead"><h2>Orders</h2><p>Each dot is one of the six checks.</p></div>
-    <div id="orders"></div>
-    <div class="waitqr" id="waitQr"></div>
-  </section>
+  <div class="nums" id="nums"></div>
+  <h2 class="rhead">Orders</h2>
+  <div id="orders"></div>
+  <div class="waitqr" id="waitQr"></div>
 
-  <section class="section">
-    <div class="shead"><h2>Catalog gaps</h2><p>Missing product data that stops agents deciding alone.</p></div>
+  <h2 class="rhead" style="margin-top:40px">Behind the numbers</h2>
+  <div class="tiles3">
+    <button class="stile" data-d="gaps" onclick="drawer(this)"><small>Catalog gaps</small><b id="tGaps">…</b><span>Missing data stops agents deciding alone</span></button>
+    <button class="stile" data-d="bench" onclick="drawer(this)"><small>Agents vs. gateway</small><b id="tBench">…</b><span>The same requests with and without our rules</span></button>
+    <button class="stile" data-d="sec" onclick="drawer(this)"><small>Security</small><b id="tSec">…</b><span>Attacks and mistakes the gateway caught</span></button>
+  </div>
+  <div class="drawer" id="d-gaps" hidden>
     <div class="cols2">
       <div><h3 class="sub3">Share of the catalog each buyer's agent can decide on</h3><div id="ready"></div></div>
       <div><h3 class="sub3">Fix these first</h3><div id="fixfirst"></div></div>
     </div>
     <div id="unlock" style="margin-top:22px"></div>
-  </section>
-
-  <section class="section">
-    <div class="shead"><h2>Agents vs. gateway</h2><p id="scoreWhen"></p></div>
-    <div id="score"></div>
-    <div id="traps" style="margin-top:22px"></div>
-  </section>
-
-  <section class="section">
-    <div class="shead"><h2>Security</h2><p>Attacks and mistakes the gateway caught.</p></div>
+  </div>
+  <div class="drawer" id="d-bench" hidden><p class="muted" id="scoreWhen" style="margin:0 0 12px"></p><div id="score"></div><div id="traps" style="margin-top:22px"></div></div>
+  <div class="drawer" id="d-sec" hidden>
     <div class="cols2">
       <div><h3 class="sub3">Events</h3><div id="security"></div></div>
       <div><h3 class="sub3">Why orders went to a person or stopped</h3><div id="rules" class="bars"></div></div>
     </div>
-  </section>
+  </div>
 </div>
 
 <script>
@@ -101,6 +97,7 @@ async function load() {
     : '<p class="muted">No orders yet. Ask the agent for something on the Buyer agent tab.</p>';
   if (qrFor && !d.recent.some(o => o.id === qrFor && o.status === 'pending_approval')) { $('#waitQr').innerHTML = ''; qrFor = null; }
 
+  $('#tSec').textContent = `${d.security.length} caught`;
   const secCount = {}; d.security.forEach(e => { const k = SEC[e.type] || e.type; secCount[k] = secCount[k] || {n: 0, ts: e.ts, bad: e.type !== 'order.rejected'}; secCount[k].n++; });
   $('#security').innerHTML = d.security.length ? Object.entries(secCount).map(([k, v]) => `<div class="lrow"><span>${esc(k)}</span><span class="faint">${ago(v.ts)}</span><b class="${v.bad ? 'r' : 'a'}">${v.n}</b></div>`).join('')
       + `<p class="small" style="margin:12px 0 0;color:${d.chain.valid ? 'var(--ok)' : 'var(--bad)'}">${d.chain.valid ? '✓ Audit chain intact' : '× Audit chain broken'}</p>`
@@ -115,6 +112,8 @@ async function loadUnlock() {
 }
 async function loadReadiness() {
   const r = await (await fetch('/api/readiness')).json();
+  const low = r.mandates.reduce((a, m) => m.ready_pct < a.ready_pct ? m : a, r.mandates[0]);
+  $('#tGaps').textContent = `${Math.round(low.ready_pct)} % for the ${low.buyer.replace(' (demo)', '').split(',')[0].toLowerCase()}`;
   $('#ready').innerHTML = r.mandates.map(m => `<div class="bigbar"><div><b>${Math.round(m.ready_pct)} %</b><span>${esc(m.buyer.replace(' (demo)', '').replace(', milk-allergy diet', ''))}</span></div>
     <div class="track"><div class="fill" style="width:${m.ready_pct}%;background:${m.ready_pct >= 80 ? 'var(--ok)' : m.ready_pct >= 40 ? 'var(--valio)' : 'var(--bad)'}"></div></div></div>`).join('');
   $('#fixfirst').innerHTML = r.fix_first.slice(0, 5).map(x => `<div class="lrow"><span>${esc(x.examples[0])}</span><span class="faint">and similar</span><b>${x.blocked}</b></div>`).join('')
@@ -141,12 +140,19 @@ async function loadScore() {
   if (!t.rows.length || !t.columns) { $('#score').innerHTML = '<p class="muted">Not run yet.</p>'; return; }
   const cols = Object.keys(t.columns);
   const NAMES = {baseline: 'Claude with the buyer’s rules in its prompt', no_rules: 'The same agent without the rules', no_rules_gw: 'Without the rules, through our gateway', gateway: 'Our agent and gateway'};
+  const gw = t.counts.no_rules_gw || t.counts.gateway, raw = t.counts.no_rules;
+  $('#tBench').textContent = raw ? `${raw.wrong + raw.no_approval} unsafe → ${gw.wrong + gw.no_approval}` : `${gw.ok} / ${t.cases} safe`;
   $('#scoreWhen').textContent = `The same 16 requests through four setups, run ${ago(t.run_at)}.`;
   $('#score').innerHTML = `<div class="nums">${cols.map(c => { const n = t.counts[c], bad = n.wrong + n.no_approval;
       return `<div class="num ${c === 'no_rules_gw' || c === 'gateway' ? 'blue' : ''}"><b>${bad ? bad + ' unsafe' : n.ok + ' / ' + t.cases}</b><span>${esc(NAMES[c] || t.columns[c])}</span></div>`; }).join('')}</div>
     <p class="muted" style="margin:-14px 0 0">Valio can’t choose which agents connect. Rules in the gateway hold for all of them.</p>`;
 }
 
+function drawer(b) {
+  const open = !b.classList.contains('on');
+  document.querySelectorAll('.stile').forEach(x => x.classList.toggle('on', open && x === b));
+  document.querySelectorAll('.drawer').forEach(d => d.hidden = !(open && d.id === 'd-' + b.dataset.d));
+}
 load(); loadReadiness(); loadUnlock(); loadTraps(); loadScore();
 setInterval(load, 3000);
 </script>

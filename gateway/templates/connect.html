@@ -17,39 +17,38 @@
 <div class="page">
   <div class="phead"><div><h1>Connect your own agent</h1><p>Any agent goes through the same six checks and the same audit trail.</p></div></div>
 
-  <section class="section">
-    <div class="shead"><span class="n">1</span><h2>Add the MCP server</h2><p>For Claude, ChatGPT and other AI agents.</p></div>
-    <div class="cols2">
-      <div><pre class="mono">claude mcp add --transport http valio https://valio.psavela.com/mcp \
-  --header "Authorization: Bearer &lt;agent token&gt;"</pre>
-        <p class="small muted" style="margin:10px 0 0">The token is the agent's, not the sign-in password. Each buyer has its own.</p></div>
-      <div><!--MANDATE_TOKENS--></div>
+  <div class="panel">
+    <div class="fgrid">
+      <div class="f span4"><label for="cbuyer">Your agent buys for</label><select id="cbuyer" onchange="fillCmd()"></select>
+        <span class="hint">Each buyer has its own token. It only works for that buyer.</span></div>
+      <div class="f span8"><label>Add this to your agent <span class="faint" style="font-weight:400">(Claude Code shown; any MCP client works)</span></label>
+        <pre class="mono" id="cmd">Sign in to see your agent's command.</pre>
+        <div style="display:flex;gap:12px;align-items:center"><button class="btn btn-soft" onclick="copyCmd(this)">Copy</button>
+          <span class="hint">Then ask it: “Buy 100 litres of lactose-free milk for Monday.”</span></div></div>
     </div>
-  </section>
+  </div>
 
-  <section class="section">
-    <div class="shead"><span class="n">2</span><h2>What the agent can do</h2><p>Six tools. Approving is not one of them: only a person can.</p></div>
-    <div class="tools">
-      <div><b>get_mandate</b><span>The buyer's rules, signed by the buyer</span></div>
-      <div><b>search_products</b><span>Search the catalog, no live calls</span></div>
-      <div><b>check_price_availability</b><span>Live price and stock, up to 20 products</span></div>
-      <div><b>request_offer</b><span>A signed fixed price for 15 minutes</span></div>
-      <div><b>place_order</b><span>Placed, sent to a person, or stopped</span></div>
-      <div><b>get_order</b><span>Status and the decision record</span></div>
-    </div>
-  </section>
-
-  <section class="section">
-    <div class="shead"><h2>Standards</h2><p>Nothing proprietary to adopt.</p></div>
-    <div class="tools">
-      <a href="/docs"><b>REST and OpenAPI</b><span>The same flow as plain HTTP</span></a>
-      <a href="/.well-known/jwks.json"><b>Signed offers</b><span>Ed25519; anyone can verify the price</span></a>
-      <a href="/v1/mandates/mnd_hotel_helsinki/credential"><b>Mandate as a credential</b><span>W3C Verifiable Credential, signed by the buyer</span></a>
-      <div><b>Peppol orders</b><span>Every placed order as a Peppol BIS 3 document</span></div>
-      <a href="/openapi.json"><b>openapi.json</b><span>For code generators</span></a>
-      <div><b>Audit trail</b><span>Hash-chained; buyer and Valio see the same record</span></div>
-    </div>
-  </section>
+  <h2 class="rhead">What's inside</h2>
+  <div class="tools">
+    <div><b>Search and price</b><span>Catalog search, then Valio's live price and stock</span></div>
+    <div><b>Signed offer</b><span>A fixed price for 15 minutes, verifiable by anyone</span></div>
+    <div><b>Order</b><span>Placed, sent to a person, or stopped. Agents can't approve.</span></div>
+    <a href="/docs"><b>REST and OpenAPI</b><span>The same flow as plain HTTP</span></a>
+    <a href="/v1/mandates/mnd_hotel_helsinki/credential"><b>Mandate as a credential</b><span>W3C Verifiable Credential, signed by the buyer</span></a>
+    <div><b>Peppol orders</b><span>Every placed order as a Peppol BIS 3 document</span></div>
+  </div>
 </div>
+<!--MANDATE_TOKENS-->
+<script>
+const TOK = window.TOKENS || {};
+const sel = document.querySelector('#cbuyer');
+sel.innerHTML = Object.entries(TOK).map(([id, t]) => `<option value="${id}">${t.buyer}</option>`).join('');
+function fillCmd() {
+  const t = TOK[sel.value]; if (!t) return;
+  document.querySelector('#cmd').textContent = `claude mcp add --transport http valio ${location.origin}/mcp \\\n  --header "Authorization: Bearer ${t.token}"`;
+}
+function copyCmd(b) { navigator.clipboard.writeText(document.querySelector('#cmd').textContent).then(() => { b.textContent = 'Copied'; setTimeout(() => b.textContent = 'Copy', 1500); }); }
+fillCmd();
+</script>
 </body>
 </html>

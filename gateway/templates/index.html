@@ -11,17 +11,21 @@
 <header class="topbar"><div class="inner">
   <div class="brand">Trusted Trade Agents</div>
   <nav class="tabs"><a href="/" class="on">Buyer agent</a><a href="/plan">Week plan</a><a href="/valio">Valio view</a><a href="/connect">Connect an agent</a></nav>
-  <div class="right"><select id="mandate" class="pill" onchange="renderMandate()" aria-label="Buyer"></select></div>
+  <div class="right"><span class="pill">Demo data</span></div>
 </div></header>
 
 <div class="page">
   <div class="phead"><div><h1>Ask the agent</h1><p>Say what the kitchen needs. The agent buys it from Valio Aimo, within the buyer's rules.</p></div></div>
-  <div class="composer">
-    <textarea id="request" rows="1" aria-label="What does the kitchen need?" placeholder="What does the kitchen need?" oninput="fitRequest()" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();run()}">I need 1,000 litres of lactose-free milk by Monday.</textarea>
-    <button class="btn btn-primary" id="runBtn" onclick="run()">Ask the agent</button>
-  </div>
-  <div class="underbar"><span id="presets" class="chips"></span><button class="gear" onclick="$('#settings').classList.toggle('open')">Settings and tests</button></div>
-
+  <div class="panel">
+    <div class="fgrid">
+      <div class="f span3"><label for="mandate">Buying for</label><select id="mandate" onchange="renderMandate()"></select></div>
+      <div class="f span9"><label for="request">What the kitchen needs</label>
+        <div class="composer" style="padding:6px 6px 6px 18px">
+          <textarea id="request" rows="1" placeholder="e.g. 100 litres of lactose-free milk by Monday" oninput="fitRequest()" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();run()}">I need 1,000 litres of lactose-free milk by Monday.</textarea>
+          <button class="btn btn-primary" id="runBtn" onclick="run()">Ask the agent</button>
+        </div></div>
+    </div>
+    <div class="underbar" style="margin:14px 0 0"><span class="flabel">Try</span><span id="presets" class="chips"></span><button class="gear" onclick="$('#settings').classList.toggle('open')">Settings and tests</button></div>
   <div class="settings" id="settings">
     <div><h4>Buyer's rules</h4><div id="mandateView"></div>
       <label class="field" for="autoLimit">Agent may order alone up to (€)</label><input type="number" id="autoLimit" step="50" min="0"></div>
@@ -39,6 +43,7 @@
       <label class="switch" title="The offer goes stale between offer and order."><input type="checkbox" id="priceChange"><span>Price changes before ordering</span></label>
       <label class="switch" id="clockSwitch" style="display:none" title="Use Valio's real clock: the data snapshot's cut-offs have passed."><input type="checkbox" id="realClock"><span>Passed order cut-offs</span></label>
       <p class="small muted" style="margin:14px 0 0" id="parserTag"></p></div>
+  </div>
   </div>
 
   <section id="out"></section>
@@ -106,8 +111,7 @@ function renderMandate() {
       <div>Reliability</div><div>≥ ${(m.min_delivery_reliability * 100).toFixed(0)} %</div>
       ${prof.length ? `<div>Profile</div><div>${prof.map(esc).join('<br>')}</div>` : ''}
       <div>Approvers</div><div>${m.approvers.map(a => `${esc(a.role)} ≤ ${eur(a.up_to_eur).replace('.00', '')}`).join('<br>')}</div></div></details>`;
-  $('#presets').innerHTML = (PRESETS[m.mandate_id] || []).map(([l, t]) =>
-    `<button class="chip" onclick='$("#request").value=${esc(JSON.stringify(t))}; fitRequest()'>${esc(l)}</button>`).join('');
+  $('#presets').innerHTML = EXAMPLES.map(([, , who, what], i) => `<button class="chip" onclick="tryExample(${i})" title="${esc(who)}">${esc(what)}</button>`).join('');
 }
 
 // The request box grows with its text instead of scrolling.
@@ -184,10 +188,8 @@ function stepsIdle(cls = '') {
 
 function idleHtml(working) {
   if (working) return `<p class="said working">“${esc($('#request').value)}”</p>` + stepsIdle('live');
-  return `<section class="section" style="margin-top:34px"><div class="shead"><h2>Six checks on every request</h2><p>The first “no” decides who acts next: the agent, a person, or nobody.</p></div>
-    ${stepsIdle()}</section>
-    <section class="section"><div class="shead"><h2>Try one</h2></div><div class="trygrid">${EXAMPLES.map(([m, t, who, what], i) =>
-      `<button class="try" onclick="tryExample(${i})"><span class="who">${esc(who)}</span><b>${esc(what)}</b><span class="q">“${esc(t)}”</span></button>`).join('')}</div></section>`;
+  return `<h2 class="rhead">What happens next</h2>${stepsIdle()}
+    <p class="idlehint">The first “no” decides who acts next: the agent, a person, or nobody.</p>`;
 }
 
 function tryExample(i) {

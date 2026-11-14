@@ -363,12 +363,10 @@ def concept_image(name: str):
 @app.get("/connect", response_class=HTMLResponse, include_in_schema=False)
 def connect_page(request: Request):
     page = (TEMPLATES / "connect.html").read_text()
-    if getattr(request.state, "principal", None) == "human" and AGENT_TOKEN:
-        page = page.replace("&lt;agent token&gt;", escape(mandate_token("mnd_hotel_helsinki")))  # people hand this to their agent
-        rows = "".join(f"<div class=lrow><span>{escape(m['buyer'].replace(' (demo)', ''))}</span><code>{escape(mandate_token(mid))}</code><span></span></div>"
-                       for mid, m in policy.mandates().items())
-        page = page.replace("<!--MANDATE_TOKENS-->", "<h3 class=sub3>Agent tokens</h3>" + rows +
-                            "<p class='small muted' style='margin:10px 0 0'>A token only works for its own buyer.</p>")
+    if getattr(request.state, "principal", None) == "human" and AGENT_TOKEN:  # people hand these to their agent
+        import json as _json
+        tokens = {mid: {"buyer": m["buyer"].replace(" (demo)", ""), "token": mandate_token(mid)} for mid, m in policy.mandates().items()}
+        page = page.replace("<!--MANDATE_TOKENS-->", f"<script>window.TOKENS = {_json.dumps(tokens)};</script>")
     return page
 
 

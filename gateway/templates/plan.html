@@ -40,57 +40,47 @@
 <header class="topbar"><div class="inner">
   <div class="brand">Trusted Trade Agents</div>
   <nav class="tabs"><a href="/">Buyer agent</a><a href="/plan" class="on">Week plan</a><a href="/valio">Valio view</a><a href="/connect">Connect an agent</a></nav>
-  <div class="right"><select id="mandate" class="pill" onchange="loadPlans(); clearResults()" aria-label="Buyer"></select></div>
+  <div class="right"><span class="pill">Demo data</span></div>
 </div></header>
 
 <div class="page">
-  <div class="phead"><div><h1>Week plan</h1><p>Sign the week once. The agent then orders inside the plan alone.</p></div>
-    <div class="dates"><input type="date" id="start" aria-label="From"><span>to</span><input type="date" id="end" aria-label="To"></div></div>
+  <div class="phead"><div><h1>Week plan</h1><p>Agree the week's products and budget once. The agent then orders inside it without asking.</p></div></div>
 
-  <section class="section">
-    <div class="shead"><span class="n">1</span><h2>Add products</h2>
-      <div class="ptabs end"><button class="on" onclick="ptab(this,'find')">Search</button><button onclick="ptab(this,'recipe')">From a recipe</button></div></div>
-    <div id="t-find">
-      <div class="composer"><input type="text" id="q" placeholder="Lactose-free milk, butter, oat drink…" onkeydown="if(event.key==='Enter')search()" style="flex:1;border:0;background:transparent;font:inherit;font-size:17px;outline:0;padding:11px 0">
-        <button class="btn btn-primary" onclick="search()">Search</button></div>
-      <div class="chips" id="attrs" style="margin:10px 4px 0"></div>
-      <div id="results" style="margin-top:8px"></div>
+  <div class="panel">
+    <div class="fgrid">
+      <div class="f span3"><label for="mandate">Plan for</label><select id="mandate" onchange="loadPlans(); clearResults()"></select></div>
+      <div class="f span5"><label>Week</label><div class="dates"><input type="date" id="start" aria-label="From"><span>to</span><input type="date" id="end" aria-label="To"></div></div>
+      <div class="f span4"><label for="budget">Budget for the week (€)</label><input type="number" id="budget" min="1" step="10" oninput="renderLines()"><span class="hint">Filled in from the prices</span></div>
+      <div class="f span12"><label for="q">Products</label>
+        <div id="t-find"><div class="composer" style="padding:6px 6px 6px 18px"><input type="text" id="q" placeholder="Search, e.g. lactose-free milk" onkeydown="if(event.key==='Enter')search()" style="flex:1;border:0;background:transparent;font:inherit;font-size:16px;outline:0;padding:9px 0">
+          <button class="btn btn-primary" onclick="search()">Find</button></div>
+          <div style="display:flex;gap:10px;align-items:center;margin:10px 2px 0;flex-wrap:wrap"><div class="chips" id="attrs"></div><button class="linkbtn" style="margin-left:auto" onclick="ptab(null,'recipe')">Paste a recipe instead</button></div>
+          <div id="results" style="margin-top:6px"></div></div>
+        <div id="t-recipe" hidden>
+          <textarea id="recipe" placeholder="Salmon soup (serves 4)&#10;400 g salmon fillet&#10;5 dl lactose-free milk&#10;30 g butter"></textarea>
+          <div style="display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap">
+            <input type="number" id="covers" min="1" value="120" aria-label="Covers" style="width:100px"><span class="muted">covers</span>
+            <input type="number" id="serves" min="1" aria-label="Recipe serves" placeholder="serves" style="width:100px">
+            <button class="linkbtn" onclick="ptab(null,'find')">Back to search</button>
+            <button class="btn btn-primary" style="width:auto;margin:0;margin-left:auto" onclick="readRecipe()">Read the recipe</button></div>
+          <div id="recipeOut" style="margin-top:10px"></div></div>
+      </div>
     </div>
-    <div id="t-recipe" hidden>
-      <textarea id="recipe" placeholder="Salmon soup (serves 4)&#10;400 g salmon fillet&#10;5 dl lactose-free milk&#10;30 g butter"></textarea>
-      <div style="display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap">
-        <input type="number" id="covers" min="1" value="120" aria-label="Covers" style="width:110px"><span class="muted">covers</span>
-        <input type="number" id="serves" min="1" aria-label="Recipe serves" placeholder="serves" style="width:110px">
-        <button class="btn btn-primary" style="width:auto;margin:0;margin-left:auto" onclick="readRecipe()">Read the recipe</button></div>
-      <div id="recipeOut" style="margin-top:10px"></div>
-    </div>
-  </section>
-
-  <section class="section">
-    <div class="shead"><span class="n">2</span><h2>Price and send</h2><p>Valio prices the plan; the approver gets it.</p></div>
-    <table class="ptable">
-      <thead><tr><th>Product</th><th class="nr">Packs</th><th class="nr">Price</th><th class="nr">Line</th><th>Valio</th><th></th></tr></thead>
-      <tbody id="lines"><tr><td colspan="6" class="muted">Add products in step 1.</td></tr></tbody>
+    <table class="ptable" style="margin-top:20px">
+      <thead><tr><th>In the plan</th><th class="nr">Packs per week</th><th class="nr">Price</th><th class="nr">Line</th><th>Valio</th><th></th></tr></thead>
+      <tbody id="lines"><tr><td colspan="6" class="muted">Find products above and add them.</td></tr></tbody>
     </table>
-    <div class="sendbar">
-      <div><span class="muted">Total</span> <b id="total">€0.00</b> <span class="small muted" id="priceNote"></span></div>
-      <label class="budget"><span class="muted">Budget</span> €<input type="number" id="budget" min="1" step="10" oninput="renderLines()"></label>
+    <div class="pfoot"><div class="grow"><span class="muted">Total</span> <b id="total">€0.00</b> <span class="small muted" id="priceNote"></span></div>
       <input type="hidden" id="who" value="Head chef">
       <button class="btn btn-soft" onclick="price()">Price with Valio</button>
-      <button class="btn btn-primary" style="width:auto;margin:0" onclick="draft()">Send to the approver</button>
-    </div>
+      <button class="btn btn-primary" style="width:auto;margin:0" onclick="draft()">Send to the approver</button></div>
     <div class="err" id="err"></div>
-  </section>
+  </div>
 
-  <section class="section">
-    <div class="shead"><span class="n">3</span><h2>Sign</h2><p>An approver named in the buyer's rules signs; the agent orders inside it.</p></div>
-    <div id="plans" class="plangrid muted">No plans yet.</div>
-  </section>
-
-  <section class="section">
-    <div class="shead"><h2>Suggestions</h2><p>From what people approved, rejected or clarified. Nothing changes until a person adds it.</p><span id="learnedN" class="faint"></span></div>
-    <div id="learned" class="plangrid muted small">Nothing yet.</div><div id="learnedMore"></div>
-  </section>
+  <h2 class="rhead">Plans</h2>
+  <div id="plans" class="plangrid muted">No plans yet.</div>
+  <details style="margin-top:26px"><summary>Suggestions from past decisions <span id="learnedN" class="faint"></span></summary>
+    <div id="learned" class="plangrid muted small" style="margin-top:12px">Nothing yet.</div><div id="learnedMore"></div></details>
 </div>
 
 <script>
@@ -157,7 +147,7 @@ function add(p) {
 }
 
 function renderLines() {
-  if (!lines.length) { $('#lines').innerHTML = '<tr><td colspan="6" class="muted">Add products in step 1.</td></tr>'; $('#total').textContent = eur(0); return; }
+  if (!lines.length) { $('#lines').innerHTML = '<tr><td colspan="6" class="muted">Find products above and add them.</td></tr>'; $('#total').textContent = eur(0); return; }
   let total = 0, allPriced = true;
   $('#lines').innerHTML = lines.map((l, i) => {
     const pr = priced[l.productId];
@@ -233,7 +223,7 @@ async function loadLearned() {
   const all = [...rules, ...asks];
   $('#learned').innerHTML = all.slice(0, 3).join('') || 'Nothing yet.';
   $('#learnedMore').innerHTML = all.length > 3 ? `<details style="margin-top:14px"><summary>${all.length - 3} more</summary><div class="plangrid small" style="margin-top:12px">${all.slice(3).join('')}</div></details>` : '';
-  $('#learnedN').textContent = '';
+  $('#learnedN').textContent = all.length ? `(${all.length})` : '';
 }
 
 async function approve(id) {
@@ -276,10 +266,7 @@ function useRecipe() {
   renderLines();
 }
 
-function ptab(b, k) {
-  document.querySelectorAll('.ptabs button').forEach(x => x.classList.toggle('on', x === b));
-  $('#t-find').hidden = k !== 'find'; $('#t-recipe').hidden = k !== 'recipe';
-}
+function ptab(b, k) { $('#t-find').hidden = k !== 'find'; $('#t-recipe').hidden = k !== 'recipe'; }
 $('#budget').addEventListener('input', () => $('#budget').dataset.touched = 1);
 init();
 </script>
