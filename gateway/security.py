@@ -16,7 +16,8 @@ PATTERNS = [
     (r"\b(make|set|change|switch) the (product )?(search|filter|query|mandate|limit)", "tries to steer the agent's search or limits"),
     (r"\b(system|admin|developer) (notice|prompt|message|override)\b", "pretends to be a system message"),
     (r"\b(ai|purchasing|buyer|llm) agents?\b.{0,40}\b(must|should|are instructed)", "addresses AI agents directly"),
-    (r"pre-?approved|already approved|no approval (is )?(needed|required)", "claims approval is not needed"),
+    (r"pre-?approved|already approved|no (approval|sign-?off|sign off|signoff|authori[sz]ation|check) (is )?(needed|required|necessary)"
+     r"|\b(doesn'?t|does not|don'?t) need (an? )?(approval|sign-?off|sign off|checking)", "claims approval is not needed"),
     (r"(spend|order|budget) limits? (do(es)? not apply|are lifted|disabled)", "claims limits don't apply"),
     (r"\border \d[\d, ]{2,} ?(units|cartons|pcs|pieces)\b", "pushes a specific large quantity"),
 ]
