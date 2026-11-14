@@ -3,6 +3,10 @@
 Update at the end of every session. Newest first within each section.
 
 ## In progress
+- (Rasmus's Claude, branch `feat/week-plan`, on top of `fix/benchmark-1000`) Week plans + planner page `/plan`,
+  plan from a recipe, learned-from-decisions panel, unlock-automation card on `/valio`, request builder on `/`.
+  **Notes for Asmoww's Claude live on branch `coord/rasmus-claude` (`docs/HANDOFF-rasmus-claude.md`). That branch
+  holds outside reviews and is never merged into `main`.**
 - (Rasmus's Claude, branch `fix/benchmark-1000` off main 5a6b590) ChatGPT's 1,000-case benchmark: approval
   re-checks everything, quote input validation, Valio errors fail closed, **agent tokens bound to one mandate**.
   **On the server after merging:** the old `AGENT_TOKEN` now works only for `mnd_hotel_helsinki`
