@@ -15,34 +15,37 @@
 </div></header>
 
 <div class="page">
-  <div class="nums" id="nums"></div>
-  <h2 class="sect">Orders</h2>
-  <div id="orders"></div>
-  <div class="waitqr" id="waitQr"></div>
+  <div class="phead"><div><h1>Agent orders at Valio</h1><p>What outside agents buy, what waits for a person, and what is stopped.</p></div></div>
 
-  <div class="vtabs" role="tablist">
-    <button class="on" data-p="gaps" onclick="vtab(this)">Catalog gaps</button>
-    <button data-p="bench" onclick="vtab(this)">Agents vs. gateway</button>
-    <button data-p="sec" onclick="vtab(this)">Security</button>
-  </div>
-  <div class="vpanel" id="p-gaps">
-    <div class="grid2" style="gap:28px">
+  <section class="section">
+    <div class="nums" id="nums"></div>
+    <div class="shead"><h2>Orders</h2><p>Each dot is one of the six checks.</p></div>
+    <div id="orders"></div>
+    <div class="waitqr" id="waitQr"></div>
+  </section>
+
+  <section class="section">
+    <div class="shead"><h2>Catalog gaps</h2><p>Missing product data that stops agents deciding alone.</p></div>
+    <div class="cols2">
       <div><h3 class="sub3">Share of the catalog each buyer's agent can decide on</h3><div id="ready"></div></div>
       <div><h3 class="sub3">Fix these first</h3><div id="fixfirst"></div></div>
     </div>
     <div id="unlock" style="margin-top:22px"></div>
-  </div>
-  <div class="vpanel" id="p-bench" hidden>
-    <h3 class="sub3">The same 16 requests through four setups <span id="scoreWhen" class="faint" style="font-weight:400"></span></h3>
+  </section>
+
+  <section class="section">
+    <div class="shead"><h2>Agents vs. gateway</h2><p id="scoreWhen"></p></div>
     <div id="score"></div>
-    <div id="traps" style="margin-top:26px"></div>
-  </div>
-  <div class="vpanel" id="p-sec" hidden>
-    <div class="grid2" style="gap:28px">
-      <div><h3 class="sub3">Security events</h3><div id="security"></div></div>
+    <div id="traps" style="margin-top:22px"></div>
+  </section>
+
+  <section class="section">
+    <div class="shead"><h2>Security</h2><p>Attacks and mistakes the gateway caught.</p></div>
+    <div class="cols2">
+      <div><h3 class="sub3">Events</h3><div id="security"></div></div>
       <div><h3 class="sub3">Why orders went to a person or stopped</h3><div id="rules" class="bars"></div></div>
     </div>
-  </div>
+  </section>
 </div>
 
 <script>
@@ -138,16 +141,12 @@ async function loadScore() {
   if (!t.rows.length || !t.columns) { $('#score').innerHTML = '<p class="muted">Not run yet.</p>'; return; }
   const cols = Object.keys(t.columns);
   const NAMES = {baseline: 'Claude with the buyer’s rules in its prompt', no_rules: 'The same agent without the rules', no_rules_gw: 'Without the rules, through our gateway', gateway: 'Our agent and gateway'};
-  $('#scoreWhen').textContent = `· run ${ago(t.run_at)}`;
+  $('#scoreWhen').textContent = `The same 16 requests through four setups, run ${ago(t.run_at)}.`;
   $('#score').innerHTML = `<div class="nums">${cols.map(c => { const n = t.counts[c], bad = n.wrong + n.no_approval;
       return `<div class="num ${c === 'no_rules_gw' || c === 'gateway' ? 'blue' : ''}"><b>${bad ? bad + ' unsafe' : n.ok + ' / ' + t.cases}</b><span>${esc(NAMES[c] || t.columns[c])}</span></div>`; }).join('')}</div>
     <p class="muted" style="margin:-14px 0 0">Valio can’t choose which agents connect. Rules in the gateway hold for all of them.</p>`;
 }
 
-function vtab(b) {
-  document.querySelectorAll('.vtabs button').forEach(x => x.classList.toggle('on', x === b));
-  document.querySelectorAll('.vpanel').forEach(p => p.hidden = p.id !== 'p-' + b.dataset.p);
-}
 load(); loadReadiness(); loadUnlock(); loadTraps(); loadScore();
 setInterval(load, 3000);
 </script>

@@ -4,6 +4,7 @@ Search is local and structured, so the agent only calls the Valio APIs for a sho
 candidates, never for the whole catalogue.
 """
 import json
+import threading
 import re
 import unicodedata
 from collections import Counter
@@ -61,13 +62,21 @@ _catalog = None
 _by_id = None
 
 
+_load_lock = threading.Lock()
+
+
 def load():
+    """Load the catalog once. Built fully before it is published: several requests arrive together after a
+    restart, and one used to see the list before its id index existed (crash in the Valio view)."""
     global _catalog, _by_id
-    if _catalog is None:
-        _catalog = json.load(open(DATA_DIR / "catalog.json", encoding="utf-8"))
-        for p in _catalog:
-            p["_text"] = fold(f"{p['name']} {p['name_fi']} {p['brand'] or ''}")
-        _by_id = {p["id"]: p for p in _catalog}
+    if _catalog is None or _by_id is None:
+        with _load_lock:
+            if _catalog is None or _by_id is None:
+                items = json.load(open(DATA_DIR / "catalog.json", encoding="utf-8"))
+                for p in items:
+                    p["_text"] = fold(f"{p['name']} {p['name_fi']} {p['brand'] or ''}")
+                by_id = {p["id"]: p for p in items}
+                _by_id, _catalog = by_id, items
     return _catalog
 
 

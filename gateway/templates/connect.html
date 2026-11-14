@@ -9,78 +9,47 @@
 </head>
 <body>
 <header class="topbar"><div class="inner">
-  <div class="brand"><span class="dot">A</span>Trusted Trade Agents <small>Valio Aimo · Junction 2026</small></div>
+  <div class="brand">Trusted Trade Agents</div>
   <nav class="tabs"><a href="/">Buyer agent</a><a href="/plan">Week plan</a><a href="/valio">Valio view</a><a href="/connect" class="on">Connect an agent</a></nav>
-  <div class="right">Open interface</div>
+  <div class="right"><span class="pill">Open standards</span></div>
 </div></header>
 
-<div class="page" style="max-width:980px">
-  <div class="page-head">
-    <div>
-      <h1>Bring your own agent</h1>
-      <p>Any purchasing agent can work with the gateway on open standards: MCP for AI agents, OpenAPI for everything else,
-         and signed offers anyone can verify. Every channel goes through the same mandate check and audit trail.</p>
-    </div>
-  </div>
+<div class="page">
+  <div class="phead"><div><h1>Connect your own agent</h1><p>Any agent goes through the same six checks and the same audit trail.</p></div></div>
 
-  <div class="card">
-    <h2>MCP server</h2>
-    <p style="margin:0 0 12px">Streamable HTTP at <code>https://valio.psavela.com/mcp</code> with a bearer token: the agent token below, not the sign-in password.
-       For example in Claude Code:</p>
-    <pre class="mono">claude mcp add --transport http valio https://valio.psavela.com/mcp \
+  <section class="section">
+    <div class="shead"><span class="n">1</span><h2>Add the MCP server</h2><p>For Claude, ChatGPT and other AI agents.</p></div>
+    <div class="cols2">
+      <div><pre class="mono">claude mcp add --transport http valio https://valio.psavela.com/mcp \
   --header "Authorization: Bearer &lt;agent token&gt;"</pre>
-    <!--MANDATE_TOKENS-->
-    <p class="small muted" style="margin:14px 0 8px">Tools</p>
-    <table><tbody>
-      <tr><td class="name">get_mandate</td><td class="muted">What the agent may decide alone, hard limits, allergen bans, approvers, with the buyer's signed credential</td></tr>
-      <tr><td class="name">search_products</td><td class="muted">Structured search over the static catalog. No live API calls</td></tr>
-      <tr><td class="name">check_price_availability</td><td class="muted">Live price and availability for up to 20 products</td></tr>
-      <tr><td class="name">request_offer</td><td class="muted">Signed fixed-price offer, valid 15 minutes</td></tr>
-      <tr><td class="name">place_order</td><td class="muted">Commit an offer: placed, sent for approval, or blocked. Idempotent</td></tr>
-      <tr><td class="name">get_order</td><td class="muted">Status and decision record</td></tr>
-    </tbody></table>
-  </div>
+        <p class="small muted" style="margin:10px 0 0">The token is the agent's, not the sign-in password. Each buyer has its own.</p></div>
+      <div><!--MANDATE_TOKENS--></div>
+    </div>
+  </section>
 
-  <div class="grid2">
-    <div class="card">
-      <h2>REST · OpenAPI</h2>
-      <p style="margin:0 0 12px">The same flow as plain HTTP, documented with OpenAPI.</p>
-      <div class="chips"><a class="chip navy" href="/docs">Swagger UI</a><a class="chip navy" href="/openapi.json">openapi.json</a></div>
-      <pre class="mono" style="margin-top:14px">POST /v1/quotes   → signed offer
-POST /v1/orders   → placed | pending | blocked
-POST /v1/approvals/{order_id}
-GET  /v1/orders/{order_id}/decision</pre>
+  <section class="section">
+    <div class="shead"><span class="n">2</span><h2>What the agent can do</h2><p>Six tools. Approving is not one of them: only a person can.</p></div>
+    <div class="tools">
+      <div><b>get_mandate</b><span>The buyer's rules, signed by the buyer</span></div>
+      <div><b>search_products</b><span>Search the catalog, no live calls</span></div>
+      <div><b>check_price_availability</b><span>Live price and stock, up to 20 products</span></div>
+      <div><b>request_offer</b><span>A signed fixed price for 15 minutes</span></div>
+      <div><b>place_order</b><span>Placed, sent to a person, or stopped</span></div>
+      <div><b>get_order</b><span>Status and the decision record</span></div>
     </div>
-    <div class="card">
-      <h2>Trust</h2>
-      <p style="margin:0 0 12px">Offers are Ed25519-signed JWS. Verify them without trusting the channel they came through.</p>
-      <div class="chips"><a class="chip navy" href="/.well-known/jwks.json">/.well-known/jwks.json</a></div>
-      <ul class="small muted" style="margin:14px 0 0;padding-left:18px">
-        <li>Prices are fixed catalog prices, never negotiated</li>
-        <li>Live prices are re-checked before committing</li>
-        <li>Supplier text is untrusted data and is scanned</li>
-        <li>Every decision is in a hash-chained audit log</li>
-      </ul>
-    </div>
-  </div>
+  </section>
 
-  <div class="grid2">
-    <div class="card">
-      <h2>Peppol orders</h2>
-      <p style="margin:0 0 12px">Every placed order is also a Peppol BIS Ordering 3 document (UBL 2.1 Order), so it drops
-         into any Peppol-capable ERP or access point. Checked against the official UBL 2.1 schema; party IDs are demo values.</p>
-      <pre class="mono">GET /v1/orders/{order_id}/peppol.xml</pre>
+  <section class="section">
+    <div class="shead"><h2>Standards</h2><p>Nothing proprietary to adopt.</p></div>
+    <div class="tools">
+      <a href="/docs"><b>REST and OpenAPI</b><span>The same flow as plain HTTP</span></a>
+      <a href="/.well-known/jwks.json"><b>Signed offers</b><span>Ed25519; anyone can verify the price</span></a>
+      <a href="/v1/mandates/mnd_hotel_helsinki/credential"><b>Mandate as a credential</b><span>W3C Verifiable Credential, signed by the buyer</span></a>
+      <div><b>Peppol orders</b><span>Every placed order as a Peppol BIS 3 document</span></div>
+      <a href="/openapi.json"><b>openapi.json</b><span>For code generators</span></a>
+      <div><b>Audit trail</b><span>Hash-chained; buyer and Valio see the same record</span></div>
     </div>
-    <div class="card">
-      <h2>Mandate as a credential</h2>
-      <p style="margin:0 0 12px">The buyer signs its mandate as a W3C Verifiable Credential (vc+jwt, EdDSA), with its key
-         published as a <code>did:web</code>. The gateway enforces only a mandate whose signature checks out: an edited
-         mandate blocks every order until the buyer signs it again.</p>
-      <pre class="mono">GET  /v1/mandates/{mandate_id}/credential
-POST /v1/mandates/verify     (open to anyone)
-GET  /buyers/{buyer}/did.json</pre>
-    </div>
-  </div>
+  </section>
 </div>
 </body>
 </html>

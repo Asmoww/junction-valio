@@ -401,3 +401,22 @@ details summary { color: var(--valio); font-weight: 600; }
 .bigbar .track { height: 8px; border-radius: 99px; background: #edf1f7; overflow: hidden; } .bigbar .fill { height: 100%; border-radius: 99px; }
 .callout { background: var(--valio-soft); border-radius: 14px; padding: 14px 18px; }
 .vpanel .num b { font-size: 26px; }
+
+/* Shared page skeleton: one heading per page, then clearly separated sections */
+.phead { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin: 8px 0 26px; }
+.phead h1 { font-size: 28px; font-weight: 800; font-stretch: 106%; letter-spacing: -.025em; margin: 0; }
+.phead p { margin: 4px 0 0; color: var(--mute); }
+.section { padding: 32px 0 34px; border-top: 1px solid var(--line); }
+.phead + .section { border-top: 0; padding-top: 0; }
+.shead { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; flex-wrap: wrap; }
+.shead h2 { font-size: 19px; font-weight: 750; letter-spacing: -.01em; margin: 0; }
+.shead p { margin: 0; color: var(--mute); font-size: 14px; }
+.shead .n { width: 26px; height: 26px; border-radius: 50%; background: var(--valio); color: #fff; display: grid; place-items: center; font-weight: 800; font-size: 13px; }
+.shead .end { margin-left: auto; }
+.cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; } @media (max-width: 900px) { .cols2 { grid-template-columns: 1fr; } }
+.box { border: 1px solid var(--line); border-radius: 18px; padding: 18px 20px; }
+.box h3 { font-size: 15px; margin: 0 0 6px; } .box p { margin: 0 0 12px; color: var(--mute); font-size: 14px; }
+.tools { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; } @media (max-width: 900px) { .tools { grid-template-columns: 1fr; } }
+.tools > * { border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px; color: var(--ink); text-decoration: none; display: flex; flex-direction: column; gap: 2px; }
+.tools > a:hover { border-color: var(--valio); text-decoration: none; } .tools b { font-size: 15px; } .tools span { color: var(--mute); font-size: 13.5px; }
+.lrow code { font-size: 12.5px; color: var(--valio); }

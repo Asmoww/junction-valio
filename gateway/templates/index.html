@@ -15,6 +15,7 @@
 </div></header>
 
 <div class="page">
+  <div class="phead"><div><h1>Ask the agent</h1><p>Say what the kitchen needs. The agent buys it from Valio Aimo, within the buyer's rules.</p></div></div>
   <div class="composer">
     <textarea id="request" rows="1" aria-label="What does the kitchen need?" placeholder="What does the kitchen need?" oninput="fitRequest()" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();run()}">I need 1,000 litres of lactose-free milk by Monday.</textarea>
     <button class="btn btn-primary" id="runBtn" onclick="run()">Ask the agent</button>
@@ -183,10 +184,10 @@ function stepsIdle(cls = '') {
 
 function idleHtml(working) {
   if (working) return `<p class="said working">“${esc($('#request').value)}”</p>` + stepsIdle('live');
-  return `<div class="intro"><h1>Every request passes six checks</h1><p>The first “no” decides who acts next: the agent, a person, or nobody.</p></div>
-    ${stepsIdle()}
-    <div class="tries"><h2>Try one</h2><div class="trygrid">${EXAMPLES.map(([m, t, who, what], i) =>
-      `<button class="try" onclick="tryExample(${i})"><span class="who">${esc(who)}</span><b>${esc(what)}</b><span class="q">“${esc(t)}”</span></button>`).join('')}</div></div>`;
+  return `<section class="section" style="margin-top:34px"><div class="shead"><h2>Six checks on every request</h2><p>The first “no” decides who acts next: the agent, a person, or nobody.</p></div>
+    ${stepsIdle()}</section>
+    <section class="section"><div class="shead"><h2>Try one</h2></div><div class="trygrid">${EXAMPLES.map(([m, t, who, what], i) =>
+      `<button class="try" onclick="tryExample(${i})"><span class="who">${esc(who)}</span><b>${esc(what)}</b><span class="q">“${esc(t)}”</span></button>`).join('')}</div></section>`;
 }
 
 function tryExample(i) {

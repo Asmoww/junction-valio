@@ -365,11 +365,10 @@ def connect_page(request: Request):
     page = (TEMPLATES / "connect.html").read_text()
     if getattr(request.state, "principal", None) == "human" and AGENT_TOKEN:
         page = page.replace("&lt;agent token&gt;", escape(mandate_token("mnd_hotel_helsinki")))  # people hand this to their agent
-        rows = "".join(f"<tr><td class=name>{escape(m['buyer'])}</td><td class=mono>{escape(mandate_token(mid))}</td></tr>"
+        rows = "".join(f"<div class=lrow><span>{escape(m['buyer'].replace(' (demo)', ''))}</span><code>{escape(mandate_token(mid))}</code><span></span></div>"
                        for mid, m in policy.mandates().items())
-        page = page.replace("<!--MANDATE_TOKENS-->", "<p class='small muted' style='margin:14px 0 8px'>One token per buyer: "
-                            "a token can only quote, order and read orders under its own buyer's mandate</p>"
-                            f"<table><tbody>{rows}</tbody></table>")
+        page = page.replace("<!--MANDATE_TOKENS-->", "<h3 class=sub3>Agent tokens</h3>" + rows +
+                            "<p class='small muted' style='margin:10px 0 0'>A token only works for its own buyer.</p>")
     return page
 
 
