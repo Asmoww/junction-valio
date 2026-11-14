@@ -14,7 +14,7 @@ from collections import Counter
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from . import ai, catalog, gates, plans, policy, request_checks, security, signing, store, trust
+from . import ai, catalog, gates, glossary, plans, policy, request_checks, security, signing, store, trust
 from .config import DEMO_CLOCK, MAX_OFFER_LINES, OFFER_TTL_MINUTES, TIMEZONE, WEIGHT_SALES_UNITS
 from .valio import ValioClient
 
@@ -1094,12 +1094,18 @@ def _run(text, mandate_id, overrides=None, simulate_price_change=False, inject=F
     client = ValioClient()
     steps = []
     run_id = "run_" + uuid.uuid4().hex[:10]
+    # The buyer's glossary (glossary.py): a phrasing a person taught is read with its meaning. Only says what is
+    # meant; the expanded request still runs every gate, and the scanner reads both texts.
+    original = text
+    text, taught = glossary.apply(mandate_id, text)
     raw = text
     ai_intent = ai.parse(raw)
     # The deterministic checks read a normalised copy: invisible characters and look-alike letters removed,
     # "no lactose" read as "lactose-free", "12 dozen" as 144 (request_checks.normalise).
     text = request_checks.normalise(raw)
     scan_text = text  # the injection scanner always reads everything the buyer wrote
+    if taught:
+        scan_text = request_checks.normalise(original) + "\n" + text
     # "Exactly 24 eggs, not 24 packs; ask me instead of rounding up": a limit, not a second quantity.
     # "My total budget for this purchase is EUR 5": the buyer's own limit for this order, enforced as a hard rule.
     budget = request_checks.stated_budget(text)
@@ -1119,6 +1125,10 @@ def _run(text, mandate_id, overrides=None, simulate_price_change=False, inject=F
         intent["allergies"] = [catalog.ALLERGENS.get(a, a) for a in allergy_codes]
     store.log(run_id, f"agent:{mandate['agent']}", "request.received", {"text": raw, "mandate_id": mandate_id, "parser": parser,
                                                                          "request_allergies": allergy_codes, "purpose": purpose})
+    if taught:
+        intent["glossary"] = [{"phrase": e["phrase"], "meaning": e["meaning"], "taught_by": e["taught_by"]} for e in taught]
+        intent["original_request"] = original
+        store.log(run_id, f"agent:{mandate['agent']}", "glossary.used", {"entries": [e["id"] for e in taught]})
     steps.append({"step": "request", "title": "Understand the request", "intent": intent})
 
     def exit_at(gate, action, status, reason):

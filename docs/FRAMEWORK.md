@@ -220,3 +220,14 @@ data lists no nuts and no may-contain" is ordered alone (data proves it); the be
   assumed value is confirmed by a person, here the chef before sending the plan).
 - **Learning** produces suggestions only. Turning one into a rule needs the buyer (plan or re-signed
   mandate): the agent never widens its own authority.
+
+
+## The learning loop (14 Nov, branch `feat/glossary`)
+- **A person teaches, the reader learns.** When the agent asks back and the buyer's next request goes through, the
+  learning panel offers "Teach the reader". Accepted, the phrasing goes into that buyer's glossary: next time the
+  request is read with its meaning, and the result says "read using your glossary … (taught by …)".
+- **Rule 2 still holds.** A glossary says *what* is meant, never what's allowed: the expanded request runs every gate
+  (a hospital that taught "the usual" = milk still gets stopped at gate 3). Meanings that claim approval, limits or
+  instructions are refused when taught; the scanner reads both texts at run time; agents can't write to it.
+- **Into the model.** `scripts/export_learning_data.py` turns glossary entries and ask-back pairs into training rows
+  for the European reader fine-tune (`finetune_reader.py` picks them up, weighted x3), tagged per buyer.

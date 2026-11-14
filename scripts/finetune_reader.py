@@ -38,6 +38,11 @@ def main():
     from trl import SFTConfig, SFTTrainer
 
     rows = [json.loads(line) for line in open(ROOT / "data" / "reader" / "train.jsonl")]
+    human = ROOT / "data" / "reader" / "human.jsonl"  # what people taught (scripts/export_learning_data.py)
+    if human.exists():
+        taught = [json.loads(line) for line in open(human)]
+        rows += taught * 3  # few but real: weigh them up
+        print(f"+ {len(taught)} human-taught examples (x3)")
     data = Dataset.from_list([{"messages": r["messages"]} for r in rows])
     trainer = SFTTrainer(
         model=args.model,
