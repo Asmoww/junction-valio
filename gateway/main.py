@@ -12,8 +12,8 @@ from urllib.parse import quote as urlquote
 from fastapi import Body, FastAPI, Form, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from . import agent, ai, catalog, gates, policy, security, signing, standards, store
-from .config import AGENT_TOKEN as AGENT_TOKEN_ENV, DEMO_CLOCK, DEMO_PASSWORD
+from . import learning, unlock, plans, recipe, agent, ai, catalog, gates, policy, security, signing, standards, store
+from .config import AGENT_TOKEN as AGENT_TOKEN_ENV, AGENT_TOKEN_SCOPE, DEMO_CLOCK, DEMO_PASSWORD
 from .mcp_server import app as mcp_app
 from .mcp_server import mcp
 
@@ -42,6 +42,25 @@ AGENT_TOKEN = AGENT_TOKEN_ENV or (hmac.new(DEMO_PASSWORD.encode(), b"tg-agent", 
                                      if DEMO_PASSWORD else "")
 if AGENT_TOKEN and AGENT_TOKEN == DEMO_PASSWORD:
     raise SystemExit("AGENT_TOKEN must differ from DEMO_PASSWORD")
+
+
+def mandate_token(mandate_id):
+    """The agent token bound to one buyer's mandate (derived, so nothing new to store or leak)."""
+    return hmac.new(AGENT_TOKEN.encode(), b"tg-agent:" + mandate_id.encode(), hashlib.sha256).hexdigest()[:32]
+
+
+def _bound_mandate(token):
+    """(True, mandate it is bound to or None for unbound) for a valid agent token, else (False, None)."""
+    if not AGENT_TOKEN:
+        return False, None
+    if secrets.compare_digest(token, AGENT_TOKEN):
+        return True, (None if AGENT_TOKEN_SCOPE == "all" else AGENT_TOKEN_SCOPE)
+    for mid in policy.mandates():
+        if secrets.compare_digest(token, mandate_token(mid)):
+            return True, mid
+    return False, None
+
+
 OPEN_PATHS = {"/login", "/healthz", "/.well-known/jwks.json", "/v1/mandates/verify"}
 if not DEMO_PASSWORD:
     logging.getLogger("uvicorn.error").warning(
@@ -63,9 +82,18 @@ async def password_gate(request: Request, call_next):
     if secrets.compare_digest(request.cookies.get(_COOKIE, ""), _token):
         request.state.principal = "human"
         return await call_next(request)
-    if auth.startswith("Bearer ") and secrets.compare_digest(auth[7:], AGENT_TOKEN):
+    ok, bound = _bound_mandate(auth[7:]) if auth.startswith("Bearer ") else (False, None)
+    if ok and request.url.path.startswith("/api"):
+        # The /api endpoints serve the demo pages to signed-in people (and list every buyer's orders).
+        return JSONResponse({"detail": "agents use /v1 or /mcp"}, status_code=403)
+    if ok:
         request.state.principal = "agent"
-        return await call_next(request)
+        request.state.mandate = bound
+        reset = agent.CALLER.set(bound)  # read by agent.quote/order_from_jws, so REST and MCP get the same check
+        try:
+            return await call_next(request)
+        finally:
+            agent.CALLER.reset(reset)
     if request.url.path.startswith(("/v1", "/api", "/mcp")):
         return JSONResponse({"detail": "authentication required"}, status_code=401)
     return RedirectResponse(f"/login?next={urlquote(request.url.path)}", status_code=303)
@@ -137,6 +165,129 @@ def run_agent(request: Request, body: dict = Body(...)):
                      real_clock=bool(body.get("real_clock")))
 
 
+# ---- Week plan: the planner page (/plan) -----------------------------------------------------------------------
+
+def _human(request: Request):
+    if getattr(request.state, "principal", None) != "human":
+        raise HTTPException(403, "plans are made and signed by people, not agents")
+
+
+@app.get("/plan", response_class=HTMLResponse, include_in_schema=False)
+def plan_page():
+    return (TEMPLATES / "plan.html").read_text()
+
+
+@app.get("/api/planner/search", tags=["demo"])
+def planner_search(q: str, mandate_id: str = "mnd_hotel_helsinki", attributes: str = "", limit: int = 12):
+    """Catalog search for the planner, with each product checked against the buyer's mandate up front."""
+    if mandate_id not in policy.mandates():
+        raise HTTPException(404, "unknown mandate")
+    m = policy.load(mandate_id)
+    found, trace = catalog.search(q, [a for a in attributes.split(",") if a], min(limit, 20))
+    out = []
+    for p in found:
+        problem = policy.allergen_problem(m, p)
+        missing = [c for c in m["hard_limits"].get("required_claims", [])
+                   if c not in p["claims"] and not (c == "FREE_FROM_LACTOSE" and p.get("lactose") == 0)]
+        out.append(dict(catalog.describe(p), mandate_check=(
+            {"ok": False, "level": "block", "why": problem[0]} if problem and problem[1] == "block" else
+            {"ok": False, "level": "block", "why": "not " + ", ".join(c.lower().replace("_", " ") for c in missing)} if missing else
+            {"ok": True, "level": "check", "why": problem[0]} if problem else {"ok": True, "level": "ok", "why": "fits the mandate"})))
+    return {"trace": trace, "products": out}
+
+
+@app.post("/api/planner/prices", tags=["demo"])
+def planner_prices(body: dict = Body(...)):
+    """Live price and availability for the planned products (at most 20), so the budget is real."""
+    ids = [str(i) for i in (body.get("product_ids") or [])][:20]
+    mandate_id = body.get("mandate_id", "mnd_hotel_helsinki")
+    if mandate_id not in policy.mandates() or not ids:
+        raise HTTPException(422, "give mandate_id and product_ids")
+    m = policy.load(mandate_id)
+    c = agent.ValioClient()
+    try:
+        prices = c.prices(m["customer"], body.get("deliver_by") or "", ids)
+        now_s, avail = c.availability(m["customer"], body.get("deliver_by") or "", ids)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"Valio didn't answer ({type(e).__name__})")
+    rows = {}
+    for pid in ids:
+        av = avail.get(pid) or {}
+        rows[pid] = {"unitPrice": agent._price(prices.get(pid)), "salesBlock": bool(av.get("salesBlock")),
+                     "stockConfirmed": av.get("logisticModel") == "Stock",
+                     "available": sum(agent._amount(x) for x in av.get("scheduleLines", []) if not x.get("salesBlock")),
+                     "deadlinePassed": agent._passed(av.get("closingTime"), now_s)}
+    return {"serverTime": now_s, "products": rows}
+
+
+@app.post("/api/planner/from-recipe", tags=["demo"])
+def planner_from_recipe(request: Request, body: dict = Body(...)):
+    """Turn a recipe + covers into candidate plan lines for the chef to edit. Nothing is ordered or signed."""
+    _human(request)
+    out, err = recipe.read(body.get("mandate_id"), body.get("text"), body.get("covers"), body.get("serves"),
+                           str(body.get("deliver_by") or ""), type_check=ai.type_check if ai.enabled() else None)
+    if err:
+        raise HTTPException(409, err)
+    return out
+
+
+@app.get("/api/unlock", tags=["demo"])
+def unlock_report(mandate_id: str = ""):
+    """Which missing product data, if Valio added it, would let the most held orders through alone (what-if)."""
+    return unlock.report(mandate_id or None)
+
+
+@app.get("/api/learning", tags=["demo"])
+def learned(mandate_id: str = "mnd_hotel_helsinki"):
+    """Suggestions from past human decisions and ask-backs. Suggestions only: nothing is applied automatically."""
+    if mandate_id not in policy.mandates():
+        raise HTTPException(404, "unknown mandate")
+    return learning.suggestions(mandate_id)
+
+
+@app.get("/api/plans", tags=["demo"])
+def list_plans(mandate_id: str = "mnd_hotel_helsinki"):
+    return [plans.view(p) for p in store.plans_for(mandate_id)]
+
+
+@app.post("/api/plans", tags=["demo"])
+def create_plan(request: Request, body: dict = Body(...)):
+    _human(request)
+    plan, err = plans.create(body.get("mandate_id"), body.get("lines"), body.get("start"), body.get("end"),
+                             body.get("max_total_eur"), str(body.get("created_by") or "buyer"), str(body.get("note") or ""))
+    if err:
+        raise HTTPException(409, err)
+    return plans.view(plan)
+
+
+@app.post("/api/plans/{plan_id}/approve", tags=["demo"])
+def approve_plan(request: Request, plan_id: str, body: dict = Body(...)):
+    _human(request)
+    plan, err = plans.approve(plan_id, str(body.get("approver") or ""), str(body.get("comment") or ""))
+    if err:
+        raise HTTPException(409, err)
+    return plans.view(plan)
+
+
+@app.post("/api/plans/{plan_id}/revoke", tags=["demo"])
+def revoke_plan(request: Request, plan_id: str, body: dict = Body(...)):
+    _human(request)
+    plan, err = plans.revoke(plan_id, str(body.get("by") or ""), str(body.get("reason") or ""))
+    if err:
+        raise HTTPException(409, err)
+    return plans.view(plan)
+
+
+@app.get("/v1/plans", tags=["v1: lookup"])
+def agent_plans(request: Request, mandate_id: str):
+    """The buyer's signed week plans (read-only): what the agent may order without asking, and what's left."""
+    if mandate_id not in policy.mandates():
+        raise HTTPException(404, "unknown mandate")
+    if err := agent.caller_refusal(mandate_id):
+        raise HTTPException(403, err)
+    return [plans.view(p) for p in store.plans_for(mandate_id, "approved")]
+
+
 @app.get("/api/info", tags=["demo"])
 def info():
     return {"ai_parser": ai.enabled(), "model": ai.MODEL if ai.enabled() else None, "demo_clock": DEMO_CLOCK,
@@ -189,8 +340,22 @@ def concept_image(name: str):
 def connect_page(request: Request):
     page = (TEMPLATES / "connect.html").read_text()
     if getattr(request.state, "principal", None) == "human" and AGENT_TOKEN:
-        page = page.replace("&lt;agent token&gt;", escape(AGENT_TOKEN))  # people hand this to their agent
+        page = page.replace("&lt;agent token&gt;", escape(mandate_token("mnd_hotel_helsinki")))  # people hand this to their agent
+        rows = "".join(f"<tr><td class=name>{escape(m['buyer'])}</td><td class=mono>{escape(mandate_token(mid))}</td></tr>"
+                       for mid, m in policy.mandates().items())
+        page = page.replace("<!--MANDATE_TOKENS-->", "<p class='small muted' style='margin:14px 0 8px'>One token per buyer: "
+                            "a token can only quote, order and read orders under its own buyer's mandate</p>"
+                            f"<table><tbody>{rows}</tbody></table>")
     return page
+
+
+def _own(request: Request, o):
+    """Hide another buyer's order from an agent whose token is bound to a different mandate."""
+    bound = getattr(request.state, "mandate", None)
+    if o and bound and o["mandate_id"] != bound:
+        store.log(o["id"], f"agent:{bound}", "security.mandate_mismatch", {"token_for": bound, "tried": o["mandate_id"]})
+        return None
+    return o
 
 
 @app.get("/static/style.css", include_in_schema=False)
@@ -280,6 +445,8 @@ def quote(body: dict = Body(..., examples=[{"mandate_id": "mnd_hotel_helsinki", 
     """Price and availability for specific lines, returned as a signed fixed-price offer (valid 15 min)."""
     if body.get("mandate_id") not in policy.mandates():
         raise HTTPException(404, "unknown mandate")
+    if err := agent.caller_refusal(body["mandate_id"]):
+        raise HTTPException(403, err)
     offer, jws, err = agent.quote(body["mandate_id"], body["deliver_by"], body.get("lines") or [],
                                   requested_quantity=body.get("requested_quantity"), requested_unit=body.get("requested_unit"))
     if err:
@@ -296,13 +463,13 @@ def order(body: dict = Body(...), idempotency_key: str = Header(...)):
         raise HTTPException(422, "give offer_id or jws")
     o, err = agent.order_from_jws(jws, idempotency_key, body.get("rationale", ""), body.get("requested_units"))
     if not o:
-        raise HTTPException(409, err)
+        raise HTTPException(403 if err.startswith("this agent token acts for") else 409, err)
     return o
 
 
 @app.get("/v1/orders/{order_id}", tags=["v1: order"])
-def get_order(order_id: str):
-    o = store.get_order(order_id)
+def get_order(request: Request, order_id: str):
+    o = _own(request, store.get_order(order_id))
     if not o:
         raise HTTPException(404, "unknown order")
     return o
@@ -447,9 +614,9 @@ def approve_submit(order_id: str, a: str = Form(""), e: str = Form(""), t: str =
 
 
 @app.get("/v1/orders/{order_id}/decision", tags=["v1: audit"])
-def decision(order_id: str):
+def decision(request: Request, order_id: str):
     """Human-readable decision record plus the audit events for this order."""
-    o = store.get_order(order_id)
+    o = _own(request, store.get_order(order_id))
     if not o:
         raise HTTPException(404, "unknown order")
     return {"order": o, "events": store.events(o["id"]) + store.events(o["offer_id"]), "chain": store.verify_chain()}
@@ -472,7 +639,7 @@ def well_known_jwks():
 @app.get("/v1/orders/{order_id}/peppol.xml", tags=["v1: standards"])
 def peppol_xml(request: Request, order_id: str):
     """The placed order as a Peppol BIS Ordering 3 document (UBL 2.1 Order), ready for an ERP or access point."""
-    o = store.get_order(order_id)
+    o = _own(request, store.get_order(order_id))
     if not o:
         raise HTTPException(404, "unknown order")
     if o["status"] != "placed":
@@ -483,10 +650,11 @@ def peppol_xml(request: Request, order_id: str):
 
 
 @app.get("/v1/mandates/{mandate_id}/credential", tags=["v1: standards"])
-def mandate_credential(mandate_id: str):
+def mandate_credential(request: Request, mandate_id: str):
     """The buyer-signed mandate as a W3C Verifiable Credential (vc+jwt), plus its decoded form."""
     m = policy.mandates().get(mandate_id)
-    if not m:
+    bound = getattr(request.state, "mandate", None)
+    if not m or (getattr(request.state, "principal", None) == "agent" and bound and bound != mandate_id):
         raise HTTPException(404, "unknown mandate")
     token = standards.credential(m)
     ok, vc = standards.verify(token, m)

@@ -177,3 +177,42 @@ approval accepted stock arriving after the date; the agent's display save could 
 only the latest 500 orders (now one SQL sum); an agent could raise its own auto limit via `/api/run`. Already fixed
 on `fix/red-team-2`: one order per offer in the database, approvals only while pending, a lock across processes.
 Still open: one shared sign-in for all approvers; caller-to-mandate binding.
+
+## ChatGPT's 1,000-case benchmark (14 Nov 03:50, branch `fix/benchmark-1000`)
+Run in-process (rule-based reading, real catalog, fake Valio; no live site, no FastAPI/MCP here). 600 request
+cases, 400 API/fixture cases. Before → after the fixes, API/fixture side: 48 FAIL → 7 FAIL (5 are the known
+gaps below, 2 are harness limits). Every pass/fail was checked by hand against the framework; the benchmark's
+own answer key is AI-written and wrong in places (e.g. "500 cl" scored against "exactly 1.2 L").
+
+What it changed in the framework:
+- **Rule 4 extends to the approval moment.** An approval re-runs the whole check, not only the price after the
+  lock: a hard rule failing now (mandate expired or revoked, banned allergen, lower hard limit, withdrawn
+  product) blocks; a change at Valio (price, stock, cut-off, stock no longer confirmed) or a problem the
+  approver was never shown sends it back for a new offer; Valio not answering keeps it waiting.
+- **Authority belongs to a caller.** Each buyer's mandate has its own agent token; a token can't quote, order
+  or read orders under another buyer's mandate (REST and MCP), and every attempt is logged
+  (`security.mandate_mismatch`). Answers the "what stops someone using another buyer's mandate?" question.
+- **Rule 6 covers the supplier side too.** A cut-off, price or stock figure Valio sends that can't be read
+  (malformed time, NaN, infinity, text) counts as "not available"; a Valio error is a clean refusal.
+- **Gate 1 for API callers.** A quote with a non-date, past date, NaN or negative quantity, unknown unit,
+  caller-supplied prices or an invented substitution type is refused before anything is signed.
+- **Coverage both ways.** An offer covering much less than the buyer asked (10 of 100) goes to a person, as
+  going over already did.
+
+Still open (stated, not hidden): one shared sign-in for people (phone approval links name one approver, but
+anyone signed in can issue one); a requester can't cancel or lower the budget of a waiting order; MCP parity
+is untested here (same functions, `mcp` not installed). Framework question raised: "nut allergy + muesli whose
+data lists no nuts and no may-contain" is ordered alone (data proves it); the benchmark wanted a fact check.
+
+## Week plans and learning (14 Nov, branch `feat/week-plan`)
+- **Where a week plan sits on the ladder:** gate 5 ("Agent's call?"), as authority given in advance. A plan
+  the approver signed answers "may the agent spend this?" for the products, units, budget and dates it
+  names. It never touches gates 0-4: a banned allergen, a fact the data can't prove or a changed price still
+  stops or escalates an order inside a plan. Rule 5 (authority adds up) holds: the plan's units and budget
+  are counted across orders.
+- **Who may sign:** an approver from the mandate with authority for the whole plan budget. The agent can't
+  create, sign or claim a plan; the gateway finds the plan at commit.
+- **Recipes** only fill the planner; everything worked out from them is marked as assumed (rule 2: an
+  assumed value is confirmed by a person, here the chef before sending the plan).
+- **Learning** produces suggestions only. Turning one into a rule needs the buyer (plan or re-signed
+  mandate): the agent never widens its own authority.

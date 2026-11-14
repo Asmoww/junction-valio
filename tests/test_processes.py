@@ -44,7 +44,8 @@ def test_approve_and_reject_at_the_same_moment_one_wins():
     store.save_order({"id": oid, "offer_id": "ofr_proc_pending", "idempotency_key": "k-proc-pending",
                       "status": "pending_approval", "total": 100.0, "mandate_id": "mnd_hotel_helsinki",
                       "policy": {"outcome": "needs_approval", "rules": []},
-                      "record": {"offer": {"expires_at": "2099-12-31T23:59:59+00:00", "lines": []}}})
+                      "record": {"offer": {"expires_at": "2099-12-31T23:59:59+00:00", "lines": [], "total_eur": 100.0,
+                                           "deliver_by": "2026-11-16"}}})
     results = race(("approve", oid), ("reject", oid))
     winners = [r for r in results if r["status"]]
     assert len(winners) == 1

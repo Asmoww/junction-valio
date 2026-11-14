@@ -66,11 +66,13 @@ def mandate_signature(mandate):
     return standards.verify(standards.credential(registered), registered)
 
 
-def evaluate(mandate, offer, context):
+def evaluate(mandate, offer, context, lookup=None):
     """Return {outcome, approver, rules, ladder}. outcome: auto_approve | needs_approval | blocked.
 
     Every rule belongs to one gate of the decision ladder (gates.py): 3 Allowed, 4 Proven, 5 Agent's call.
-    The first gate with a failed rule decides the action."""
+    The first gate with a failed rule decides the action. lookup replaces the catalog for a what-if
+    ("would this order go through if Valio added the missing data?", unlock.py); it never changes the catalog."""
+    get = lookup or globals()["get"]
     rules = []
 
     def rule(name, ok, level, detail):
@@ -161,6 +163,16 @@ def evaluate(mandate, offer, context):
         allowance = max(asked * 0.25, max((l.get("perUnit") or 1) for l in offer["lines"]))
         rule("Matches the buyer's request", covered <= asked + allowance, "block",
              f"order covers {covered:,.0f} vs {asked:,.0f} requested (max +25 % or one extra pack)")
+        short = covered < asked - max((l.get("perUnit") or 1) for l in offer["lines"]) - 1e-9
+        if short and not context.get("partial"):
+            rule("Full quantity", False, "approve",
+                 f"order covers {covered:,.0f} of the {asked:,.0f} requested: a person decides whether part is enough")
+
+    if asked and context.get("exact_quantity"):
+        covered = sum(l["units"] * (l.get("perUnit") or 1) for l in offer["lines"])
+        rule("Exact quantity", abs(covered - asked) <= 1e-6 * max(asked, 1), "approve",
+             f"the buyer asked for exactly {asked:,.0f}; whole packs cover {covered:,.0f}: a person decides" if abs(covered - asked) > 1e-6 * max(asked, 1)
+             else f"exactly {asked:,.0f}, as asked")
 
     if context.get("partial"):
         rule("Full quantity", False, "approve", "only part of the requested quantity is covered")
@@ -187,14 +199,23 @@ def evaluate(mandate, offer, context):
          + f" (tolerance €{tolerance:,.0f})" if wide else
          (f"unstated details move the order by at most €{tolerance:,.0f}" if context.get("spec_gaps") else "nothing left unstated"))
 
-    rule("Auto-approve spend limit", total <= auto["max_order_total_eur"], "approve",
-         f"€{total:,.2f} vs auto-approve limit €{auto['max_order_total_eur']:,}")
-    # Unset = fail closed: the agent's own spend in 24 h is capped at its per-order limit.
-    cap = auto.get("max_auto_eur_per_24h", auto["max_order_total_eur"])
-    before = context.get("auto_spend_24h") or 0
-    rule("Agent's own spend in 24 h", before + total <= cap, "approve",
-         f"€{before:,.2f} already ordered alone in 24 h + €{total:,.2f} vs €{cap:,} "
-         "(splitting an order into small ones doesn't avoid approval)")
+    plan = context.get("plan")
+    if plan:
+        # The approver already said yes to this spend when signing the week plan (plans.py checked the order fits).
+        rule("Auto-approve spend limit", True, "approve",
+             f"€{total:,.2f} inside week plan {plan['id']}, signed by {plan['approved_by']} ({plan['role']}): "
+             f"€{plan['used_before_eur'] + total:,.2f} of €{plan['max_total_eur']:,.2f} used")
+        rule("Agent's own spend in 24 h", True, "approve", "covered by the signed week plan, not the agent's own limit")
+    else:
+        rule("Auto-approve spend limit", total <= auto["max_order_total_eur"], "approve",
+             f"€{total:,.2f} vs auto-approve limit €{auto['max_order_total_eur']:,}"
+             + (f" (not covered by a week plan: {context['plan_miss']})" if context.get("plan_miss") else ""))
+        # Unset = fail closed: the agent's own spend in 24 h is capped at its per-order limit.
+        cap = auto.get("max_auto_eur_per_24h", auto["max_order_total_eur"])
+        before = context.get("auto_spend_24h") or 0
+        rule("Agent's own spend in 24 h", before + total <= cap, "approve",
+             f"€{before:,.2f} already ordered alone in 24 h + €{total:,.2f} vs €{cap:,} "
+             "(splitting an order into small ones doesn't avoid approval)")
 
     verdict = gates.from_rules(rules)
     if verdict["action"] == "stop":

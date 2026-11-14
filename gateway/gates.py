@@ -61,6 +61,7 @@ RULE_GATE = {
     "Delivery date stated": "authority",
     "Delivery not too early": "authority",
     "Full quantity": "authority",
+    "Exact quantity": "authority",
     "Delivery reliability": "authority",
     "Unstated details within tolerance": "authority",
     "Auto-approve spend limit": "authority",

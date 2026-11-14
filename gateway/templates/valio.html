@@ -10,7 +10,7 @@
 <body>
 <header class="topbar"><div class="inner">
   <div class="brand"><span class="dot">A</span>Trusted Trade Agents <small>Valio Aimo · Junction 2026</small></div>
-  <nav class="tabs"><a href="/">Buyer agent</a><a href="/valio" class="on">Valio view</a><a href="/connect">Connect an agent</a></nav>
+  <nav class="tabs"><a href="/">Buyer agent</a><a href="/plan">Week plan</a><a href="/valio" class="on">Valio view</a><a href="/connect">Connect an agent</a></nav>
   <div class="right" id="updated"></div>
 </div></header>
 
@@ -29,7 +29,9 @@
 
   <div class="card" id="scoreCard" hidden><h2>Rules in a prompt hold only while the agent obeys them <span id="scoreWhen" style="float:right"></span></h2><div id="score"></div></div>
 
-  <div class="card" id="readyCard"><h2>Agent readiness · how much of the catalog an agent may decide on alone</h2><div id="ready"></div></div>
+  <div class="card" id="unlockCard"><h2>Unlock automation · which missing data held real orders for a person</h2><div id="unlock"></div></div>
+
+  <div class="card" id="readyCard"><h2>Data completeness · share of the catalog with the data each buyer's rules need</h2><div id="ready"></div></div>
 
   <div class="card" id="trapCard"><h2>Trap suite · where buying agents go wrong <span id="trapSummary" style="float:right"></span></h2><div id="traps"></div></div>
 
@@ -49,7 +51,7 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const eur = n => '€' + Number(n || 0).toLocaleString('en-US', {maximumFractionDigits: 0});
 const STATUS = {placed: ['ok', 'Placed'], pending_approval: ['warn', 'Awaiting approval'], blocked: ['bad', 'Blocked'], rejected: ['bad', 'Rejected'], expired: ['bad', 'Price lock expired']};
-const SEC = {'security.injection_detected': 'Prompt injection in supplier text', 'security.injection_in_request': 'Instructions hidden in a buyer request', 'security.invalid_signature': 'Forged or altered offer', 'order.rejected': 'Stale price caught', 'security.agent_tried_to_approve': 'Agent tried to approve its own order', 'security.unknown_approver': 'Approval by someone outside the mandate', 'security.quote_refused': 'Malformed order lines refused', 'security.offer_replayed': 'Same signed offer used twice', 'security.intent_mismatch': 'Agent changed the requested quantity'};
+const SEC = {'security.injection_detected': 'Prompt injection in supplier text', 'security.injection_in_request': 'Instructions hidden in a buyer request', 'security.invalid_signature': 'Forged or altered offer', 'order.rejected': 'Stale price caught', 'security.agent_tried_to_approve': 'Agent tried to approve its own order', 'security.unknown_approver': 'Approval by someone outside the mandate', 'security.quote_refused': 'Malformed order lines refused', 'security.offer_replayed': 'Same signed offer used twice', 'security.intent_mismatch': 'Agent changed the requested quantity', 'security.mandate_mismatch': "Agent token used for another buyer's mandate", 'security.plan_signature_invalid': 'Week plan edited without a new signature', 'order.duplicate_refused': 'Identical order refused while one waits', 'security.invalid_mandate_credential': 'Forged or outdated mandate credential'};
 const ago = ts => { const s = (Date.now() - new Date(ts)) / 1000; return s < 60 ? 'just now' : s < 3600 ? `${Math.round(s / 60)} min ago` : s < 86400 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} d ago`; };
 
 async function load() {
@@ -96,6 +98,15 @@ async function load() {
       <p class="small muted" style="margin:12px 0 0">${d.chain.valid ? `<span class="chip ok">Audit chain intact · ${d.chain.events} events</span>` : '<span class="chip bad">Audit chain broken</span>'}</p>`
     : '<p class="muted">No security events. Try the red-team switches on the Buyer agent tab.</p>';
   $('#updated').textContent = 'Updated ' + new Date().toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'});
+}
+async function loadUnlock() {
+  const r = await (await fetch('/api/unlock')).json();
+  if (!r.held_for_missing_data) { $('#unlock').innerHTML = `<p class="muted">No order has waited for a person because of missing data yet (${r.held_orders} held for other reasons).</p>`; return; }
+  $('#unlock').innerHTML = `<p style="margin:0 0 10px"><b>${r.held_for_missing_data} of ${r.held_orders} orders</b> that went to a person waited because the data couldn't prove something. With the data below added, <b>${r.unlocked_if_all_fixed}</b> of them would have gone through alone.</p>
+    <table><tbody>${r.gaps.map(g => `<tr><td><div class="name">${esc(g.product)}</div>
+      <div class="small faint">Add ${esc(g.add)} · held: ${esc(g.requests[0] || '')}${g.still_needs_a_person_because.length ? ' · still needs a person for: ' + esc(g.still_needs_a_person_because.join(', ')) : ''}</div></td>
+      <td class="r small" style="white-space:nowrap">${g.unlocked} of ${g.held_orders} orders<br><span class="faint">€${g.unlocked_eur.toLocaleString('en-US')} of €${g.value_eur.toLocaleString('en-US')}</span></td></tr>`).join('')}</tbody></table>
+    <p class="small muted" style="margin:10px 0 0">What-if on the real held orders: the gateway's rules re-run as if Valio had added the data. Nothing is changed.</p>`;
 }
 async function loadReadiness() {
   const r = await (await fetch('/api/readiness')).json();
@@ -151,7 +162,7 @@ async function loadScore() {
     <p class="small muted" style="margin:12px 0 0">Same Claude model in every column, Valio's live API, the same judge on product data. With the buyer's rules
       in its prompt a strong model behaves; Valio can't choose which agents connect. Rules in the gateway hold for every agent, and leave a signed offer and an audit record.</p>`;
 }
-load(); loadReadiness(); loadTraps(); loadScore();
+load(); loadReadiness(); loadUnlock(); loadTraps(); loadScore();
 setInterval(load, 3000);
 </script>
 </body>
