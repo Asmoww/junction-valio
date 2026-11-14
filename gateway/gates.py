@@ -45,6 +45,7 @@ RULE_GATE = {
     # 3 Allowed: hard rules. Breaking one stops the order; no person can approve it.
     "Mandate valid": "allowed",
     "Hard spend limit": "allowed",
+    "Within the buyer's stated budget": "allowed",
     "Forbidden allergens": "allowed",
     "Required claims": "allowed",
     "Substitutions allowed": "allowed",

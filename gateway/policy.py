@@ -89,6 +89,11 @@ def evaluate(mandate, offer, context, lookup=None):
     rule("Mandate valid", date.fromisoformat(mandate["valid_until"]) >= date.today() and signed_ok, "block",
          (f"signed by the buyer ({standards.buyer_did(mandate['mandate_id'])}), " if signed_ok
           else f"buyer's signature fails: {signed}; ") + f"valid until {mandate['valid_until']}")
+    if context.get("request_budget") is not None:
+        b = context["request_budget"]
+        rule("Within the buyer's stated budget", total <= b + 1e-9, "block",
+             f"€{total:,.2f} vs the €{b:,.2f} the request allows" + ("" if total <= b + 1e-9 else
+             ": nothing ordered; only the requester can raise their own budget"))
     rule("Hard spend limit", total <= hard["max_order_total_eur"], "block",
          f"€{total:,.2f} vs hard limit €{hard['max_order_total_eur']:,}")
 

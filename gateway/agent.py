@@ -947,6 +947,9 @@ def _run(text, mandate_id, overrides=None, simulate_price_change=False, inject=F
     text = request_checks.normalise(raw)
     scan_text = text  # the injection scanner always reads everything the buyer wrote
     # "Exactly 24 eggs, not 24 packs; ask me instead of rounding up": a limit, not a second quantity.
+    # "My total budget for this purchase is EUR 5": the buyer's own limit for this order, enforced as a hard rule.
+    budget = request_checks.stated_budget(text)
+    text = request_checks.drop_budget_clauses(text)
     exact = request_checks.exact_quantity(text)
     text = request_checks.drop_exact_clauses(text)
     if ai_intent and "_error" not in ai_intent:
@@ -1032,6 +1035,7 @@ def _run(text, mandate_id, overrides=None, simulate_price_change=False, inject=F
     if problem:
         return exit_at(gate, "ask_back", "invalid_date", f"Nothing was ordered: {problem}.")
     if problem := request_checks.quantity_problem(text):
+        intent["quantity"], intent["quantity_note"] = None, problem  # don't show "10 L" for "-10 litres"
         return exit_at("clear", "ask_back", "invalid_quantity", f"Nothing was ordered: {problem}.")
     if rtype == "buy" and request_checks.multi_line(text):
         return exit_at("clear", "ask_back", "several_lines",
@@ -1252,6 +1256,7 @@ def _run(text, mandate_id, overrides=None, simulate_price_change=False, inject=F
 
     context = {"deliver_by": intent["deliver_by"], "delivery_date": max(l["deliveryDate"] for l in chosen["lines"]),
                "partial": chosen["partial"], "simulate_price_change": simulate_price_change, "exact_quantity": exact,
+               "request_budget": budget,
                "request": raw, "run_id": run_id, "options_considered": len(options),
                "requested_quantity": intent["quantity"], "required_attributes": intent.get("attributes") or [],
                "from_profile": intent.get("from_profile") or [],
