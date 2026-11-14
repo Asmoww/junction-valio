@@ -11,17 +11,21 @@
 <header class="topbar"><div class="inner">
   <div class="brand">Trusted Trade Agents</div>
   <nav class="tabs"><a href="/" class="on">Buyer agent</a><a href="/plan">Week plan</a><a href="/valio">Valio view</a><a href="/connect">Connect an agent</a></nav>
-  <div class="right"><select id="mandate" class="pill" onchange="renderMandate()" aria-label="Buyer"></select></div>
+  <div class="right"><span class="pill">Demo data</span></div>
 </div></header>
 
 <div class="page">
   <div class="phead"><div><h1>Ask the agent</h1><p>Say what the kitchen needs. The agent buys it from Valio Aimo, within the buyer's rules.</p></div></div>
-  <div class="composer">
-    <textarea id="request" rows="1" aria-label="What does the kitchen need?" placeholder="What does the kitchen need?" oninput="fitRequest()" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();run()}">I need 1,000 litres of lactose-free milk by Monday.</textarea>
-    <button class="btn btn-primary" id="runBtn" onclick="run()">Ask the agent</button>
-  </div>
-  <div class="underbar"><span id="presets" class="chips"></span><button class="gear" onclick="$('#settings').classList.toggle('open')">Settings and tests</button></div>
-
+  <div class="panel">
+    <div class="fgrid">
+      <div class="f span3"><label for="mandate">Buying for</label><select id="mandate" onchange="renderMandate()"></select></div>
+      <div class="f span9"><label for="request">What the kitchen needs</label>
+        <div class="composer" style="padding:6px 6px 6px 18px">
+          <textarea id="request" rows="1" placeholder="e.g. 100 litres of lactose-free milk by Monday" oninput="fitRequest()" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();run()}">I need 1,000 litres of lactose-free milk by Monday.</textarea>
+          <button class="btn btn-primary" id="runBtn" onclick="run()">Ask the agent</button>
+        </div></div>
+    </div>
+    <div class="underbar" style="margin:14px 0 0"><span class="flabel">Try</span><span id="presets" class="chips"></span><button class="gear" onclick="$('#settings').classList.toggle('open')">Settings and tests</button></div>
   <div class="settings" id="settings">
     <div><h4>Buyer's rules</h4><div id="mandateView"></div>
       <label class="field" for="autoLimit">Demo: built-in agent authority for this run (€)</label><input type="number" id="autoLimit" step="50" min="0"></div>
@@ -42,6 +46,7 @@
       <label class="switch" title="The offer goes stale between offer and order."><input type="checkbox" id="priceChange"><span>Price changes before ordering</span></label>
       <label class="switch" id="clockSwitch" style="display:none" title="Use Valio's real clock: the data snapshot's cut-offs have passed."><input type="checkbox" id="realClock"><span>Passed order cut-offs</span></label>
       <p class="small muted" style="margin:14px 0 0" id="parserTag"></p></div>
+  </div>
   </div>
 
   <p id="purposeHint" class="small muted" aria-live="polite">Purchase · may order within the buyer’s rules</p>
@@ -112,8 +117,7 @@ function renderMandate() {
       <div>Reliability</div><div>≥ ${(m.min_delivery_reliability * 100).toFixed(0)} %</div>
       ${prof.length ? `<div>Profile</div><div>${prof.map(esc).join('<br>')}</div>` : ''}
       <div>Approvers</div><div>${m.approvers.map(a => `${esc(a.role)} ≤ ${eur(a.up_to_eur).replace('.00', '')}`).join('<br>')}</div></div></details>`;
-  $('#presets').innerHTML = (PRESETS[m.mandate_id] || []).map(([l, t]) =>
-    `<button class="chip" onclick='$("#request").value=${esc(JSON.stringify(t))}; fitRequest()'>${esc(l)}</button>`).join('');
+  $('#presets').innerHTML = EXAMPLES.map(([, , who, what], i) => `<button class="chip" onclick="tryExample(${i})" title="${esc(who)}">${esc(what)}</button>`).join('');
 }
 
 // The request box grows with its text instead of scrolling.
@@ -172,7 +176,7 @@ async function run() {
       simulate_price_change: $('#priceChange').checked, inject: $('#inject').checked, real_clock: $('#realClock').checked });
     clearTimeout(workTimer);
     LAST = res;
-    $('#out').innerHTML = saidHtml(res) + stepsHtml(res) + alertHtml(res) + `<div id="decision">${decisionHtml(res)}</div>` + linksHtml(res);
+    await settle(res);
   } catch (e) {
     $('#out').innerHTML = `<div class="decision red"><div class="what"><h2>Something went wrong</h2><p>${esc(e.message)}</p></div></div>`;
   }
@@ -180,6 +184,26 @@ async function run() {
 }
 
 let LAST = null;
+
+// The progress row that was animating while the agent worked becomes the result in place: no redraw.
+async function settle(res) {
+  const live = document.querySelector('.steps.live'), fresh = document.createElement('div');
+  fresh.innerHTML = stepsHtml(res);
+  const next = fresh.querySelector('.steps');
+  if (!live || !next) {  // nothing to continue from (e.g. no ladder): show the result directly
+    $('#out').innerHTML = saidHtml(res) + stepsHtml(res) + alertHtml(res) + `<div id="decision">${decisionHtml(res)}</div>` + linksHtml(res);
+    return;
+  }
+  const said = document.querySelector('.said.working');
+  if (said) { said.nextElementSibling?.classList.contains('saidnote') && said.nextElementSibling.remove(); said.outerHTML = saidHtml(res); }
+  live.className = 'steps';
+  const olds = live.querySelectorAll('.s'), news = next.querySelectorAll('.s');
+  for (let i = 0; i < olds.length; i++) {
+    olds[i].className = news[i].className; olds[i].innerHTML = news[i].innerHTML; olds[i].style.animationDelay = '';
+    if (i >= 2 && i < olds.length - 1 && !news[i].classList.contains('off')) await sleep(140);
+  }
+  live.insertAdjacentHTML('afterend', alertHtml(res) + `<div id="decision">${decisionHtml(res)}</div>` + linksHtml(res));
+}
 const GATE_NAMES = {purchase: 'A purchase', clear: 'Clear', possible: 'Valio has it', allowed: 'Safe', proven: 'Proven', authority: "Agent's call"};
 const GATE_HINT = {purchase: 'An order, not a question', clear: 'Amount, product and date known', possible: 'Real products, priced, in time',
                    allowed: 'Hard rules no one can override', proven: 'Facts backed by Valio data', authority: 'Within what the agent may spend'};
@@ -198,11 +222,9 @@ function stepsIdle(cls = '') {
 }
 
 function idleHtml(working) {
-  if (working) return `<p class="said working">“${esc($('#request').value)}”</p>` + stepsIdle('live');
-  return `<section class="section" style="margin-top:34px"><div class="shead"><h2>Six checks on every request</h2><p>The first “no” decides who acts next: the agent, a person, or nobody.</p></div>
-    ${stepsIdle()}</section>
-    <section class="section"><div class="shead"><h2>Try one</h2></div><div class="trygrid">${EXAMPLES.map(([m, t, who, what], i) =>
-      `<button class="try" onclick="tryExample(${i})"><span class="who">${esc(who)}</span><b>${esc(what)}</b><span class="q">“${esc(t)}”</span></button>`).join('')}</div></section>`;
+  if (working) return `<p class="said working">“${esc($('#request').value)}”</p><div class="saidnote"></div>` + stepsIdle('live');
+  return `<h2 class="rhead">What happens next</h2>${stepsIdle()}
+    <p class="idlehint">The first “no” decides who acts next: the agent, a person, or nobody.</p>`;
 }
 
 function tryExample(i) {
@@ -293,7 +315,7 @@ function stepsHtml(res) {
     if (key === 'authority') return ruleList('authority');
     return '';
   }
-  return `<div class="steps go">${l.gates.map((g, i) => {
+  return `<div class="steps">${l.gates.map((g, i) => {
     const state = g.state, cls = state === 'pass' ? (l.action === 'order' && !l.decided_by ? 'done' : '') : state === 'fail' ? 'fail ' + tone : 'off';
     const icon = state === 'pass' ? '✓' : state === 'fail' ? (tone === 'stop' ? '×' : tone === 'back' ? '?' : '!') : i + 1;
     const body = state === 'not_reached' ? '' : facts(g.key, state);
