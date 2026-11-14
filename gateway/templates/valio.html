@@ -98,7 +98,7 @@ async function load() {
       <div class="sub">${esc(o.buyer)}, ${ago(o.created)}</div></div>${mini(o)}<div class="sub why" title="${esc(o.why)}">${esc(why(o))}</div>
       <div class="eur2">${eur(o.total)}</div>${act(o)}</div>`).join('')
       + (d.recent.length > 6 ? `<p style="margin:14px 0 0"><button class="gear" style="font:inherit;font-weight:650;color:var(--valio);background:none;border:0;cursor:pointer;padding:0" onclick="showAll=!showAll;load()">${showAll ? 'Show fewer' : `Show all ${d.recent.length}`}</button></p>` : '')
-    : '<p class="muted">No orders yet. Ask the agent for something on the Buyer agent tab.</p>';
+    : '<p class="muted">No orders yet. Place one on the <a href="/">Order</a> page, or try an exception on <a href="/checks">Safety checks</a>.</p>';
   if (qrFor && !d.recent.some(o => o.id === qrFor && o.status === 'pending_approval')) { $('#waitQr').innerHTML = ''; qrFor = null; }
 
   $('#tSec').textContent = `${d.security.length} caught`;
