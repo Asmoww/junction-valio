@@ -512,7 +512,8 @@ def quote(body: dict = Body(..., examples=[{"mandate_id": "mnd_hotel_helsinki", 
     if err := agent.caller_refusal(body["mandate_id"]):
         raise HTTPException(403, err)
     offer, jws, err = agent.quote(body["mandate_id"], body["deliver_by"], body.get("lines") or [],
-                                  requested_quantity=body.get("requested_quantity"), requested_unit=body.get("requested_unit"))
+                                  requested_quantity=body.get("requested_quantity"), requested_unit=body.get("requested_unit"),
+                                  limits=body.get("request_limits"))
     if err:
         raise HTTPException(409, err)
     return {"offer": offer, "jws": jws}

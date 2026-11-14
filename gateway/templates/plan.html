@@ -50,7 +50,7 @@
     <div class="fgrid">
       <div class="f span3"><label for="mandate">Plan for</label><select id="mandate" onchange="loadPlans(); clearResults()"></select></div>
       <div class="f span5"><label>Week</label><div class="dates"><input type="date" id="start" aria-label="From"><span>to</span><input type="date" id="end" aria-label="To"></div></div>
-      <div class="f span4"><label for="budget">Budget for the week (€)</label><input type="number" id="budget" min="1" step="10" oninput="renderLines()"><span class="hint">Filled in from the prices</span></div>
+      <div class="f span4"><label for="budget">Budget for the week (€)</label><input type="number" id="budget" min="1" step="10" oninput="this.dataset.touched=1; renderLines()"><span class="hint">Filled in from the prices</span></div>
       <div class="f span12"><label for="q">Products</label>
         <div id="t-find"><div class="composer" style="padding:6px 6px 6px 18px"><input type="text" id="q" placeholder="Search, e.g. lactose-free milk" onkeydown="if(event.key==='Enter')search()" style="flex:1;border:0;background:transparent;font:inherit;font-size:16px;outline:0;padding:9px 0">
           <button class="btn btn-primary" onclick="search()">Find</button></div>
@@ -124,7 +124,7 @@ function mandateNote() {
   void banned, top;
 }
 
-function clearResults() { $('#results').innerHTML = ''; lines = []; priced = {}; renderLines(); mandateNote(); }
+function clearResults() { $('#results').innerHTML = ''; $('#recipeOut').innerHTML = ''; recipeLines = []; lines = []; priced = {}; delete $('#budget').dataset.touched; renderLines(); mandateNote(); }
 
 async function search() {
   const q = $('#q').value.trim(); if (!q) return;

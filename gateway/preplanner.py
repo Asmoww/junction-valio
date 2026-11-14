@@ -71,11 +71,13 @@ def guardrails(mandate):
                   "plan_exception": "a covering signed week plan replaces these two autonomy caps only"},
         "approvers": mandate["approvers"],
         "request_limits": {
-            "external_quote_budget_supported": False,
-            "note": "No request-specific budget field is currently sealed into the external quote API. "
-                    "Do not assume a budget in prose or an external agent's private policy is enforced here.",
-            "allergies": "preplanner candidate checks include selected allergies; low-level quotes use the "
-                         "registered mandate, so request-only bans must be registered before external ordering"},
+            "external_quote_budget_supported": True,
+            "note": "Pass your own tighter limits as request_limits on request_offer / POST /v1/quotes "
+                    "({max_total_eur, forbidden_allergens}). They are sealed into the signed offer and enforced at "
+                    "commit and approval; they can only tighten the buyer's mandate. A limit you don't pass there "
+                    "is not enforced here.",
+            "allergies": "preplanner candidate checks include selected allergies; pass them again as "
+                         "request_limits.forbidden_allergens on the quote so the order is checked against them"},
         "snapshot_only": True,
     }
 
@@ -124,13 +126,13 @@ def prepare(body: PreplanRequest) -> PreplanResponse:
     warnings = ["Catalog checks are not an offer, reservation, purchase approval or proof of availability.",
                 "External agent-specific limits are not registered separately; this mandate's allowance is shared."]
     if body.allergies:
-        warnings.append("Selected allergies tighten these candidate checks, but are not automatically carried "
-                        "into low-level request_offer: register them in the buyer mandate before external ordering.")
+        warnings.append("Selected allergies tighten these candidate checks only: pass them as "
+                        "request_limits.forbidden_allergens on request_offer so the order is checked against them.")
     steps = ["Use search_products/check_price_availability for information; never call place_order for an inquiry."] \
         if body.purpose == "inquiry" else [
             "Preserve the buyer's requirements and check get_mandate before obtaining an offer.",
-            "If tighter request-only limits cannot be enforced by the registered mandate, stop for the buyer; "
-            "do not drop them when calling request_offer.",
+            "Pass the buyer's request-only limits (budget, allergies) as request_limits on request_offer; "
+            "never drop them.",
             "Only an authorized purchase continues through request_offer and explicit place_order; "
             "the gateway rechecks the mandate and may block or require human approval."]
     return PreplanResponse(purpose=body.purpose, mandate_id=body.mandate_id, request_text=text,

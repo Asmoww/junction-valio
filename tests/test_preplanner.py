@@ -61,7 +61,7 @@ def test_allergy_preview_does_not_mutate_registered_mandate_or_report_it_as_regi
     assert all(p["mandate_check"]["level"] == "block" for p in result.products)
     assert result.guardrails["buyer"]["hard_limits"]["forbidden_allergens"] == []
     assert policy.load("mnd_hotel_helsinki")["hard_limits"]["forbidden_allergens"] == []
-    assert any("not automatically carried" in w for w in result.warnings)
+    assert any("request_limits.forbidden_allergens" in w for w in result.warnings)
 
 
 def test_preplanner_respects_token_scope():
@@ -117,5 +117,5 @@ def test_mcp_preplanner_matches_shared_contract():
     result = preplan_request("inquiry", "milk", "mnd_hotel_helsinki", attributes=["FREE_FROM_LACTOSE"])
     assert result["creates_order"] is False
     assert result["purpose"] == "inquiry"
-    assert result["guardrails"]["request_limits"]["external_quote_budget_supported"] is False
+    assert result["guardrails"]["request_limits"]["external_quote_budget_supported"] is True
 

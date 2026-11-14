@@ -11,7 +11,18 @@ from .config import DB_PATH
 
 _db = sqlite3.connect(DB_PATH, check_same_thread=False)
 _db.row_factory = sqlite3.Row
-_lock = threading.Lock()
+_lock = threading.RLock()  # one connection shared by the server's threads: every read and write holds this
+
+
+def _q(sql, args=()):
+    """Read rows under the lock (concurrent reads on the shared connection raised sqlite3.InterfaceError)."""
+    with _lock:
+        return _db.execute(sql, args).fetchall()
+
+
+def _q1(sql, args=()):
+    rows = _q(sql, args)
+    return rows[0] if rows else None
 _db.executescript("""
 CREATE TABLE IF NOT EXISTS offers (id TEXT PRIMARY KEY, mandate_id TEXT, payload TEXT, jws TEXT, created TEXT);
 CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, offer_id TEXT, idempotency_key TEXT UNIQUE,
@@ -71,13 +82,13 @@ def log(ref, actor, type_, data):
 
 def events(ref=None, limit=200):
     q = "SELECT * FROM events" + (" WHERE ref = ?" if ref else "") + " ORDER BY seq DESC LIMIT ?"
-    rows = _db.execute(q, (ref, limit) if ref else (limit,)).fetchall()
+    rows = _q(q, (ref, limit) if ref else (limit,))
     return [dict(r, data=json.loads(r["data"])) for r in reversed(rows)]
 
 
 def verify_chain():
     prev = "genesis"
-    rows = _db.execute("SELECT * FROM events ORDER BY seq").fetchall()
+    rows = _q("SELECT * FROM events ORDER BY seq")
     for r in rows:
         if r["prev_hash"] != prev or _hash(prev, r["ts"], r["ref"], r["actor"], r["type"], r["data"]) != r["hash"]:
             return {"valid": False, "broken_at_seq": r["seq"], "events": len(rows)}
@@ -92,26 +103,26 @@ def save_offer(offer_id, mandate_id, payload, jws):
 
 
 def get_offer(offer_id):
-    r = _db.execute("SELECT * FROM offers WHERE id = ?", (offer_id,)).fetchone()
+    r = _q1("SELECT * FROM offers WHERE id = ?", (offer_id,))
     return dict(r, payload=json.loads(r["payload"])) if r else None
 
 
 def order_by_offer(offer_id):
-    r = _db.execute("SELECT * FROM orders WHERE offer_id = ? ORDER BY created LIMIT 1", (offer_id,)).fetchone()
+    r = _q1("SELECT * FROM orders WHERE offer_id = ? ORDER BY created LIMIT 1", (offer_id,))
     return _order(r)
 
 
 def order_by_key(key):
-    r = _db.execute("SELECT * FROM orders WHERE idempotency_key = ?", (key,)).fetchone()
+    r = _q1("SELECT * FROM orders WHERE idempotency_key = ?", (key,))
     return _order(r)
 
 
 def get_order(order_id):
-    return _order(_db.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone())
+    return _order(_q1("SELECT * FROM orders WHERE id = ?", (order_id,)))
 
 
 def list_orders(limit=50):
-    return [_order(r) for r in _db.execute("SELECT * FROM orders ORDER BY created DESC LIMIT ?", (limit,))]
+    return [_order(r) for r in _q("SELECT * FROM orders ORDER BY created DESC LIMIT ?", (limit,))]
 
 
 def _order(r):
@@ -155,9 +166,9 @@ def merge_record(order_id, extra):
 def auto_spend_since(mandate_id, since):
     """Total the agent placed on its own under a mandate since a time: one SQL sum over every order.
     Orders inside a signed week plan don't count: the plan's own budget limits them."""
-    r = _db.execute("SELECT COALESCE(SUM(total), 0) FROM orders WHERE mandate_id = ? AND status = 'placed' "
-                    "AND json_extract(policy, '$.outcome') = 'auto_approve' AND created >= ? "
-                    "AND json_extract(record, '$.context.plan.id') IS NULL", (mandate_id, since)).fetchone()
+    r = _q1("SELECT COALESCE(SUM(total), 0) FROM orders WHERE mandate_id = ? AND status = 'placed' "
+            "AND json_extract(policy, '$.outcome') = 'auto_approve' AND created >= ? "
+            "AND json_extract(record, '$.context.plan.id') IS NULL", (mandate_id, since))
     return round(r[0] or 0, 2)
 
 
@@ -172,15 +183,15 @@ def save_plan(plan):
 
 
 def get_plan(plan_id):
-    r = _db.execute("SELECT data FROM plans WHERE id = ?", (plan_id,)).fetchone()
+    r = _q1("SELECT data FROM plans WHERE id = ?", (plan_id,))
     return json.loads(r["data"]) if r else None
 
 
 def plans_for(mandate_id, status=None, limit=50):
     q = "SELECT data FROM plans WHERE mandate_id = ?" + (" AND status = ?" if status else "") + " ORDER BY created DESC LIMIT ?"
     args = (mandate_id, status, limit) if status else (mandate_id, limit)
-    return [json.loads(r["data"]) for r in _db.execute(q, args)]
+    return [json.loads(r["data"]) for r in _q(q, args)]
 
 
 def orders_in_plan(plan_id):
-    return [_order(r) for r in _db.execute("SELECT * FROM orders WHERE json_extract(record, '$.context.plan.id') = ?", (plan_id,))]
+    return [_order(r) for r in _q("SELECT * FROM orders WHERE json_extract(record, '$.context.plan.id') = ?", (plan_id,))]

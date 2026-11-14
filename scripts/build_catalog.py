@@ -71,6 +71,9 @@ for p in products:
         "reliability": reliability.get(p["id"]),
         "carbonKgPerKg": carbon.get(p["id"]),
         "substitutes": [x["substituteProduct"] for x in p.get("substitutions") or []],
+        # Ingredient text (fi/sv/en) as written by the manufacturer: used only to find a banned allergen when the
+        # structured allergen data is missing ("MAAPÄHKINÄ (90%)" on a peanut butter with no allergen values).
+        "ingredients": " | ".join(v.get("value", "") for v in s.get("keyIngredients") or [])[:1500],
     })
 
 out = data / "catalog.json"

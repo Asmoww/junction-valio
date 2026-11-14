@@ -147,3 +147,13 @@ def test_approving_an_order_already_placed_again_under_a_plan_is_refused():
     o, err = agent.decide(waiting["id"], "approve", "Aino Virtanen", client=FakeValio())
     assert o is None and "ord_twin_placed" in err
     assert agent.decide(waiting["id"], "reject", "Aino Virtanen")[0]["status"] == "rejected"
+
+
+@pytest.mark.parametrize("field, value", [("end", "2026-11-30"), ("approved_by", "Someone Else")])
+def test_a_plan_with_edited_dates_or_signer_is_ignored(field, value):
+    """S1 (browser review, 14 Nov): every signed field must match the stored plan, not just lines and budget."""
+    plan = signed_plan(units=2000, budget=2500, end="2026-11-15")  # ends before the order's 16 Nov delivery
+    stored = store.get_plan(plan["id"])
+    stored[field] = value  # edited in the database, not re-signed
+    store.save_plan(stored)
+    assert order(900, f"k-plan-edit-{field}")[0]["status"] == "pending_approval"

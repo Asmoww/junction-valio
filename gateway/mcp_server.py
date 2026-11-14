@@ -89,12 +89,16 @@ def check_price_availability(product_ids: list[str], deliver_by: str, mandate_id
 
 @mcp.tool()
 def request_offer(lines: list[dict], deliver_by: str, mandate_id: str = "mnd_hotel_helsinki",
-                  requested_quantity: float | None = None, requested_unit: str | None = None) -> dict:
+                  requested_quantity: float | None = None, requested_unit: str | None = None,
+                  request_limits: dict | None = None) -> dict:
     """Get a signed fixed-price offer (valid 15 min). lines: [{"productId": "463335", "units": 1000}].
     requested_quantity, requested_unit ("L", "KG" or "PCS"): what the buyer asked for. Both are sealed into the signed
-    offer and the order is checked against them; pack sizes come from Valio's data, not from the caller. Keep the returned jws: place_order needs it."""
+    offer and the order is checked against them; pack sizes come from Valio's data, not from the caller.
+    request_limits: your own tighter limits for this purchase, e.g. {"max_total_eur": 50, "forbidden_allergens":
+    ["peanuts"]}: sealed into the offer and enforced by the gateway at commit and approval (they can only tighten the
+    buyer's mandate). Keep the returned jws or offer_id: place_order needs it."""
     offer, jws, err = agent.quote(mandate_id, deliver_by, lines, requested_quantity=requested_quantity,
-                                  requested_unit=requested_unit)
+                                  requested_unit=requested_unit, limits=request_limits)
     return {"error": err} if err else {"offer": offer, "jws": jws}
 
 

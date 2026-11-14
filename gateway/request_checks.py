@@ -104,6 +104,19 @@ def stated_budget(text):
     return best
 
 
+_CUR = r"(?:€|\beur\b|\beuros?\b|\beuroa?\b)"
+_MONEY = re.compile(r"\d[\d\s.,]*\s*(?:" + _CUR + r"|e\b)|" + _CUR + r"\s*(?!(?:19|20)\d\d\b)\d|\b(?:one|two|three|four|five|six|seven|eight|nine|ten|"
+                    r"twenty|fifty|hundred|thousand|yksi|kaksi|kolme|nelja|viisi|kymmenen|sata|tuhat)\s+" + _CUR, re.I)
+
+
+def unread_money(text):
+    """A money amount in the request that isn't read as a budget, e.g. 'Budget: €1.000,00' in a format the parser
+    doesn't know, or 'for 5 euros or less'. Ignoring it would let an order through over the buyer's own limit,
+    so the request goes back to the requester instead (fail closed)."""
+    t = catalog.fold(normalise(text))
+    return bool(_MONEY.search(t)) and stated_budget(text) is None
+
+
 def drop_budget_clauses(text):
     """The reader shouldn't call budget words 'not understood': the budget is enforced as a rule instead.
     Sentences that only state the budget (and the ask-first fallback) are left out of reading."""
@@ -238,6 +251,9 @@ def _value(s):
     s = re.sub(r"\s", "", s)
     if re.fullmatch(r"\d{1,3}([,.]\d{3})+", s):
         return float(re.sub(r"[,.]", "", s))
+    if "," in s and "." in s:  # 1.000,50 (Finnish/German) or 1,000.50 (English): the last separator is the decimal one
+        dec = "," if s.rfind(",") > s.rfind(".") else "."
+        return float(s.replace("." if dec == "," else ",", "").replace(",", "."))
     return float(s.replace(",", "."))
 
 
@@ -417,22 +433,62 @@ def date_stated(text):
                           r"|\b\d{1,2}(st|nd|rd|th)?\s+(of\s+)?(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)", t))
 
 
-INHERENT = {"butter": "AM", "voi": "AM", "milk": "AM", "maito": "AM", "cream": "AM", "kerma": "AM", "cheese": "AM",
-            "juusto": "AM", "yoghurt": "AM", "yogurt": "AM", "jogurtti": "AM", "quark": "AM", "rahka": "AM",
-            "egg": "AE", "eggs": "AE", "kananmuna": "AE"}
+# What a food IS, by name, in English, Finnish and Swedish: the request's product word, a product's name, or an
+# ingredient list. Exact words, and stems for Finnish/Swedish compounds (maapähkinävoi, mjölkchoklad).
+_WORDS = {"butter": "AM", "voi": "AM", "milk": "AM", "cream": "AM", "cheese": "AM", "yoghurt": "AM", "yogurt": "AM",
+          "quark": "AM", "whey": "AM", "casein": "AM", "smör": "AM", "ost": "AM", "grädde": "AM", "mjölk": "AM",
+          "egg": "AE", "eggs": "AE", "ägg": "AE",
+          "peanut": "AP", "peanuts": "AP", "jordnöt": "AP", "jordnötter": "AP",
+          "hazelnut": "SH", "hazelnuts": "SH", "hasselnöt": "SH", "almond": "SA", "almonds": "SA", "mandel": "SA",
+          "walnut": "AN", "walnuts": "AN", "cashew": "AN", "cashews": "AN", "pistachio": "AN", "pistachios": "AN",
+          "pecan": "AN", "pecans": "AN", "nut": "AN", "nuts": "AN", "nötter": "AN",
+          "sesame": "AS", "tahini": "AS", "sesam": "AS",
+          "fish": "AF", "salmon": "AF", "tuna": "AF", "cod": "AF", "fisk": "AF", "lax": "AF",
+          "shrimp": "AC", "shrimps": "AC", "prawn": "AC", "prawns": "AC", "räkor": "AC",
+          "wheat": "UW", "vete": "UW", "soy": "AY", "soya": "AY", "soja": "AY"}
+_STEMS = [("maapähkinä", "AP"), ("hasselpähkinä", "SH"), ("manteli", "SA"), ("seesami", "AS"), ("kananmuna", "AE"),
+          ("juusto", "AM"), ("maito", "AM"), ("kerma", "AM"), ("jogurtti", "AM"), ("rahka", "AM"), ("hera", "AM"),
+          ("lohi", "AF"), ("tonnikala", "AF"), ("kala", "AF"), ("katkarapu", "AC"), ("vehnä", "UW"), ("soija", "AY"),
+          ("pähkinä", "AN")]
+_NOT_STEM = re.compile(r"^(maitohappo|kookos|muskottipähkinä|kalanmaksa|herakles|juustokumina|herne)")
+_FREE_SUFFIX = re.compile(r"(ton|tön|toin|töin|vapaa|vapaat|tonta|töntä|free)$")  # pähkinätön, maidoton, nutfree
+# Non-dairy "butters" and spans that only look like an allergen word
+_NONDAIRY_BUTTER = re.compile(r"\b(peanut|nut|almond|cashew|hazelnut|cocoa|cacao|shea|apple|seed|sesame|soy|sunflower|coconut)[- ]butter\b")
+_NOT_FOOD = re.compile(r"\b\w+(?:[,]?\s+(?:and|ja|och|&)\s+\w+)?[- ]free\b|\b\w+[- ](?:flavou?red|aromi\w*)\b|\bbutter[- ]?(beans?|nut|scotch|fly|head|milk)\b|\bcream of tartar\b|\bcoconut milk\b|\bcoconut cream\b"
+                       r"|\b(nut|nuts)[- ]free\b|\bfree[- ]from\b.{0,40}")
 _PLANT = re.compile(r"\b(oat|kaura\w*|soy|soya|soija\w*|almond|coconut|rice|plant|vegan|vegetable|kasvi\w*|non[- ]dairy"
-                    r"|dairy[- ]free|egg[- ]free|replacer|substitute|alternative)\b")
+                    r"|dairy[- ]free|egg[- ]free|replacer|substitute|alternative|vegaani\w*|veggie|kasvipohjai\w*)\b")
+_WEAK = {"AM", "AE"}  # milk and egg words are often used for plant alternatives ("oat milk")
+
+
+def allergen_words(text, ingredients=False):
+    """{code: word} for allergen foods named in the text. For a product name or a request's product word, plant
+    alternatives don't count as milk or egg; in an ingredient list every word counts."""
+    t = _NOT_FOOD.sub(" ", _NONDAIRY_BUTTER.sub(r"\1", catalog.fold(text or "")))  # "peanut butter": peanut, not milk
+    plant = not ingredients and bool(_PLANT.search(t))
+    out = {}
+    for w in re.findall(r"[a-zåäö]+", t):
+        if ingredients and w == "voi":  # in Finnish ingredient text "voi" is usually "may" ("voi sisältää")
+            continue
+        if _FREE_SUFFIX.search(w):
+            continue
+        code = _WORDS.get(w)
+        if not code and not _NOT_STEM.match(w):
+            code = next((c for stem, c in _STEMS if w.startswith(stem) or (len(w) > len(stem) + 3 and stem in w and c != "AN")), None)
+            if code == "AN" and re.match(r"^(maa|hassel|kookos|muskotti)", w):
+                code = None
+        if code and not (plant and code in _WEAK):
+            out.setdefault(code, w)
+    if "SH" in out or "SA" in out:  # hazelnut and almond are tree nuts too
+        out.setdefault("AN", out.get("SH") or out.get("SA"))
+    return out
 
 
 def inherent_allergen(product, banned):
-    """(word, code) when the product asked for is itself a banned allergen ("butter" with a milk ban), else None."""
-    t = catalog.fold(product)
-    if _PLANT.search(t):
-        return None
-    for w in re.findall(r"[a-zåäö]+", t):
-        if INHERENT.get(w) in banned:
-            return w, INHERENT[w]
-    return None
+    """(word, code) when the product asked for is itself a banned allergen ("butter" with a milk ban,
+    "peanut butter" with a peanut ban), else None."""
+    hits = allergen_words(product)
+    return next(((w, c) for c, w in hits.items() if c in banned or (c == "ML" and "AM" in banned)), None)
 
 
 def allergy_unclear(text):

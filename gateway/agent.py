@@ -572,6 +572,9 @@ def create_offer(mandate, option, intent):
         # What the buyer asked for, sealed into the signature: the order is checked against this, not against
         # whatever the agent claims later.
         "requested_quantity": intent.get("quantity"), "requested_unit": intent.get("unit"),
+        # The caller's own tighter limits for this purchase (budget, extra allergen bans): signed, so no later step
+        # can drop them; enforced at commit and again at approval.
+        **({"request_limits": intent["request_limits"]} if intent.get("request_limits") else {}),
         "issued_at": store.now(), "expires_at": exp.astimezone(timezone.utc).isoformat(timespec="seconds"),
         "expiry_reason": reason,
         # Said inside the signature, so nobody can mistake a demo for a real purchase:
@@ -675,11 +678,43 @@ def _line_problem(line, av, now_s, deliver_by):
     return ""
 
 
-def quote(mandate_id, deliver_by, lines, client=None, requested_quantity=None, requested_unit=None):
+def request_limits(raw):
+    """Validate an outside agent's own limits for this purchase: {"max_total_eur": 50, "forbidden_allergens":
+    ["peanuts", "AM"]}. They can only tighten the buyer's mandate. Returns (limits or None, error or None)."""
+    if raw in (None, {}):
+        return None, None
+    if not isinstance(raw, dict) or set(raw) - {"max_total_eur", "forbidden_allergens"}:
+        return None, "request_limits takes only max_total_eur and forbidden_allergens"
+    out = {}
+    if raw.get("max_total_eur") is not None:
+        try:
+            b = float(raw["max_total_eur"])
+        except (TypeError, ValueError):
+            return None, "request_limits.max_total_eur must be a number"
+        if not (b >= 0 and b < float("inf")):
+            return None, "request_limits.max_total_eur must be zero or more"
+        out["max_total_eur"] = b
+    names = {v.lower(): k for k, v in catalog.ALLERGENS.items()} | {"nuts": "AN", "eggs": "AE", "peanut": "AP"}
+    codes = []
+    for a in raw.get("forbidden_allergens") or []:
+        code = a if a in catalog.ALLERGENS else names.get(str(a).strip().lower())
+        if not code:
+            return None, f"unknown allergen {a!r}: use a code ({', '.join(catalog.ALLERGENS)}) or its name"
+        codes.append(code)
+    if codes:
+        out["forbidden_allergens"] = sorted(set(codes))
+    return out or None, None
+
+
+def quote(mandate_id, deliver_by, lines, client=None, requested_quantity=None, requested_unit=None, limits=None):
     """Signed fixed-price offer for explicit lines (used by /v1/quotes and the MCP tool).
 
+    limits: the caller's own request_limits (validated), sealed into the offer and enforced at commit and approval.
     Returns (offer, jws, None) or (None, None, error)."""
     if err := caller_refusal(mandate_id):
+        return None, None, err
+    limits, err = request_limits(limits)
+    if err:
         return None, None, err
     mandate = policy.load(mandate_id)
     if err := (_check_lines(lines) or check_quote_input(deliver_by, requested_quantity, requested_unit, lines, mandate)):
@@ -724,7 +759,7 @@ def quote(mandate_id, deliver_by, lines, client=None, requested_quantity=None, r
                     "evidence": catalog.evidence(p)})
     option = {"lines": out, "total_eur": round(sum(x["lineTotal"] for x in out), 2)}
     offer, jws = create_offer(mandate, option, {"deliver_by": deliver_by, "quantity": requested_quantity,
-                                                "unit": (requested_unit or "").upper() or None})
+                                                "unit": (requested_unit or "").upper() or None, "request_limits": limits})
     return offer, jws, None
 
 
@@ -775,7 +810,9 @@ def order_from_jws(jws, idempotency_key, rationale="", requested_units=None):
            "rationale": rationale, "requested_units": requested_units,
            # The policy's "matches the buyer's request" rule reads requested_quantity (in the same units as
            # the offer lines). Before, external agents' orders skipped that rule entirely.
-           "requested_quantity": payload.get("requested_quantity") or requested_units}
+           "requested_quantity": payload.get("requested_quantity") or requested_units,
+           "request_budget": (payload.get("request_limits") or {}).get("max_total_eur"),
+           "request_allergens": (payload.get("request_limits") or {}).get("forbidden_allergens") or []}
     if payload.get("requested_quantity") and requested_units and abs(requested_units - payload["requested_quantity"]) > 1e-9:
         store.log(payload["offer_id"], f"agent:{mandate['agent']}", "security.intent_mismatch",
                   {"signed": payload["requested_quantity"], "claimed": requested_units})
@@ -1036,10 +1073,12 @@ def _run(text, mandate_id, overrides=None, simulate_price_change=False, inject=F
         # "Butter" for a dairy-free menu: the product asked for IS the banned allergen. Searching on would only find
         # look-alikes (butter beans, sesame butter), so stop and let the requester name an alternative.
         word, code = clash
+        name = catalog.ALLERGENS.get(code, code).lower()
+        example = {"AM": " (for example a plant-based spread or oat drink)", "ML": " (for example a plant-based spread or oat drink)",
+                   "AE": " (for example an egg replacer)"}.get(code, "")
         return exit_at("allowed", "stop", "allergen_conflict",
-                       f"Nothing was ordered: {word} contains {catalog.ALLERGENS.get(code, code).lower()}, which this "
-                       f"request or the mandate rules out. Name a {catalog.ALLERGENS.get(code, code).lower()}-free "
-                       "alternative (for example a plant-based spread or oat drink) if you want one.")
+                       f"Nothing was ordered: the product asked for ({word}) is {name}, which this request or the "
+                       f"mandate rules out. Name a {name}-free alternative{example} if you want one.")
     problem, gate = request_checks.date_problem(text, intent.get("deliver_by"), date.today())
     if problem and re.search(r"\byesterday\b", catalog.fold(text)):
         intent["deliver_by"] = (date.today() - timedelta(days=1)).isoformat()  # show the date that failed, not a default
@@ -1048,10 +1087,14 @@ def _run(text, mandate_id, overrides=None, simulate_price_change=False, inject=F
     if problem := request_checks.quantity_problem(text):
         intent["quantity"], intent["quantity_note"] = None, problem  # don't show "10 L" for "-10 litres"
         return exit_at("clear", "ask_back", "invalid_quantity", f"Nothing was ordered: {problem}.")
+    if rtype == "buy" and request_checks.unread_money(raw):
+        return exit_at("clear", "ask_back", "unread_budget",
+                       "Nothing was ordered: the request mentions an amount of money that couldn't be read as a budget. "
+                       "Write it as, for example, “budget €50”, so the gateway can enforce it, or leave it out.")
     if rtype == "buy" and request_checks.multi_line(text):
         return exit_at("clear", "ask_back", "several_lines",
-                       "The request names several quantities. Send each product as its own line, so each one is "
-                       "checked on its own; nothing was ordered.")
+                       "The request names several quantities. Ask for each product as a separate request (or use "
+                       "Photo of a list for a whole list), so each one is checked on its own; nothing was ordered.")
     if problem := request_checks.conditional(text):
         return exit_at("clear", "ask_back", "conditional", f"Nothing was ordered: {problem}.")
     if quantity_mismatch:
@@ -1267,7 +1310,7 @@ def _run(text, mandate_id, overrides=None, simulate_price_change=False, inject=F
 
     context = {"deliver_by": intent["deliver_by"], "delivery_date": max(l["deliveryDate"] for l in chosen["lines"]),
                "partial": chosen["partial"], "simulate_price_change": simulate_price_change, "exact_quantity": exact,
-               "request_budget": budget,
+               "request_budget": budget, "request_allergens": allergy_codes,
                "request": raw, "run_id": run_id, "options_considered": len(options),
                "requested_quantity": intent["quantity"], "required_attributes": intent.get("attributes") or [],
                "from_profile": intent.get("from_profile") or [],
