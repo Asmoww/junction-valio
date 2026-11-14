@@ -315,7 +315,7 @@ async def read_photo(request: Request, photo: UploadFile = File(...), deliver_by
 @app.get("/api/info", tags=["demo"])
 def info():
     return {"ai_parser": ai.enabled(), "model": ai.MODEL if ai.enabled() else None, "demo_clock": DEMO_CLOCK,
-            "photo_reader": vision.reader_name(),
+            "photo_reader": vision.reader_name(), "reader": ai.reader_name(),
             "ladder": gates.GATES}
 
 

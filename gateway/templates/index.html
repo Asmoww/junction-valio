@@ -90,7 +90,7 @@ async function init() {
   if (info.demo_clock) $('#clockSwitch').style.display = '';
   list.forEach(m => mandates[m.mandate_id] = m);
   $('#mandate').innerHTML = list.map(m => `<option value="${m.mandate_id}">${esc(m.buyer.replace(" (demo)", ""))}</option>`).join('');
-  $('#parserTag').textContent = info.ai_parser ? 'Requests are read by Claude; the gateway decides.' : 'Requests are read by rules (no Claude key).';
+  $('#parserTag').textContent = info.ai_parser ? `Requests are read by ${info.reader}; the gateway decides.` : 'Requests are read by rules (no AI model configured).';
   renderMandate();
   $('#out').innerHTML = idleHtml();
   fitRequest(); window.addEventListener('resize', fitRequest);

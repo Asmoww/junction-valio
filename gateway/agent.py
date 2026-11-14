@@ -950,7 +950,7 @@ def _run(text, mandate_id, overrides=None, simulate_price_change=False, inject=F
     exact = request_checks.exact_quantity(text)
     text = request_checks.drop_exact_clauses(text)
     if ai_intent and "_error" not in ai_intent:
-        intent, parser = ai_intent, f"Claude ({ai.MODEL})"
+        intent, parser = ai_intent, (ai.reader_name() if ai.eu() else f"Claude ({ai.MODEL})")
         # Guard, whatever the model: if Claude's product is just a shortened version of the buyer's own words
         # ("milk" from "chicken nugget milk"), keep the buyer's words. Never let the reader invent a nicer product.
         rules = parse_request(text)

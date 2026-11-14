@@ -13,6 +13,8 @@ from datetime import date, timedelta
 
 import httpx
 
+from . import config  # noqa: F401  (loads .env)
+
 NVIDIA_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
 NVIDIA_MODEL = os.environ.get("NVIDIA_VL_MODEL", "nvidia/nemotron-3.5-super-vl-120b-a12b")
 CLAUDE_MODEL = "claude-sonnet-5-5"
