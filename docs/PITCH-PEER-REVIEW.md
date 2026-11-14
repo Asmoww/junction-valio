@@ -28,28 +28,33 @@ Aino, the head chef." They see why it came to them, approve on their own phone (
 the laptop flips to placed. Then **Receipt**: "Scan this one too if you like. It re-checks Valio's signature on
 the price, the buyer's signed rules, who decided and the audit trail, live."
 
-**1:40 · They try to break it (70 s).** Play tab, hand over the laptop: "You're a rogue agent. Get milk into the
+**1:40 · Change one thing (15 s).** Type the same order with "today" instead of Monday. The earliest delivery is
+Monday, so it goes to a person with both dates side by side: "A requirement can't quietly disappear. The agent
+doesn't call a late delivery a successful order."
+
+**1:55 · They try to break it (65 s).** Play tab, hand over the laptop: "You're a rogue agent. Get milk into the
 milk-allergy ward." One try, the token walks the checks and bounces. "Every try runs the real gateway. Nobody has
 got through." (The counter shows attempts and 0 breaches.)
 
-**2:50 · Scale (50 s).** Live tab, **Start Monday morning** (started a few seconds earlier is fine). Seventeen
+**3:00 · Scale (40 s).** Live tab, **Start Monday morning** (started a few seconds earlier is fine). Seventeen
 kitchens order at once: green ones fly to Valio, amber wait for a person, red are attacks stopped. "These are real
 decisions on Valio's live data. New agents earn trust: they start at a quarter of the limit and earn more with
 clean orders; one attack puts an agent on hold."
 
-**3:40 · Why it's real (40 s).** Connect tab, one sentence each: "Any agent connects: MCP, REST, the A2A agent card,
+**3:40 · Why it's real (35 s).** Connect tab, one sentence each: "Any agent connects: MCP, REST, the A2A agent card,
 and every offer is also an AP2-style signed checkout. Orders export as Peppol. A buyer's rules come from its own
-policy document: Claude drafts them with sources, a person signs." (Rules tab if they ask.)
+policy document: the AI drafts them with sources, a person signs." (Rules tab if they ask.)
 
-**4:20 · Close (20 s).** "Agents can buy alone when it's safe, a person decides when it isn't, and nobody can buy
-what the rules forbid. Valio stays the trusted party, whoever's agent comes to buy." 20 s spare for questions.
+**4:15 · Close (20 s).** "Agents can buy alone when it's safe, a person decides when it isn't, and nobody can buy
+what the rules forbid. Valio stays the trusted party, whoever's agent comes to buy." 25 s spare for questions.
 
 ## If they ask
 - *Why not just prompt the agent well?* Scoreboard (Valio view → Agents vs. gateway): a good prompt works for a good
   model; Valio can't choose the models. Rules in the gateway hold for every agent.
 - *What does Valio get?* Catalog gaps (Valio view): which missing data blocks agents, e.g. a hospital's agent can
   decide alone on only 17 % of the catalog, and which categories to fix first.
-- *Is the AI deciding?* No. Claude reads requests and drafts; every decision is a rule in code, logged and signed.
+- *Is the AI deciding?* No. Gemma 4, an open model running in Finland, reads requests and drafts; every decision is a
+  rule in code, logged and signed. The same prompts run on Claude; all 25 trap cases pass on both.
 - *Is this a chatbot?* No. The Buyer agent page is one buyer's agent; Vahti is the guard every agent goes
   through, whoever built it (Live and Connect show that).
 - *What does an agent never see? How would Valio run it?* docs/PRODUCTION.md: no raw Valio API, no other buyers,
