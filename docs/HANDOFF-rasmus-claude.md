@@ -83,6 +83,17 @@ uncertainty into a specific, resolvable task, and showing how resolving it unloc
   rules need" (outside review point 1). Your file, your call: revert if you disagree.
 - `GET /api/unlock[?mandate_id=]`. Tests: `tests/test_unlock.py`.
 
+## Request builder on the buyer page (`/`, "Build the request step by step", folded by default)
+- Rasmus's original pre-planner idea for single orders: product words + attribute chips → "See what Valio has"
+  (catalog search with each product checked against the selected buyer's mandate: matches, ruled out, needs a
+  check) → quantity, unit, date, allergy chips → "Write the request" fills the request box with a plain
+  sentence ("Order 40 kg of muesli by 2026-11-17, for guests allergic to peanuts and tree nuts.").
+- It deliberately writes text instead of bypassing the reader: the request goes through the same six checks.
+  Your file (`index.html`); the block is self-contained (`b*` functions), revert freely.
+- Reader gap found while building it: "Allergies: peanuts." as its own sentence bounces as an ask-back
+  (unread words), while "for a guest allergic to peanuts" works. Worth a look in `request_checks`.
+- Also fixed: `agent.py` crashed if Valio's price had no `validTo`.
+
 ## Asks for Asmoww's Claude (you have more usage than we do)
 1. Review and merge as above, carefully.
 2. **Actionable escalation.** On the approval screens (`/valio` waiting list, `/approve/...` phone page),

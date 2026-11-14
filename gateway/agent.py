@@ -375,7 +375,7 @@ def _assess(p, price, avail, intent, now_s):
         return row
     need = math.ceil(intent["quantity"] / per_unit) if intent["quantity"] else 1
     row.update(unit_price=unit_price, sales_unit=p["salesUnit"], per_unit=per_unit, units_needed=need,
-               price_per_req_unit=round(unit_price / per_unit, 3), price_valid_to=price["catalogPrice"]["validTo"][:10],
+               price_per_req_unit=round(unit_price / per_unit, 3), price_valid_to=(price["catalogPrice"].get("validTo") or "")[:10] or None,
                reliability=p["reliability"], carbon=p["carbonKgPerKg"])
     a = avail or {}
     lines = [s for s in a.get("scheduleLines", []) if not s.get("salesBlock") and s.get("availableDate")

@@ -33,6 +33,25 @@
       </div>
       <div class="card">
         <h2>Request <span id="parserTag" style="float:right"></span></h2>
+        <details id="builder" style="margin-bottom:12px"><summary class="small" style="cursor:pointer;font-weight:600">Build the request step by step</summary>
+          <div style="margin-top:10px">
+            <label class="field" for="bProduct">Product</label>
+            <input type="text" id="bProduct" placeholder="e.g. milk, muesli, oat drink" onkeydown="if(event.key==='Enter')bSearch()">
+            <div class="chips" id="bAttrs" style="margin-top:8px"></div>
+            <button class="btn btn-soft" style="margin-top:8px" onclick="bSearch()">See what Valio has</button>
+            <div id="bResults" class="small" style="margin-top:8px"></div>
+            <div style="display:grid;grid-template-columns:1fr 90px;gap:8px;margin-top:10px">
+              <div><label class="field" for="bQty">Quantity</label><input type="number" id="bQty" min="1" value="100"></div>
+              <div><label class="field" for="bUnit">Unit</label><select id="bUnit"><option value="litres">litres</option><option value="kg">kg</option><option value="pieces">pieces</option></select></div>
+            </div>
+            <label class="field" for="bDate">Needed by</label>
+            <input type="date" id="bDate" style="width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:8px;font:inherit;box-sizing:border-box">
+            <label class="field">Allergies to avoid</label>
+            <div class="chips" id="bAllergies"></div>
+            <button class="btn btn-soft" style="margin-top:10px" onclick="bWrite()">Write the request</button>
+            <p class="small muted" style="margin:6px 0 0">Writes a plain request below, which goes through the same six checks as a typed one.</p>
+          </div>
+        </details>
         <textarea id="request">I need 1,000 litres of lactose-free milk by Monday. Find an option that meets our requirements based on price and availability.</textarea>
         <div class="chips" id="presets" style="margin-top:10px"></div>
         <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--line)">
@@ -94,6 +113,7 @@ async function init() {
   $('#mandate').innerHTML = list.map(m => `<option value="${m.mandate_id}">${esc(m.buyer)}</option>`).join('');
   $('#parserTag').innerHTML = info.ai_parser ? `<span class="chip navy">read by Claude</span>` : `<span class="chip">rule-based reading</span>`;
   renderMandate();
+  bInit();
 }
 
 function renderMandate() {
@@ -118,6 +138,37 @@ function renderMandate() {
 }
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// ---- Request builder: a structured way to write the request (same checks as a typed one) ----
+const B_ATTRS = [['lactose-free', 'FREE_FROM_LACTOSE'], ['gluten-free', 'FREE_FROM_GLUTEN'], ['organic', 'ORGANIC'], ['vegan', 'VEGAN'], ['Finnish', 'FINNISH']];
+const B_ALLERGIES = ['milk', 'gluten', 'eggs', 'peanuts', 'tree nuts', 'sesame', 'fish', 'soy'];
+const bSel = {attrs: new Set(), allergies: new Set()};
+function bInit() {
+  $('#bAttrs').innerHTML = B_ATTRS.map(([l]) => `<button class="chip" onclick="bToggle(this,'attrs','${l}')">${l}</button>`).join('');
+  $('#bAllergies').innerHTML = B_ALLERGIES.map(l => `<button class="chip" onclick="bToggle(this,'allergies','${l}')">${l}</button>`).join('');
+  const d = new Date(); d.setDate(d.getDate() + 3); $('#bDate').value = d.toISOString().slice(0, 10);
+}
+function bToggle(el, k, v) { bSel[k].has(v) ? bSel[k].delete(v) : bSel[k].add(v); el.classList.toggle('navy', bSel[k].has(v)); }
+async function bSearch() {
+  const q = $('#bProduct').value.trim(); if (!q) return;
+  const attrs = B_ATTRS.filter(([l]) => bSel.attrs.has(l)).map(([, c]) => c).join(',');
+  $('#bResults').innerHTML = '<span class="muted">Looking…</span>';
+  try {
+    const r = await api(`/api/planner/search?q=${encodeURIComponent(q)}&mandate_id=${$('#mandate').value}&attributes=${attrs}&limit=6`);
+    const ok = r.products.filter(p => p.mandate_check.level !== 'block'), no = r.products.length - ok.length;
+    $('#bResults').innerHTML = (ok.length ? `<div class="muted">${ok.length} match${ok.length > 1 ? 'es' : ''} the buyer's mandate${no ? `, ${no} ruled out` : ''}:</div>` +
+      ok.slice(0, 4).map(p => `<div>· ${esc(p.name)} <span class="faint">per ${esc(p.salesUnit)}${p.mandate_check.level === 'check' ? ' · a person checks: ' + esc(p.mandate_check.why) : ''}</span></div>`).join('')
+      : `<div class="bad">Nothing that fits this buyer's mandate${no ? ` (${no} ruled out)` : ''}. Try other words.</div>`);
+  } catch (e) { $('#bResults').innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
+}
+function bWrite() {
+  const product = $('#bProduct').value.trim(), qty = Number($('#bQty').value);
+  if (!product || !(qty > 0)) { $('#bResults').innerHTML = '<span class="bad">Give a product and a quantity.</span>'; return; }
+  const attrs = [...bSel.attrs].join(' '), al = [...bSel.allergies];
+  const allergy = al.length ? `, for guests allergic to ${al.length > 1 ? al.slice(0, -1).join(', ') + ' and ' + al.at(-1) : al[0]}` : '';
+  $('#request').value = `Order ${qty} ${$('#bUnit').value} of ${attrs ? attrs + ' ' : ''}${product} by ${$('#bDate').value}${allergy}.`;
+  $('#request').focus();
+}
 
 async function run() {
   const btn = $('#runBtn');
