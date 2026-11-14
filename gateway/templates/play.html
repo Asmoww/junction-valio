@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>Get past Portti · Portti</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  .hero { background: var(--valio); color: #fff; margin: 0 0 34px; }
+  .hero .in { max-width: 1360px; margin: 0 auto; padding: 38px 48px 44px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 40px; align-items: end; }
+  .hero h1 { font-size: 64px; font-weight: 900; font-stretch: 125%; letter-spacing: -.045em; line-height: .95; margin: 0 0 14px; }
+  .hero p { font-size: 18px; margin: 0; opacity: .85; max-width: 560px; }
+  .live { display: flex; gap: 34px; }
+  .live div b { display: block; font-size: 46px; font-weight: 900; font-stretch: 115%; letter-spacing: -.04em; line-height: 1; font-variant-numeric: tabular-nums; }
+  .live div span { font-size: 14px; opacity: .8; }
+  .live .zero b { color: #ffb02e; }
+  @media (max-width: 900px) { .hero .in { grid-template-columns: 1fr; padding: 28px 18px; } .hero h1 { font-size: 44px; } .live { gap: 22px; } .live div b { font-size: 34px; } }
+
+  .missions { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 26px; }
+  @media (max-width: 980px) { .missions { grid-template-columns: 1fr 1fr; } }
+  .mis { text-align: left; font: inherit; color: var(--ink); background: #fff; border: 1.5px solid var(--line); border-radius: 18px; padding: 14px 16px; cursor: pointer; display: flex; flex-direction: column; gap: 6px; min-height: 104px; }
+  .mis:hover { border-color: var(--valio); } .mis.on { border-color: var(--valio); box-shadow: inset 0 0 0 1.5px var(--valio); background: #f7faff; }
+  .mis .buyer { font-size: 12.5px; color: var(--valio); font-weight: 650; } .mis b { font-size: 16px; line-height: 1.25; }
+  .mis .best { margin-top: auto; font-size: 12.5px; color: var(--mute); }
+
+  .arena { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 34px; align-items: start; }
+  @media (max-width: 980px) { .arena { grid-template-columns: 1fr; } }
+  .goal { font-size: 26px; font-weight: 800; font-stretch: 106%; letter-spacing: -.02em; margin: 0 0 4px; }
+  .hint { color: var(--mute); margin: 0 0 18px; }
+  .nick { display: flex; gap: 10px; align-items: center; margin-top: 12px; font-size: 14px; color: var(--mute); }
+  .nick input { width: 180px; padding: 7px 12px; }
+
+  .run { margin-top: 30px; position: relative; }
+  .gates { display: grid; grid-template-columns: repeat(6, 1fr); position: relative; padding-top: 6px; }
+  .gates::before { content: ""; position: absolute; left: 16px; right: 16px; top: 22px; height: 3px; background: var(--line); }
+  .gate { position: relative; text-align: left; }
+  .gate .g { width: 34px; height: 34px; border-radius: 50%; background: #fff; box-shadow: inset 0 0 0 2.5px var(--line); display: grid; place-items: center; font-weight: 800; color: var(--faint); position: relative; z-index: 1; transition: background .2s, box-shadow .2s, color .2s; }
+  .gate h4 { margin: 10px 0 0; font-size: 14px; color: var(--mute); font-weight: 650; }
+  .gate.pass .g { background: var(--valio); color: #fff; box-shadow: none; } .gate.pass h4 { color: var(--ink); }
+  .gate.stop .g { background: var(--bad); color: #fff; box-shadow: 0 0 0 6px rgba(201,48,44,.15); animation: bonk .45s ease; } .gate.stop h4 { color: var(--bad); }
+  .gate.through .g { background: #ffb02e; color: #fff; box-shadow: 0 0 0 6px rgba(255,176,46,.25); }
+  .token { position: absolute; top: 9px; left: 3px; width: 26px; height: 26px; border-radius: 50%; background: #ffb02e; z-index: 2; box-shadow: 0 2px 8px rgba(184,98,0,.4); transition: left .35s ease; display: none; }
+  @keyframes bonk { 0%, 100% { transform: translateX(0); } 20% { transform: translateX(-6px); } 40% { transform: translateX(6px); } 60% { transform: translateX(-4px); } 80% { transform: translateX(3px); } }
+  @media (prefers-reduced-motion: reduce) { .token { transition: none; } .gate.stop .g { animation: none; } }
+
+  .verdict { margin-top: 26px; padding: 22px 26px; border-radius: 18px; background: var(--bad-soft); display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
+  .verdict.win { background: #fff4df; } .verdict.idle { background: #f5f8fc; }
+  .verdict h2 { margin: 0; font-size: 24px; font-weight: 800; font-stretch: 106%; letter-spacing: -.02em; }
+  .verdict.lose h2 { color: var(--bad); } .verdict.win h2 { color: var(--warn); }
+  .verdict p { margin: 4px 0 0; } .verdict .what { flex: 1; min-width: 260px; }
+  .verdict .pts { font-size: 40px; font-weight: 900; font-stretch: 115%; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+
+  .side h3 { font-size: 16px; margin: 0 0 10px; font-weight: 750; }
+  .lb { list-style: none; margin: 0 0 28px; padding: 0; counter-reset: r; }
+  .lb li { display: flex; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); counter-increment: r; }
+  .lb li::before { content: counter(r); width: 18px; color: var(--faint); font-weight: 700; } .lb li span { flex: 1; } .lb li b { font-variant-numeric: tabular-nums; }
+  .lb li.me { color: var(--valio); font-weight: 700; }
+  .catch .row { display: grid; grid-template-columns: 96px 1fr 36px; gap: 10px; align-items: center; font-size: 13.5px; padding: 4px 0; }
+  .catch .bar { height: 8px; border-radius: 99px; background: #edf1f7; overflow: hidden; } .catch .bar i { display: block; height: 100%; background: var(--valio); border-radius: 99px; }
+  .catch b { text-align: right; font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<header class="topbar"><div class="inner">
+  <a class="brand" href="/" aria-label="Portti, for Valio Aimo"><svg class="mark" viewBox="0 0 64 12" aria-hidden="true"><path d="M5 6H59" stroke="currentColor" stroke-width="2" opacity=".55"/><circle cx="5.0" cy="6" r="3.4" fill="currentColor"/><circle cx="15.8" cy="6" r="3.4" fill="currentColor"/><circle cx="26.6" cy="6" r="3.4" fill="currentColor"/><circle cx="37.4" cy="6" r="3.4" fill="currentColor"/><circle cx="48.2" cy="6" r="3.4" fill="currentColor"/><circle cx="59.0" cy="6" r="4.2" fill="#ffb02e"/></svg><span class="word">portti</span><span class="for">for Valio Aimo</span></a>
+  <nav class="tabs"><a href="/">Buyer agent</a><a href="/plan">Week plan</a><a href="/valio">Valio view</a><a href="/connect">Connect an agent</a><a href="/play" class="on">Play</a></nav>
+  <div class="right"><span class="pill">Live gateway</span></div>
+</div></header>
+
+<section class="hero"><div class="in">
+  <div><h1>Get past Portti.</h1>
+    <p>You're a rogue buying agent. Pick a mission and write a request that sneaks a bad order through. Every try runs the real gateway.</p></div>
+  <div class="live"><div><b id="nAttempts">0</b><span>attempts</span></div><div><b id="nPlayers">0</b><span>players</span></div><div class="zero"><b id="nBreaches">0</b><span>got through</span></div></div>
+</div></section>
+
+<div class="page" style="padding-top:0">
+  <div class="missions" id="missions"></div>
+  <div class="arena">
+    <main>
+      <p class="goal" id="goal"></p>
+      <p class="hint" id="hint"></p>
+      <div class="composer" style="padding:6px 6px 6px 18px">
+        <textarea id="attack" rows="1" placeholder="Write your request…" oninput="fit()" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();go()}"></textarea>
+        <button class="btn btn-primary" id="goBtn" onclick="go()">Try to sneak it past</button>
+      </div>
+      <div class="nick"><label for="nick">Your name on the board</label><input id="nick" maxlength="20" placeholder="anonymous"></div>
+
+      <div class="run">
+        <div class="gates" id="gates"></div>
+        <div class="token" id="token"></div>
+      </div>
+      <div class="verdict idle" id="verdict"><div class="what"><h2>Six checks stand in your way.</h2><p>Points for every check you get past. Getting through wins the round.</p></div></div>
+    </main>
+    <aside class="side">
+      <h3>Leaderboard</h3><ol class="lb" id="board"></ol>
+      <h3>Where attacks get caught</h3><div class="catch" id="catch"></div>
+    </aside>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+const GATES = [['purchase', 'A purchase'], ['clear', 'Clear'], ['possible', 'Valio has it'], ['allowed', 'Safe'], ['proven', 'Proven'], ['authority', "Agent's call"]];
+const BUYER = {mnd_hospital_ward: 'Hospital ward 4', mnd_school_espoo: 'Espoo school', mnd_hotel_helsinki: 'Hotel Aurora'};
+let MISSIONS = [], current = null, best = JSON.parse(localStorage.getItem('portti-best') || '{}');
+$('#nick').value = localStorage.getItem('portti-nick') || '';
+
+function fit() { const t = $('#attack'); t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; }
+function drawGates(state = {}) {
+  $('#gates').innerHTML = GATES.map(([k, n], i) => `<div class="gate ${state[i] || ''}"><div class="g">${state[i] === 'pass' ? '✓' : state[i] === 'stop' ? '×' : i + 1}</div><h4>${n}</h4></div>`).join('');
+}
+function drawMissions() {
+  $('#missions').innerHTML = MISSIONS.map(m => `<button class="mis ${m.id === current?.id ? 'on' : ''}" onclick="pick('${m.id}')">
+    <span class="buyer">${BUYER[m.buyer]}</span><b>${esc(m.title)}</b><span class="best">${best[m.id] != null ? 'Your best: ' + best[m.id] + ' pts' : 'Not tried yet'}</span></button>`).join('');
+}
+function pick(id) {
+  current = MISSIONS.find(m => m.id === id);
+  $('#goal').textContent = current.goal; $('#hint').textContent = 'Ideas: ' + current.hint;
+  drawMissions(); drawGates(); $('#token').style.display = 'none';
+  $('#verdict').className = 'verdict idle';
+  $('#verdict').innerHTML = `<div class="what"><h2>Six checks stand in your way.</h2><p>Points for every check you get past. Getting through wins the round.</p></div>`;
+  $('#attack').focus();
+}
+function drawBoard(b) {
+  $('#nAttempts').textContent = b.attempts; $('#nPlayers').textContent = b.players; $('#nBreaches').textContent = b.breaches;
+  const me = ($('#nick').value.trim() || 'anonymous');
+  $('#board').innerHTML = b.top.map(r => `<li class="${r.nick === me ? 'me' : ''}"><span>${esc(r.nick)}</span><b>${r.points}</b></li>`).join('') || '<li><span class="muted">Be the first.</span></li>';
+  const max = Math.max(1, ...Object.values(b.caught_at));
+  $('#catch').innerHTML = GATES.map(([k, n]) => `<div class="row"><span>${n}</span><div class="bar"><i style="width:${(b.caught_at[k] || 0) / max * 100}%"></i></div><b>${b.caught_at[k] || 0}</b></div>`).join('');
+}
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+async function go() {
+  const text = $('#attack').value.trim(); if (!text || !current) return;
+  localStorage.setItem('portti-nick', $('#nick').value.trim());
+  const btn = $('#goBtn'); btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Running the gateway…';
+  drawGates(); const tok = $('#token'); tok.style.display = 'block'; tok.style.left = '3px';
+  $('#verdict').className = 'verdict idle'; $('#verdict').innerHTML = '<div class="what"><h2>Checking…</h2><p>Your request is going through the real agent and gateway.</p></div>';
+  let r;
+  try {
+    const res = await fetch('/api/game/attempt', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({mission: current.id, text, nick: $('#nick').value})});
+    r = await res.json(); if (!res.ok) throw new Error(r.detail || res.statusText);
+  } catch (e) {
+    tok.style.display = 'none'; btn.disabled = false; btn.textContent = 'Try to sneak it past';
+    $('#verdict').className = 'verdict lose'; $('#verdict').innerHTML = `<div class="what"><h2>Something went wrong</h2><p>${esc(e.message)}</p></div>`; return;
+  }
+  // The token walks the checks it got past, then hits the one that stopped it.
+  const state = {}, w = $('#gates').getBoundingClientRect().width / 6;
+  for (let i = 0; i < Math.min(r.depth, 6); i++) { tok.style.left = (3 + i * w) + 'px'; await sleep(330); state[i] = 'pass'; drawGates(state); }
+  if (r.depth < 6) { tok.style.left = (3 + r.depth * w) + 'px'; await sleep(330); state[r.depth] = 'stop'; drawGates(state); }
+  else { state[5] = 'through'; drawGates(state); }
+  tok.style.display = 'none';
+  const l = r.run.ladder || {}, o = r.run.order;
+  const why = (o?.policy?.rules || []).filter(x => !x.ok).map(x => x.detail)[0] || l.reason || r.run.result?.error || '';
+  const stopName = r.depth < 6 ? GATES[r.depth][1] : '';
+  best[current.id] = Math.max(best[current.id] || 0, r.points); localStorage.setItem('portti-best', JSON.stringify(best));
+  if (r.breach) {
+    $('#verdict').className = 'verdict win';
+    $('#verdict').innerHTML = `<div class="what"><h2>You got through.</h2><p>The gateway placed it. That's a real hole: the team has been alerted. Show them at the Portti table.</p></div><span class="pts">+${r.points}</span>`;
+  } else if (r.depth === 6) {
+    $('#verdict').className = 'verdict lose';
+    $('#verdict').innerHTML = `<div class="what"><h2>Ordered, but not what you were after.</h2><p>The agent found a safe way to do what you asked, so the mission isn't won.</p></div><span class="pts">+${r.points}</span>`;
+  } else {
+    $('#verdict').className = 'verdict lose';
+    $('#verdict').innerHTML = `<div class="what"><h2>Caught at check ${r.depth + 1}: ${stopName}.</h2><p>${esc((t => t.charAt(0).toUpperCase() + t.slice(1))(String(why).replace(/^Nothing was ordered: /, '')).slice(0, 220))}</p></div><span class="pts">+${r.points}</span>`;
+  }
+  drawMissions(); drawBoard(r.board);
+  btn.disabled = false; btn.textContent = 'Try again';
+}
+
+(async () => {
+  const s = await (await fetch('/api/game')).json();
+  MISSIONS = s.missions; drawBoard(s.board); pick(MISSIONS[0].id);
+  setInterval(async () => drawBoard((await (await fetch('/api/game')).json()).board), 5000);
+})();
+</script>
+</body>
+</html>

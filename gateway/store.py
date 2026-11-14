@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS offers (id TEXT PRIMARY KEY, mandate_id TEXT, payload
 CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, offer_id TEXT, idempotency_key TEXT UNIQUE,
   status TEXT, total REAL, mandate_id TEXT, policy TEXT, record TEXT, created TEXT, updated TEXT);
 CREATE TABLE IF NOT EXISTS plans (id TEXT PRIMARY KEY, mandate_id TEXT, status TEXT, data TEXT, created TEXT, updated TEXT);
+CREATE TABLE IF NOT EXISTS game_attempts (id TEXT PRIMARY KEY, ts TEXT, data TEXT);
 CREATE TABLE IF NOT EXISTS events (seq INTEGER PRIMARY KEY AUTOINCREMENT, ref TEXT, ts TEXT, actor TEXT,
   type TEXT, data TEXT, prev_hash TEXT, hash TEXT);
 """)
@@ -195,3 +196,13 @@ def plans_for(mandate_id, status=None, limit=50):
 
 def orders_in_plan(plan_id):
     return [_order(r) for r in _q("SELECT * FROM orders WHERE json_extract(record, '$.context.plan.id') = ?", (plan_id,))]
+
+
+def save_attempt(a):
+    with _lock:
+        _db.execute("INSERT INTO game_attempts VALUES (?,?,?)", (a["id"], now(), json.dumps(a)))
+        _db.commit()
+
+
+def attempts(limit=2000):
+    return [dict(json.loads(r["data"]), ts=r["ts"]) for r in _q("SELECT ts, data FROM game_attempts ORDER BY ts DESC LIMIT ?", (limit,))]

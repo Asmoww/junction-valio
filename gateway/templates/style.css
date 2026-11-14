@@ -459,3 +459,14 @@ details summary { color: var(--valio); font-weight: 600; }
 @media (max-width: 800px) { .pline { grid-template-columns: 22px 1fr; } .pline .pout { grid-column: 2; grid-template-columns: 1fr auto; } .pline .pout .mini { display: none; } }
 .spin2 { width: 16px; height: 16px; border: 2px solid var(--line); border-top-color: var(--valio); border-radius: 50%; display: inline-block; animation: spin .7s linear infinite; }
 #lineDetail { margin-top: 26px; }
+
+/* ==== Brand: Portti (Finnish for "gate"). The mark is the six-check track, the last check lit. ==== */
+.topbar { background: var(--valio); color: #fff; border-bottom: 0; }
+.brand { display: flex; align-items: center; gap: 10px; color: #fff !important; text-decoration: none !important; }
+.brand .mark { width: 46px; height: 12px; color: #fff; flex-shrink: 0; }
+.brand .word { font-weight: 900; font-stretch: 125%; letter-spacing: -.03em; font-size: 22px; line-height: 1; }
+.brand .for { font-size: 12px; font-weight: 500; opacity: .7; margin-left: 2px; white-space: nowrap; }
+.tabs a { color: rgba(255,255,255,.72); } .tabs a:hover { color: #fff; } .tabs a.on { color: #fff; border-bottom-color: #ffb02e; border-bottom-width: 3px; }
+.tabs a[href="/play"] { color: #ffb02e; font-weight: 700; }
+.topbar .pill, .topbar select.pill { background: rgba(255,255,255,.14); color: #fff; }
+@media (max-width: 700px) { .brand .for { display: none; } }

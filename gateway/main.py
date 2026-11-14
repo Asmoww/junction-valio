@@ -13,7 +13,7 @@ from fastapi import Body, FastAPI, File, Form, Header, HTTPException, Request, S
 from fastapi.security import HTTPBearer
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from . import learning, unlock, plans, recipe, agent, ai, catalog, gates, policy, security, recalls, signing, standards, store, vision, preplanner
+from . import learning, unlock, plans, recipe, agent, ai, catalog, gates, policy, security, recalls, signing, standards, store, vision, preplanner, game
 from .config import AGENT_TOKEN as AGENT_TOKEN_ENV, AGENT_TOKEN_SCOPE, DEMO_CLOCK, DEMO_PASSWORD
 from .mcp_server import app as mcp_app
 from .mcp_server import mcp
@@ -326,6 +326,27 @@ async def read_photo(request: Request, photo: UploadFile = File(...), deliver_by
             store.log("security", "photo", "security.injection_in_request", {"findings": [f["why"] for f in findings][:3]})
     store.log("photo", "person", "photo.read", {"reader": out["reader"], "lines": len(out["lines"])})
     return out
+
+
+@app.get("/play", response_class=HTMLResponse, include_in_schema=False)
+def play_page():
+    return (TEMPLATES / "play.html").read_text()
+
+
+@app.get("/api/game", tags=["demo"])
+def game_state():
+    return {"missions": game.MISSIONS, "board": game.board()}
+
+
+@app.post("/api/game/attempt", tags=["demo"])
+def game_attempt(request: Request, body: dict = Body(...)):
+    """One attempt to sneak an order past the gateway. Runs the real agent and gateway; people only."""
+    if getattr(request.state, "principal", None) != "human":
+        raise HTTPException(403, "people only")
+    try:
+        return game.play(body.get("mission"), body.get("text"), body.get("nick"))
+    except ValueError as e:
+        raise HTTPException(422, str(e))
 
 
 @app.get("/api/info", tags=["demo"])
