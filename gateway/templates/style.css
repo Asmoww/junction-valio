@@ -331,6 +331,14 @@ details summary { color: var(--valio); font-weight: 600; }
 .decision .chips .chip { background: #fff; font-size: 13px; padding: 5px 12px; box-shadow: inset 0 0 0 1px var(--line); }
 .decision input.field { flex-basis: 100%; padding: 10px 14px; border-radius: 12px; border: 1px solid var(--line); font: inherit; }
 .decision .qr { flex-basis: 100%; margin-top: 4px; }
+.basket { margin-top: 18px; padding: 6px 14px 10px; border: 1px solid var(--line); border-radius: 14px; }
+.basket h3 { margin: 8px 0 4px; font-size: 14px; color: var(--mute); font-weight: 600; }
+.bline { display: grid; grid-template-columns: 22px minmax(0, 1fr) 110px 80px; gap: 12px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
+.bline:first-of-type { border-top: 0; }
+.bline .n { color: var(--mute); font-variant-numeric: tabular-nums; } .bline .bw { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.bline .bw span { font-size: 13px; color: var(--mute); } .bline .eurv { text-align: right; font-variant-numeric: tabular-nums; }
+.bline .st { font-weight: 650; font-size: 14px; } .bline .st.g { color: var(--ok); } .bline .st.r { color: var(--bad); }
+@media (max-width: 800px) { .bline { grid-template-columns: 22px 1fr auto; } .bline .eurv { grid-column: 3; } .bline .st { grid-column: 2; } }
 .alertline { margin-top: 18px; padding: 12px 18px; border-radius: 14px; background: var(--bad-soft); color: var(--ink); font-size: 14px; }
 .alertline b { color: var(--bad); }
 .dlinks { display: flex; gap: 22px; margin-top: 18px; flex-wrap: wrap; }

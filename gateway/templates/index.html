@@ -208,7 +208,7 @@ async function photoRead(file) {
         <div class="pw"><span class="hand">${esc(l.written)}</span><span class="req">${l.blocked ? `<b style="color:var(--bad)">${esc(l.blocked)}</b>` : esc(l.request) + (l.legible ? '' : ' <b style="color:var(--warn)">check the amount</b>')}</span></div>
         <div class="pout"></div></div>`).join('')}</div>
       ${j.note ? `<p class="small muted" style="margin:10px 0 0">${esc(j.note)}</p>` : ''}
-      <div class="pfoot"><div class="grow" id="psum"></div><button class="btn btn-primary" style="width:auto;margin:0" id="pRun" onclick="photoRun()">Ask the agent for these lines</button></div>
+      <div class="pfoot"><div class="grow" id="psum"></div><button class="btn btn-soft" style="width:auto;margin:0" onclick="photoBasket()" title="One order for all ticked lines; if any line fails, nothing is ordered">One order for all</button><button class="btn btn-primary" style="width:auto;margin:0" id="pRun" onclick="photoRun()">Ask the agent for these lines</button></div>
       </div></div><div id="lineDetail"></div>`;
   } catch (e) {
     $('#out').innerHTML = `<div class="decision red"><div class="what"><h2>Couldn't read the photo</h2><p>${esc(e.message)}</p></div></div>`;
@@ -253,6 +253,13 @@ async function photoRun() {
     sum('r').length && `<b style="color:var(--bad)">${sum('r').length} stopped</b>`,
     sum('q').length && `<b style="color:var(--valio)">${sum('q').length} need a word from you</b>`].filter(Boolean).join(' · ') + '<br><span class="small muted">Click a line to see its checks and decide.</span>';
   btn.textContent = 'Done'; 
+}
+
+// The ticked lines as one list: one signed offer, one decision; any line that fails sends the list back.
+function photoBasket() {
+  const todo = PHOTO.lines.filter((l, i) => document.querySelector(`#pl-${i} input`).checked);
+  if (!todo.length) return;
+  $('#request').value = todo.map(l => l.request).join('\n'); fitRequest(); run();
 }
 
 function photoOpen(i) {
@@ -402,8 +409,24 @@ function stepsHtml(res) {
   }).join('')}</div>`;
 }
 
+// A list in one request: each line, what the agent found for it, or why it goes back.
+function basketHtml(res) {
+  const b = res.basket; if (!b) return '';
+  const row = e => {
+    const c = e.chosen || e.options?.[0];
+    const what = e.result ? esc(cap(String(e.result.error || '').replace(/\s*Nothing was ordered[.:]?\s*/g, ' ').trim()))
+      : c ? c.lines.map(l => `${l.units.toLocaleString('en-US')} × ${esc(shortName(l.name))}`).join(' + ') : '';
+    const st = e.result ? '<span class="st r">Back to you</span>' : res.order ? '<span class="st g">In the order</span>' : '<span class="st">Fine</span>';
+    return `<div class="bline"><span class="n">${e.n}</span><div class="bw"><b>${esc(e.request)}</b><span>${what}</span></div>${st}<b class="eurv">${c && !e.result ? eur(c.total_eur).replace('.00', '') : ''}</b></div>`;
+  };
+  return `<div class="basket"><h3>${b.length} lines, each checked on its own${res.order ? ', one order for all' : ''}</h3>${b.map(row).join('')}</div>`;
+}
+
 // Red-team results shown as one line above the decision.
 function alertHtml(res) {
+  return basketHtml(res) + redTeamHtml(res);
+}
+function redTeamHtml(res) {
   const a = res.steps.find(x => x.step === 'attack_result'), inj = res.steps.find(x => x.step === 'injection_scan'), rej = res.steps.find(x => x.step === 'order_rejected');
   const parts = [];
   if (inj) parts.push(`<b>Hidden instructions</b> in the supplier text of ${esc(inj.product.name)}: treated as data, not followed.`);

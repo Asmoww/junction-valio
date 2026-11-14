@@ -152,11 +152,15 @@ def evaluate(mandate, offer, context, lookup=None):
 
 
     missing, name_only = [], []
-    # Lactose-free can come from the mandate or from the buyer's request ("lactose-free milk").
-    asked_lactose_free = "FREE_FROM_LACTOSE" in (context.get("required_attributes") or [])
+    # Lactose-free can come from the mandate or from the buyer's request ("lactose-free milk"). In a basket the
+    # request is per line: "lactose-free milk and butter" doesn't make the butter lactose-free.
+    basket = offer.get("basket") or []
+    line_attrs = {pid: set(b.get("required_attributes") or []) for b in basket for pid in b.get("products") or []}
+    request_attrs = set(context.get("required_attributes") or [])
     for line in offer["lines"]:
         p = get(line["productId"])
         needed = list(hard.get("required_claims", []))
+        asked_lactose_free = "FREE_FROM_LACTOSE" in (line_attrs.get(line["productId"], set()) if basket else request_attrs)
         if asked_lactose_free and "FREE_FROM_LACTOSE" not in needed:
             needed.append("FREE_FROM_LACTOSE")
         for claim in needed:
@@ -202,23 +206,44 @@ def evaluate(mandate, offer, context, lookup=None):
     rule("Delivery date stated", not context.get("date_assumed"), "approve",
          f"no date in the request: {context.get('deliver_by')} was assumed" if context.get("date_assumed") else "stated in the request")
 
-    asked = context.get("requested_quantity")
-    if asked:
-        covered = sum(l["units"] * (l.get("perUnit") or 1) for l in offer["lines"])
+    # What was asked against what the offer covers: per line of a basket, or for the whole offer.
+    if basket:
+        groups = [(f"line {b['line']} ({b.get('product') or b.get('request')}): ", b.get("requested_quantity"),
+                   [l for l in offer["lines"] if l["productId"] in (b.get("products") or [])], b.get("partial"), b.get("exact"))
+                  for b in basket]
+        # Every offer line must answer a line of the request: nothing extra may ride along.
+        extra = [l["productId"] for l in offer["lines"] if l["productId"] not in line_attrs]
+        if extra:
+            rule("Matches the buyer's request", False, "block", f"not asked for on any line: {', '.join(extra)}")
+    else:
+        groups = [("", context.get("requested_quantity"), offer["lines"], context.get("partial"), context.get("exact_quantity"))]
+    matches, short, exact_bad, exact_ok = [], [], [], []
+    for label, asked, lines, partial, exact in groups:
+        if not asked:
+            continue
+        if not lines:
+            matches.append((False, f"{label}no offer line covers it"))
+            continue
+        covered = sum(l["units"] * (l.get("perUnit") or 1) for l in lines)
         # Rounding up to whole packs is fine (one extra pack); beyond that, max +25 %.
-        allowance = max(asked * 0.25, max((l.get("perUnit") or 1) for l in offer["lines"]))
-        rule("Matches the buyer's request", covered <= asked + allowance, "block",
-             f"order covers {covered:,.0f} vs {asked:,.0f} requested (max +25 % or one extra pack)")
-        short = covered < asked - max((l.get("perUnit") or 1) for l in offer["lines"]) - 1e-9
-        if short and not context.get("partial"):
-            rule("Full quantity", False, "approve",
-                 f"order covers {covered:,.0f} of the {asked:,.0f} requested: a person decides whether part is enough")
-
-    if asked and context.get("exact_quantity"):
-        covered = sum(l["units"] * (l.get("perUnit") or 1) for l in offer["lines"])
-        rule("Exact quantity", abs(covered - asked) <= 1e-6 * max(asked, 1), "approve",
-             f"the buyer asked for exactly {asked:,.0f}; whole packs cover {covered:,.0f}: a person decides" if abs(covered - asked) > 1e-6 * max(asked, 1)
-             else f"exactly {asked:,.0f}, as asked")
+        allowance = max(asked * 0.25, max((l.get("perUnit") or 1) for l in lines))
+        matches.append((covered <= asked + allowance,
+                        f"{label}order covers {covered:,.0f} vs {asked:,.0f} requested (max +25 % or one extra pack)"))
+        if covered < asked - max((l.get("perUnit") or 1) for l in lines) - 1e-9 and not partial:
+            short.append(f"{label}order covers {covered:,.0f} of the {asked:,.0f} requested: a person decides whether part is enough")
+        if partial and basket:
+            short.append(f"{label}only part of the requested quantity is covered")
+        if exact:
+            (exact_ok if abs(covered - asked) <= 1e-6 * max(asked, 1) else exact_bad).append(
+                f"{label}exactly {asked:,.0f}, as asked" if abs(covered - asked) <= 1e-6 * max(asked, 1) else
+                f"{label}the buyer asked for exactly {asked:,.0f}; whole packs cover {covered:,.0f}: a person decides")
+    if matches:
+        bad = [d for ok, d in matches if not ok]
+        rule("Matches the buyer's request", not bad, "block", "; ".join(bad or [d for _, d in matches]))
+    if short:
+        rule("Full quantity", False, "approve", "; ".join(short))
+    if exact_bad or exact_ok:
+        rule("Exact quantity", not exact_bad, "approve", "; ".join(exact_bad or exact_ok))
 
     if context.get("partial"):
         rule("Full quantity", False, "approve", "only part of the requested quantity is covered")
