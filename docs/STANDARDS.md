@@ -3,6 +3,7 @@
 | Standard | What Vahti does | Where |
 |---|---|---|
 | MCP | Tools for any MCP client: mandate, search, price, preplan, offer, order, status | `/mcp`, `gateway/mcp_server.py` |
+| MCP authorization (spec 2026-07-28) / RFC 9728 / RFC 6750 | Protected Resource Metadata at `/.well-known/oauth-protected-resource` (scopes `catalog:read offers:quote orders:place`); 401 carries `WWW-Authenticate: Bearer resource_metadata=…, scope=…`; an inquiry-only token has no `orders:place` and an order gets 403 `error="insufficient_scope"`. Tokens are issued per buyer on /connect, not by an OAuth server (prototype) | `gateway/main.py` |
 | OpenAPI | The REST flow, typed contract in `contracts/openapi.yaml` (served schema for quotes still untyped) | `/docs`, `/openapi.json` |
 | A2A 1.0 (a2a-protocol.org) | Agent Card at `/.well-known/agent-card.json`; JSON-RPC `SendMessage` / `GetTask` (and v0.3 `message/send`, `tasks/get`) at `/a2a`. Text is answered as an inquiry and never orders; quote and order take data parts and run the same checks as REST and MCP, under the per-buyer token | `gateway/a2a.py` |
 | AP2 v0.2 (ap2-protocol.org) | The merchant side: each offer also as a merchant-signed checkout JWT, **ES256** as the spec requires for checkouts (not Ed25519), with `checkout_hash` = base64url SHA-256 of the JWT; amounts in minor units; key in `/.well-known/jwks.json` | `gateway/ap2.py`, `GET /v1/offers/{id}/ap2` |

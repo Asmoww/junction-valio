@@ -606,7 +606,7 @@ def place_order(offer_jws, idempotency_key, mandate, context, client=None, actor
     if READ_ONLY.get():
         store.log("security", f"agent:{mandate.get('mandate_id')}", "security.read_only_order_refused",
                   {"mandate_id": mandate.get("mandate_id")})
-        return None, "this agent token is for inquiries only: it can look up and price, never order"
+        return None, "this agent token is for inquiries only: it can look up and price, never order (insufficient_scope: orders:place)"
     with _commit():
         return _place_order(offer_jws, idempotency_key, mandate, context, client, actor)
 

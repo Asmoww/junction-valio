@@ -72,7 +72,24 @@ def _token_scope(token):
     return False, None, False
 
 
-OPEN_PATHS = {"/login", "/healthz", "/.well-known/jwks.json", "/v1/mandates/verify", "/static/style.css",
+# MCP authorization spec 2026-07-28: an MCP server publishes Protected Resource Metadata (RFC 9728) and says in
+# WWW-Authenticate where it is and which scopes an operation needs. Our tokens are issued per buyer on /connect
+# (no OAuth server in the demo); the scopes describe what each token may do.
+SCOPES = {"purchase": "catalog:read offers:quote orders:place", "inquiry": "catalog:read offers:quote"}
+PRM_PATH = "/.well-known/oauth-protected-resource"
+
+
+def _www_authenticate(request: Request, error=None, scope=None):
+    base = str(request.base_url).rstrip("/")
+    parts = [f'resource_metadata="{base}{PRM_PATH}"']
+    if error:
+        parts.insert(0, f'error="{error}"')
+    if scope:
+        parts.append(f'scope="{scope}"')
+    return "Bearer " + ", ".join(parts)
+
+
+OPEN_PATHS = {"/login", "/healthz", PRM_PATH, "/.well-known/jwks.json", "/v1/mandates/verify", "/static/style.css",
               "/.well-known/agent-card.json", "/openapi.json", "/docs"}  # the API description is public; calling it is not
 if not DEMO_PASSWORD:
     logging.getLogger("uvicorn.error").warning(
@@ -110,7 +127,8 @@ async def password_gate(request: Request, call_next):
             agent.READ_ONLY.reset(reset_ro)
             agent.CALLER.reset(reset)
     if request.url.path.startswith(("/v1", "/api", "/mcp", "/a2a")):
-        return JSONResponse({"detail": "authentication required"}, status_code=401)
+        return JSONResponse({"detail": "authentication required"}, status_code=401,
+                            headers={"WWW-Authenticate": _www_authenticate(request, scope=SCOPES["inquiry"])})
     return RedirectResponse(f"/login?next={urlquote(request.url.path)}", status_code=303)
 
 
@@ -568,6 +586,18 @@ def concept_image(name: str):
     return FileResponse(ROOT / "docs" / "visuals" / name, media_type="image/png")
 
 
+@app.get(PRM_PATH, include_in_schema=False)
+def protected_resource_metadata(request: Request):
+    """RFC 9728 metadata for the MCP and REST endpoints: what the resource is, how to send a token, which scopes
+    exist. Tokens come from a signed-in person on /connect: a purchase token has all three scopes, an inquiry token
+    has no orders:place and gets 403 insufficient_scope if it tries."""
+    base = str(request.base_url).rstrip("/")
+    return {"resource": f"{base}/mcp", "bearer_methods_supported": ["header"],
+            "scopes_supported": SCOPES["purchase"].split(), "resource_name": "Vahti trade gateway for Valio Aimo",
+            "resource_documentation": f"{base}/connect", "authorization_servers": [],
+            "vahti_token_issuance": "per buyer on /connect (purchase or inquiry); no OAuth server in this prototype"}
+
+
 @app.get("/connect", response_class=HTMLResponse, include_in_schema=False)
 def connect_page(request: Request):
     page = (TEMPLATES / "connect.html").read_text()
@@ -689,7 +719,7 @@ def quote(req: schemas.QuoteRequest):
 
 
 @app.post("/v1/orders", tags=["v1: order"])
-def order(req: schemas.OrderRequest, idempotency_key: str = Header(...)):
+def order(request: Request, req: schemas.OrderRequest, idempotency_key: str = Header(...)):
     """Commit a signed offer, by `offer_id` or the full `jws`. The gateway verifies the signature, re-checks
     prices and applies the mandate."""
     body = req.model_dump(exclude_none=True)
@@ -698,6 +728,9 @@ def order(req: schemas.OrderRequest, idempotency_key: str = Header(...)):
         raise HTTPException(422, "give offer_id or jws")
     o, err = agent.order_from_jws(jws, idempotency_key, body.get("rationale", ""), body.get("requested_units"))
     if not o:
+        if "inquiries only" in err:  # an inquiry token: RFC 6750 / MCP spec "insufficient_scope"
+            raise HTTPException(403, err, headers={"WWW-Authenticate": _www_authenticate(
+                request, "insufficient_scope", "orders:place")})
         raise HTTPException(403 if err.startswith("this agent token acts for") else 409, err)
     return o
 
