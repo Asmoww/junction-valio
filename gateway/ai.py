@@ -50,11 +50,15 @@ SYSTEM = ("You convert a professional kitchen's purchasing request into a struct
           "never change or simplify the product into a more familiar one. Unit: L for liquids by volume, KG for weight, PCS otherwise. "
           "Resolve weekday names to the next such date after today. If no date is given, use today + 3 days. "
           "Never guess fat level or shelf life: leave them null unless stated. "
+          "Finnish milk names state the fat level, so they count as stated: kevytmaito = product milk, fat_pct 1.5; "
+          "rasvaton maito = milk, fat_pct 0; ykkösmaito = milk, fat_pct 1; täysmaito = milk, fat_pct 3.5. "
+          "Finnish shelf life: pitkään säilyvä or UHT = long_life; tuore = fresh. "
           "If the request names no product, return an empty string as product: never invent one. "
           "Low-lactose (vähälaktoosinen) is not lactose-free: only add FREE_FROM_LACTOSE when the buyer says "
-          "lactose-free (laktoositon). The intent holds one product: if the request names more than one product, "
+          "lactose-free (laktoositon, in any inflection: laktoositonta, laktoosittomana). The intent holds one product: if the request names more than one product, "
           "or words you can't place, put the product you captured in product and list everything else in "
-          "ignored_terms. Never drop a product word silently.")
+          "ignored_terms. Never drop a product word silently. A word you translated into product (voita → butter, maitoa → "
+          "milk, kermaa → cream) is the product, never an ignored term; so are date words (maanantaiksi = by Monday).")
 
 
 def eu():
@@ -145,9 +149,48 @@ def parse(text, today=None):
         return {"_error": f"{reader_name()} read a non-positive quantity"}
     if intent.get("product", "").strip().lower() in ("unspecified", "unknown", "none", "n/a", "product"):
         intent["product"] = ""
+    _finnish_terms(intent, text)
     intent["raw"] = text
     intent["reader"] = reader_name()
     return intent
+
+
+# Finnish words that state a requirement outright. Applied after any model's reading, because models miss inflected
+# forms ("laktoositonta" ended up as an unplaced word, sending the request back) and translate "kevytmaito" as a
+# product called "light milk". Only fills what the model left empty; never overrides a value it read.
+_FI_LACTOSE_FREE = re.compile(r"\blaktoosit\w*", re.I)  # laktoositon, -ta, laktoositonta, laktoosittomana ...
+_FI_MILK_FAT = [(re.compile(r"\bkevytmai\w*", re.I), 1.5), (re.compile(r"\bykkösmai\w*", re.I), 1.0),
+                (re.compile(r"\btäysmai\w*", re.I), 3.5), (re.compile(r"\brasvat\w*\s+mai\w*", re.I), 0.0)]
+_FI_LONG_LIFE = re.compile(r"\bpitkään\s+säilyv\w*|\bUHT\b", re.I)
+
+
+def _finnish_terms(intent, text):
+    t = str(text or "")
+    found = []
+    if m := _FI_LACTOSE_FREE.search(t):
+        found.append(m.group(0))
+        if "FREE_FROM_LACTOSE" not in intent.setdefault("attributes", []):
+            intent["attributes"].append("FREE_FROM_LACTOSE")
+    milk = re.search(r"\bmilk\b", str(intent.get("product") or ""), re.I)
+    for rx, fat in _FI_MILK_FAT:
+        if m := rx.search(t):
+            found.append(m.group(0))
+            if intent.get("fat_pct") is None and (milk or "light milk" in str(intent.get("product") or "").lower()):
+                intent["fat_pct"] = fat
+            if str(intent.get("product") or "").lower() in ("light milk", "light-milk", "lite milk"):
+                intent["product"] = "milk"  # kevytmaito is semi-skimmed milk, not a product called "light milk"
+            break
+    if (m := _FI_LONG_LIFE.search(t)) and intent.get("shelf_life") is None:
+        found.append(m.group(0))
+        intent["shelf_life"] = "long_life"
+    if found:
+        stems = [catalog_fold(w)[:6] for w in found]
+        intent["ignored_terms"] = [w for w in intent.get("ignored_terms") or []
+                                   if not any(catalog_fold(w).startswith(s) or s in catalog_fold(w) for s in stems)]
+
+
+def catalog_fold(s):
+    return str(s or "").lower().replace("ä", "a").replace("ö", "o")
 
 
 TYPE_SCHEMA = {

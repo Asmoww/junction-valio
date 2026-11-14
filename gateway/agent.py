@@ -287,6 +287,23 @@ def _known(w, vocab):
     return any(w.startswith(v) and len(w) - len(v) <= 4 for v in (w[:k] for k in range(5, len(w))) if v in vocab)
 
 
+# Everyday Finnish and Swedish names of what was ordered: "10 kg voita" is the butter itself, not a dropped word.
+# Product names in Valio's data are mostly English, so these words can't be matched against them. Finnish forms
+# are inflected, so they match as prefixes; short words match exactly.
+NATIVE_NAMES = {"butter": ("voi", "voita", "voin", "smör"), "milk": ("maito", "maido", "mjölk"),
+                "cream": ("kerma", "grädde"), "cheese": ("juusto", "ost", "osten"), "yogurt": ("jogurt", "yoghurt"),
+                "yoghurt": ("jogurt", "yoghurt"), "egg": ("kananmun", "munia", "munaa", "ägg"),
+                "eggs": ("kananmun", "munia", "munaa", "ägg"), "flour": ("jauho", "vehnäjauho", "mjöl"),
+                "sugar": ("sokeri", "socker"), "potato": ("peruna", "potatis"), "potatoes": ("peruna", "potatis"),
+                "oat drink": ("kaurajuoma", "havredryck"), "quark": ("rahka", "kvarg"), "coffee": ("kahvi", "kaffe")}
+
+
+def _native_name(w, product):
+    names = NATIVE_NAMES.get(str(product or "").strip().lower(), ())
+    w = catalog.fold(w)
+    return any(w == catalog.fold(n) or (len(n) >= 4 and w.startswith(catalog.fold(n))) for n in names)
+
+
 def unmatched_terms(text, intent, covered_texts=(), strict=False):
     """Words in the request that the reading dropped.
 
@@ -317,7 +334,7 @@ def unmatched_terms(text, intent, covered_texts=(), strict=False):
 
     def is_covered(w):
         s_ = catalog._stem(w)
-        return (s_ in covered or any(c and s_.startswith(c) for c in covered) or w in cover_words
+        return (_native_name(w, intent.get("product")) or s_ in covered or any(c and s_.startswith(c) for c in covered) or w in cover_words
                 or any(w.startswith(c) and len(w) - len(c) <= 4 for c in cover_words if len(c) >= 4))
 
     out = set()

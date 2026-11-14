@@ -221,6 +221,17 @@ def eggs_are_counted_as_eggs():
         f"{', '.join(str(l['units']) + ' x ' + l['name'][:28] for l in lines)} = {eggs:g} eggs, €{o.get('total')}"
 
 
+def finnish_everyday_milk_and_basket():
+    one = _run("kevyt", "Tarvitsemme 60 litraa kevytmaitoa maanantaiksi.", "mnd_hotel_helsinki")
+    i = _steps(one)["request"]["intent"]
+    lines = ((one.get("order") or {}).get("record", {}).get("offer", {}) or {}).get("lines", [])
+    semi = bool(lines) and all((catalog.get(l["productId"]) or {}).get("fatPct") == 1.5 for l in lines)
+    basket = _run("kevyt-voi", "Tarvitsemme 60 litraa kevytmaitoa ja 10 kg voita maanantaiksi.", "mnd_hotel_helsinki")
+    ok = i.get("fat_pct") == 1.5 and semi and basket["result"]["status"] != "basket_line_failed"
+    return ok, (f"kevytmaito read as {i.get('product')} {i.get('fat_pct')} %, offer {[l['name'][:30] for l in lines]}; "
+                f"milk + butter basket: {(basket.get('order') or {}).get('status') or basket['result']['status']}")
+
+
 CASES = [
     ("lookup", "Keyword search for lactose-free milk returns only plain milk (no cocoa, coffee milk, powder)", lookup_plain_milk_only),
     ("lookup", "The cheapest milks reach the price check (no cut by name or file order)", lookup_keeps_cheapest),
@@ -247,4 +258,5 @@ CASES = [
     ("reality", "1,000 litres of chicken nuggets: unit doesn't fit, explained, no API calls", litres_of_nuggets_explained),
     ("controls", "Cheapest option above the hard limit: agent doesn't order, offers what fits", over_hard_limit_explained),
     ("need", "200 eggs means 200 eggs, not 200 packs (was 2,000 eggs)", eggs_are_counted_as_eggs),
+    ("need", "Finnish everyday words: kevytmaito is 1.5 % milk, and a milk + butter list in Finnish goes through (was 'light milk', nothing ordered)", finnish_everyday_milk_and_basket),
 ]
