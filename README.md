@@ -45,6 +45,11 @@ hostile agent can't skip them. Only a signed-in person named in the buyer's mand
 - **Audit trail:** a plain-English decision record per order on a hash-chained log, the same for buyer and Valio.
 - **Valio view** (`/valio`): agent traffic, escalations, security events, agent readiness of the catalog, and
   the trap-suite results.
+- **Order from a photo:** a photographed handwritten list, read by NVIDIA Nemotron 3.5 Super VL; every line runs the six checks.
+- **Live recall check:** the Finnish Food Authority's current recall notices, found and read with the Oxylabs Web API;
+  the notice link is in the decision record.
+- **Data stays in Europe:** one switch moves the gateway's language model to an open model (Gemma) on Verda.
+  See [docs/PARTNERS.md](docs/PARTNERS.md).
 - **Approve on your own phone:** a QR with a signed, single-use link for one order and one approver named in the mandate.
 - **Open standards:** REST with OpenAPI ([contracts/openapi.yaml](contracts/openapi.yaml)), an MCP server at `/mcp`,
   every placed order as a **Peppol BIS Ordering 3** document (UBL 2.1, checked against the official XSD), and the
