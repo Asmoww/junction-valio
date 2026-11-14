@@ -61,3 +61,39 @@ def test_a_tampered_checkout_fails():
     offer, _, _ = agent.quote("mnd_hotel_helsinki", "2026-11-16", [{"productId": "464306", "units": 4}], FakeValio())
     h, p, s = ap2.checkout_jwt(offer)["checkout_jwt"].split(".")
     assert not ap2.verify(f"{h}.{p[:-4]}AAAA.{s}")[0]
+
+
+def _msg(parts, ctx="ctx_canary"):
+    return {"message": {"messageId": "m", "role": "ROLE_USER", "contextId": ctx, "parts": parts}}
+
+
+def test_another_buyer_cannot_read_a_task_by_id():
+    """Codex, 14 Nov: a school token read a hotel task (and its canary contextId) via GetTask. Every task state,
+    every method name and both id forms: only the creating buyer gets it, anyone else gets 'not found'."""
+    c, hotel = client()
+    _, school = client("mnd_school_espoo")
+    _, hospital = client("mnd_hospital_ward")
+    quote = {"skill": "quote", "mandate_id": "mnd_hotel_helsinki", "deliver_by": "2026-11-16",
+             "lines": [{"productId": "464306", "units": 900}]}
+    tasks = {"rejected": rpc(c, hotel, "SendMessage", _msg([]))["result"],
+             "inquiry": rpc(c, hotel, "SendMessage", _msg([{"text": "What does lactose-free milk cost?"}]))["result"],
+             "quote": rpc(c, hotel, "SendMessage", _msg([{"data": quote}]))["result"]}
+    offer_id = tasks["quote"]["artifacts"][0]["parts"][1]["data"]["offer"]["offer_id"]
+    tasks["input_required"] = rpc(c, hotel, "SendMessage", _msg([{"data": {"skill": "order", "offer_id": offer_id,
+                                                                            "idempotency_key": "k-a2a-iso"}}]))["result"]
+    assert tasks["input_required"]["status"]["state"] == "TASK_STATE_INPUT_REQUIRED"
+    for kind, t in tasks.items():
+        for method, params in (("GetTask", {"id": t["id"]}), ("tasks/get", {"id": t["id"]}),
+                               ("GetTask", {"name": f"tasks/{t['id']}"}), ("tasks/get", {"name": f"tasks/{t['id']}"})):
+            own = rpc(c, hotel, method, params)
+            assert own["result"]["id"] == t["id"], (kind, method, params)
+            for other in (school, hospital):
+                r = rpc(c, other, method, params)
+                assert "result" not in r and r["error"]["code"] == -32001, (kind, method, params)
+                assert "ctx_canary" not in str(r) and t["id"] not in str(r["error"])
+
+
+def test_a_missing_or_malformed_task_id_is_not_found():
+    c, hotel = client()
+    for params in ({}, {"id": None}, {"name": 5}, {"id": "task_nope"}):
+        assert rpc(c, hotel, "GetTask", params)["error"]["code"] == -32001
