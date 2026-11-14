@@ -6,8 +6,10 @@
 <link rel="icon" href="data:,">
 <title>Buyer agent · Vahti</title>
 <link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Permanent+Marker&display=swap">
+<link rel="stylesheet" href="/static/pass.css">
 </head>
-<body>
+<body class="pass">
 <header class="topbar"><div class="inner">
   <a class="brand" href="/" aria-label="Vahti, for Valio Aimo"><svg class="mark" viewBox="0 0 64 12" aria-hidden="true"><path d="M5 6H59" stroke="currentColor" stroke-width="2" opacity=".55"/><circle cx="5.0" cy="6" r="3.4" fill="currentColor"/><circle cx="15.8" cy="6" r="3.4" fill="currentColor"/><circle cx="26.6" cy="6" r="3.4" fill="currentColor"/><circle cx="37.4" cy="6" r="3.4" fill="currentColor"/><circle cx="48.2" cy="6" r="3.4" fill="currentColor"/><circle cx="59.0" cy="6" r="4.2" fill="#ffb02e"/></svg><span class="word">vahti</span><span class="for">for Valio Aimo</span></a>
   <nav class="tabs"><a href="/" class="on">Buyer agent</a><a href="/plan">Week plan</a><a href="/rules">Rules</a><a href="/valio">Valio view</a><a href="/live">Live</a><a href="/connect">Connect an agent</a><a href="/play">Play</a></nav>
@@ -53,7 +55,16 @@
   </div>
 
   <p id="purposeHint" class="small muted" aria-live="polite">Purchase · may order within the buyer’s rules</p>
-  <section id="out"></section>
+  <div class="rail" aria-hidden="true"></div>
+  <div class="board">
+    <aside class="hist" id="histL" aria-label="Earlier ticket"></aside>
+    <div class="ticket" id="ticket">
+      <div class="thead" id="thead"></div>
+      <section id="out"></section>
+      <div class="mnote" id="mnote" aria-hidden="true"></div>
+    </div>
+    <aside class="hist" id="histR" aria-label="Earlier ticket"></aside>
+  </div>
 </div>
 
 <script>
@@ -90,6 +101,7 @@ async function api(path, opts) {
 const post = (path, body) => api(path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
 
 async function init() {
+  renderHist();
   const [list, info] = await Promise.all([api('/api/mandates'), api('/api/info')]);
   if (info.demo_clock) $('#clockSwitch').style.display = '';
   list.forEach(m => mandates[m.mandate_id] = m);
@@ -171,8 +183,8 @@ async function bWrite() { return bPrepare(true); }
 async function run() {
   const btn = $('#runBtn');
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Working…';
-  $('#out').innerHTML = idleHtml(true); animateWork();
-  $('#out').scrollIntoView({behavior: 'smooth', block: 'start'});
+  $('#out').innerHTML = idleHtml(true); animateWork(); ticketHead(); $('#mnote').innerHTML = '';
+  $('#ticket').scrollIntoView({behavior: 'smooth', block: 'start'});
   try {
     const res = await post('/api/run', {
       request: $('#request').value, purpose: $('#bPurpose').value, mandate_id: $('#mandate').value, auto_limit: Number($('#autoLimit').value),
@@ -181,6 +193,7 @@ async function run() {
     clearTimeout(workTimer);
     LAST = res;
     await settle(res);
+    markNote(res); remember(res);
   } catch (e) {
     $('#out').innerHTML = `<div class="decision red"><div class="what"><h2>Something went wrong</h2><p>${esc(e.message)}</p></div></div>`;
   }
@@ -720,6 +733,57 @@ function decided(o, title) {
   if (last) { last.className = 's ' + (placed ? 'done' : 'fail stop'); last.querySelector('.dot').textContent = placed ? '✓' : '×';
     last.querySelector('ul')?.insertAdjacentHTML('beforeend', `<li class="${placed ? '' : 'n'}">${esc(title)}</li>`); }
   if (placed) document.querySelectorAll('.steps .s:not(.fail):not(.off)').forEach(s => { s.classList.add('done'); });
+  note(placed ? 'go' : 'stop', placed ? `Approved. ${esc(title.replace(/^Approved by /, '').split(' ')[0])} signed it.` : 'Rejected.', document.querySelector('#decision .decision'));
+  remember(LAST, {status: o.status});
+}
+
+// ---- The pass: the ticket header, the chef's marker note, and earlier tickets on the rail ----
+const PASS_KEY = 'vahti.pass';
+const passLoad = () => { try { return JSON.parse(localStorage.getItem(PASS_KEY)) || {n: 412, list: []}; } catch { return {n: 412, list: []}; } };
+let TICKET = null;
+function ticketHead() {
+  const st = passLoad(); st.n += 1; localStorage.setItem(PASS_KEY, JSON.stringify(st));
+  const buyer = $('#mandate').selectedOptions[0]?.textContent || '';
+  const now = new Date(), when = now.toLocaleDateString('en-GB', {weekday: 'short', day: 'numeric', month: 'numeric'}) + ' ' + now.toTimeString().slice(0, 5);
+  TICKET = {n: st.n, buyer, request: $('#request').value};
+  $('#thead').innerHTML = `<span>TICKET #${String(st.n).padStart(4, '0')} · ${esc(buyer.toUpperCase())}</span><span>${esc(when.toUpperCase())} · AGENT: BUILT-IN</span>`;
+}
+function note(tone, text, near) {
+  const n = $('#mnote'), t = $('#ticket');
+  n.className = 'mnote ' + tone; n.innerHTML = text;
+  // Just above the ticket's total line, on its own space (the decision has a top margin for it)
+  if (near) n.style.top = Math.max(60, near.getBoundingClientRect().top - t.getBoundingClientRect().top - 56) + 'px';
+}
+function outcome(res, status) {
+  const o = res.order, l = res.ladder || {}, s = status || o?.status;
+  if (s === 'placed') return ['go', 'Fired. Agent did it.'];
+  if (s === 'pending_approval') { const who = firstName(o.policy.approver?.name);
+    return ['hold', o.policy.ladder?.decided_by === 'proven' ? `${esc(who)}: check a fact.` : `Over its limit. ${esc(who)}'s call.`]; }
+  if (s === 'blocked' || l.action === 'stop' || l.action === 'decline' || s === 'rejected') return ['stop', '86'];
+  if (l.action === 'ask_back') return ['back', 'Back to you.'];
+  if (l.action === 'answer' || res.result?.status === 'answered') return ['back', 'Answered. Nothing ordered.'];
+  return ['back', 'Nothing ordered.'];
+}
+function markNote(res) {
+  const [tone, text] = outcome(res);
+  note(tone, text === '86' ? 'Not ordered.' : text, document.querySelector('#decision .decision') || document.querySelector('#decision'));
+}
+function remember(res, over = {}) {
+  if (!TICKET || !res) return;
+  const st = passLoad(), o = res.order;
+  const [tone, mark] = outcome(res, over.status);
+  const entry = {n: TICKET.n, buyer: TICKET.buyer, request: TICKET.request, tone, mark,
+                 total: o ? eur(o.total).replace('.00', '') : '', why: clip((res.ladder?.reason || res.result?.error || '').replace(/^Nothing was ordered: /, '').split(/[.;]/)[0], 70)};
+  st.list = [entry, ...st.list.filter(x => x.n !== entry.n)].slice(0, 6);
+  localStorage.setItem(PASS_KEY, JSON.stringify(st));
+  renderHist();
+}
+const clip = (t, n) => t.length <= n ? t : t.slice(0, n).replace(/\s+\S*$/, '') + '…';
+function renderHist() {
+  const cur = TICKET?.n, list = passLoad().list.filter(x => x.n !== cur);
+  const tk = x => x ? `<div class="tk"><h4>#${String(x.n).padStart(4, '0')} · ${esc(x.buyer.toUpperCase())}</h4>${esc(x.request)}
+    <div class="line">${x.total ? esc(x.total) + ' · ' : ''}${esc(x.why || '')}</div><span class="mk ${x.tone}">${esc(x.mark)}</span></div>` : '';
+  $('#histL').innerHTML = tk(list[0]) + tk(list[2]); $('#histR').innerHTML = tk(list[1]) + tk(list[3]);
 }
 
 async function showRecord(id) {

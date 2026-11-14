@@ -1,0 +1,132 @@
+/* The pass: each request is a kitchen ticket clipped to the rail above the pass, in Valio colours.
+   Scoped to body.pass (the buyer page); everything the page renders keeps its classes and behaviour. */
+body.pass {
+  --rail: #0a1f4d; --paper: #ffffff; --pen: #0047bb; --hold: #d9730d; --stop: #d3261f; --mono: "IBM Plex Mono", ui-monospace, monospace;
+  --marker: "Permanent Marker", "Comic Sans MS", cursive;
+  background: #e3ebf7;
+}
+.pass .page { max-width: 1440px; }
+.pass .phead { display: none; }
+
+/* The printer: Buying for + what the kitchen needs, on Valio blue */
+.pass .panel { background: var(--pen); border: 0; border-radius: 14px; box-shadow: none; padding: 18px 20px 14px; color: #fff; }
+.pass .panel label, .pass .panel .flabel { color: #cfdcf5; }
+.pass .panel select { background: #0a3a9a; color: #fff; border: 0; font-weight: 600; }
+.pass .composer { background: #fff; border-radius: 10px; }
+.pass .composer textarea { font: 500 18px var(--mono); color: var(--rail); }
+.pass .composer .btn-primary { background: var(--rail); border-radius: 8px; }
+.pass .composer .photo-btn { border-radius: 8px; }
+.pass .underbar .chip { background: transparent; color: #fff; box-shadow: inset 0 0 0 1px #6f97de; }
+.pass .underbar .chip:hover { background: #0a3a9a; }
+.pass .underbar .gear { color: #fff; text-decoration: underline; }
+.pass .settings { background: #fff; color: var(--ink); border-radius: 10px; padding: 20px; border: 0; margin-top: 14px; }
+.pass .settings label { color: var(--mute); }
+.pass #purposeHint { margin: 10px 4px 0; }
+
+/* The rail and the board */
+.pass .rail { height: 16px; background: var(--rail); margin: 30px calc(50% - 50vw) 0; }
+.pass .board { display: grid; grid-template-columns: 230px minmax(0, 1fr) 230px; gap: 34px; align-items: start; margin-top: -8px; }
+.pass .ticket { background: var(--paper); position: relative; padding: 30px 32px 26px; box-shadow: 0 12px 26px -16px rgba(10,31,77,.45);
+                transform: rotate(.25deg); font-family: var(--mono); color: var(--rail); min-height: 420px; }
+.pass .ticket::before, .pass .hist .tk::before { content: ""; position: absolute; top: -13px; left: 50%; width: 46px; height: 21px; margin-left: -23px;
+                background: #6c7a92; border-radius: 3px 3px 8px 8px; }
+.pass .ticket::after, .pass .hist .tk::after { content: ""; position: absolute; left: 0; right: 0; bottom: -8px; height: 8px;
+  background: linear-gradient(-45deg, transparent 6px, var(--paper) 0) 0 0/12px 8px, linear-gradient(45deg, transparent 6px, var(--paper) 0) 0 0/12px 8px; }
+.pass .thead { display: flex; justify-content: space-between; gap: 12px; font-size: 12.5px; color: #4a5a78; border-bottom: 2px solid var(--rail); padding-bottom: 8px; }
+.pass .thead:empty { display: none; }
+
+/* What was asked, as the agent read it */
+.pass .said { font: 700 26px/1.3 var(--mono); letter-spacing: -.02em; margin: 18px 0 4px; }
+.pass .said mark { background: var(--valio-soft); color: var(--pen); border-radius: 0; padding: 0 4px; }
+.pass .said.working { color: #8695b0; }
+.pass .saidnote { gap: 4px 18px; margin: 4px 0 14px; font-size: 13px; color: #4a5a78; }
+.pass .saidnote span { background: none; padding: 0; border-radius: 0; }
+.pass .saidnote span::before { content: "+ "; }
+.pass .saidnote span.warn { background: none; color: var(--hold); font-weight: 600; }
+.pass .saidnote span.bad { background: none; color: var(--stop); font-weight: 600; }
+.pass .rhead { font: 600 13px var(--mono); color: #4a5a78; margin: 16px 0 6px; }
+.pass .idlehint { font-size: 13px; color: #4a5a78; }
+
+/* The six checks: tick boxes, marked in pen */
+.pass .steps { display: block; margin: 0; border-top: 1px dashed #b7c2d6; }
+.pass .steps .s { display: grid; grid-template-columns: 34px 170px minmax(0, 1fr); gap: 10px; align-items: baseline; padding: 10px 0;
+                  border-bottom: 1px dashed #d5dce8; animation: none; }
+.pass .steps .s::before { display: none; }
+.pass .s .dot { width: 22px; height: 22px; border-radius: 0; background: #fff; box-shadow: inset 0 0 0 2px var(--rail); color: transparent; font-size: 0;
+                position: relative; top: 4px; overflow: visible; }
+.pass .s .dot::after { position: absolute; font: 30px/1 var(--marker); }
+.pass .steps:not(.idle):not(.live) .s:not(.off):not(.fail) .dot::after,
+.pass .steps.live .s.passing .dot::after { content: "✓"; color: var(--pen); left: 2px; top: -12px; }
+.pass .steps.live .s.passing .dot::after { opacity: .45; }
+.pass .s.fail.person .dot { box-shadow: inset 0 0 0 2px var(--hold); } .pass .s.fail.person .dot::after { content: "!"; color: var(--hold); left: 7px; top: -9px; font-size: 26px; }
+.pass .s.fail.stop .dot { box-shadow: inset 0 0 0 2px var(--stop); }  .pass .s.fail.stop .dot::after { content: "×"; color: var(--stop); left: 1px; top: -12px; font-size: 34px; }
+.pass .s.fail.back .dot { box-shadow: inset 0 0 0 2px var(--pen); }   .pass .s.fail.back .dot::after { content: "?"; color: var(--pen); left: 4px; top: -10px; font-size: 26px; }
+.pass .s.off .dot, .pass .steps.idle .s .dot { box-shadow: inset 0 0 0 2px #b7c2d6; }
+.pass .steps.live .s.now .dot { box-shadow: inset 0 0 0 2px var(--pen); animation: pulse 1.2s ease-in-out infinite; }
+.pass .s h3 { font: 700 14px var(--mono); margin: 0; color: var(--rail); }
+.pass .s.off h3, .pass .steps.idle h3 { color: #8695b0; font-weight: 600; }
+.pass .s.fail.person h3 { color: var(--hold); } .pass .s.fail.stop h3 { color: var(--stop); } .pass .s.fail.back h3 { color: var(--pen); }
+.pass .s .tag { font: 600 10.5px var(--mono); background: none; color: #4a5a78; padding: 0; margin-left: 6px; }
+.pass .s .tag::before { content: "("; } .pass .s .tag::after { content: ")"; }
+.pass .s ul { font-size: 13px; color: #34445f; }
+.pass .s li { display: inline; padding: 0; }
+.pass .s li::before { content: none; }
+.pass .s li + li::before { content: " · "; position: static; color: #8695b0; font-weight: 400; }
+.pass .s li.x { color: var(--hold); font-weight: 700; } .pass .s li.n { color: var(--stop); font-weight: 700; } .pass .s li.q { color: var(--pen); font-weight: 700; }
+.pass .s li.more { color: #8695b0; }
+.pass .steps.live .s.now li { color: var(--pen); }
+.pass .s .count { font-size: 13px; color: #34445f; }
+.pass .s .count b { font-size: 15px; color: var(--rail); } .pass .s .count br { display: none; } .pass .s .count + ul { display: inline; }
+.pass .s .count + ul li::before { content: " · "; position: static; color: #8695b0; }
+
+/* The foot of the ticket: what's bought, the total, tear-off stubs */
+.pass .decision { margin-top: 16px; padding: 14px 0 0; border-radius: 0; background: none; border-top: 2px solid var(--rail); gap: 12px 22px; }
+.pass .decision.amber, .pass .decision.red, .pass .decision.green { background: none; }
+.pass .decision h2 { font: 800 21px "Archivo", sans-serif; color: var(--rail); }
+.pass .decision.amber h2 { color: var(--hold); } .pass .decision.red h2 { color: var(--stop); } .pass .decision.green h2 { color: var(--pen); }
+.pass .decision p { font-size: 13px; }
+.pass .decision .eur { font: 700 34px var(--mono); letter-spacing: -.03em; }
+.pass .decision .acts { gap: 0; flex-basis: 100%; }
+.pass .decision .acts .btn { flex: 1; border-radius: 0; padding: 14px 10px; font: 700 14px "Archivo", sans-serif; background: #fff; color: var(--rail);
+                             box-shadow: none; border: 2px dashed var(--rail); }
+.pass .decision .acts .btn + .btn { border-left: 0; }
+.pass .decision .acts .btn-bad { color: var(--stop); }
+.pass .decision .acts .btn-primary { flex: 1.4; background: var(--pen); color: #fff; border: 2px solid var(--pen); }
+.pass .decision .acts .btn-primary:hover { background: #003a99; }
+.pass .decision .chips .chip { border-radius: 0; font-family: var(--mono); }
+.pass .dlinks { gap: 18px; margin-top: 14px; }
+.pass .dlinks button { font: 500 12.5px var(--mono); text-decoration: underline; border: 0; color: var(--pen); }
+.pass .dlinks button.on { font-weight: 700; }
+.pass .dpanel { border-radius: 0; border: 1px dashed #b7c2d6; font-family: "Archivo", sans-serif; }
+.pass .alertline, .pass .basket { border-radius: 0; }
+
+/* The chef's note in marker, next to the check that decided */
+.pass .mnote { position: absolute; right: 16px; width: 180px; text-align: center; font: 22px/1.1 var(--marker); transform: rotate(-5deg); pointer-events: none; }
+.pass .mnote:empty { display: none; }
+.pass .mnote.hold { color: var(--hold); } .pass .mnote.stop { color: var(--stop); } .pass .mnote.go, .pass .mnote.back { color: var(--pen); }
+
+/* Earlier tickets on the rail */
+.pass .hist { display: flex; flex-direction: column; gap: 30px; }
+.pass .hist .tk { background: var(--paper); position: relative; padding: 24px 18px 18px; font: 12.5px/1.45 var(--mono); color: var(--rail);
+                  box-shadow: 0 10px 20px -14px rgba(10,31,77,.45); transform: rotate(-1.4deg); }
+.pass #histR .tk { transform: rotate(1.2deg); }
+.pass .hist .tk h4 { margin: 0 0 6px; font: 700 12.5px var(--mono); }
+.pass .hist .tk .line { border-top: 1px dashed #b7c2d6; margin-top: 8px; padding-top: 6px; }
+.pass .hist .tk .mk { display: block; font: 22px/1.1 var(--marker); margin-top: 8px; transform: rotate(-4deg); }
+.pass .hist .tk .mk.stop { color: var(--stop); font-size: 34px; } .pass .hist .tk .mk.hold { color: var(--hold); } .pass .hist .tk .mk.go { color: var(--pen); }
+
+@media (max-width: 1180px) { .pass .board { grid-template-columns: minmax(0, 1fr); } .pass .hist { display: none; } }
+@media (max-width: 700px) { .pass .steps .s { grid-template-columns: 30px minmax(0, 1fr); } .pass .s ul, .pass .s .count { grid-column: 2; }
+  .pass .said { font-size: 20px; } .pass .ticket { padding: 26px 18px 22px; transform: none; } .pass .mnote { display: none; } }
+@media (prefers-reduced-motion: reduce) { .pass .steps.live .s.now .dot { animation: none; } }
+
+/* Fixes after the first browser run */
+.pass .steps .s .dot, .pass .steps.live .s .dot, .pass .steps.idle .s .dot { background: #fff; }
+.pass .s .count + ul { grid-column: 3; margin-top: -6px; }
+.pass .s .count b:last-of-type { margin-right: .5em; }
+.pass .decision { margin-top: 46px; }
+.pass .mnote { right: 0; }
+.pass .composer .photo-btn { background: #fff; color: var(--rail); box-shadow: inset 0 0 0 1.5px #c3cfe4; opacity: 1; }
+.pass .s .count + ul li:first-child::before { content: none; }
+.pass .decision { margin-top: 58px; }
+@media (max-width: 700px) { .pass .s .count + ul { grid-column: 2; margin-top: 0; } }

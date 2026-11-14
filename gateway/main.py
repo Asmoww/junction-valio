@@ -661,6 +661,13 @@ def stylesheet():
                     headers={"Cache-Control": "no-cache"})
 
 
+@app.get("/static/pass.css", include_in_schema=False)
+def pass_stylesheet():
+    """The buyer page's theme: each request is a kitchen ticket on the rail of the pass."""
+    from fastapi.responses import Response
+    return Response((TEMPLATES / "pass.css").read_text(), media_type="text/css", headers={"Cache-Control": "no-cache"})
+
+
 @app.get("/valio", response_class=HTMLResponse, include_in_schema=False)
 def valio_page():
     return (TEMPLATES / "valio.html").read_text()
