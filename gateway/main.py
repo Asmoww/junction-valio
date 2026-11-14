@@ -327,6 +327,23 @@ def concepts_page():
     return (ROOT / "docs" / "visuals" / "index.html").read_text()
 
 
+@app.get("/concepts/themes", response_class=HTMLResponse, include_in_schema=False)
+def theme_options():
+    """Visual theme candidates (docs/visuals/themes), for the team."""
+    from .config import ROOT
+    return (ROOT / "docs" / "visuals" / "themes" / "index.html").read_text()
+
+
+@app.get("/concepts/themes/{name}", include_in_schema=False)
+def theme_image(name: str):
+    from fastapi.responses import FileResponse
+    from .config import ROOT
+    f = ROOT / "docs" / "visuals" / "themes" / name
+    if not (name.endswith(".png") and "/" not in name and f.is_file()):
+        raise HTTPException(404, "not found")
+    return FileResponse(f, media_type="image/png")
+
+
 @app.get("/concepts/{name}", include_in_schema=False)
 def concept_image(name: str):
     from fastapi.responses import FileResponse
