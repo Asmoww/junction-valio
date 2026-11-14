@@ -20,7 +20,18 @@
   .tot b{font-size:22px}
   .ok{color:#1b7a3a}.warn{color:#9a6a00}.bad{color:#b00020}
   .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-  .planbox{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-top:10px}
+  .planbox{border:1px solid var(--line);border-radius:16px;padding:14px 16px;margin-top:10px}
+  .phead{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:26px}
+  .phead h1{font-size:26px;font-weight:800;font-stretch:106%;letter-spacing:-.02em;margin:0}.phead p{margin:2px 0 0;color:var(--mute)}
+  .dates{display:flex;align-items:center;gap:8px}.dates input{width:160px}.dates span{color:var(--mute)}
+  .pgrid{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:40px;align-items:start}
+  @media (max-width:980px){.pgrid{grid-template-columns:1fr}}
+  .ptabs{display:flex;gap:22px;margin-bottom:12px}.ptabs button{font:inherit;font-weight:650;color:var(--mute);background:none;border:0;padding:4px 0;cursor:pointer;border-bottom:2px solid transparent}
+  .ptabs button.on{color:var(--ink);border-bottom-color:var(--valio)}
+  .sendbar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:18px;padding:16px 20px;border-radius:18px;background:#f5f8fc}
+  .sendbar b{font-size:22px;letter-spacing:-.02em}.sendbar > div:first-child{flex:1}
+  .budget{display:flex;align-items:center;gap:6px}.budget input{width:110px;padding:8px 10px}
+  .composer .btn-primary{width:auto;margin:0}
   .bar{height:6px;background:var(--line);border-radius:4px;overflow:hidden;margin-top:6px}
   .bar i{display:block;height:100%;background:#1F5FBF}
   input[type=date]{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:8px;font:inherit;background:#fff;box-sizing:border-box}
@@ -30,81 +41,56 @@
 </head>
 <body>
 <header class="topbar"><div class="inner">
-  <div class="brand"><span class="dot">A</span>Trusted Trade Agents <small>Valio Aimo · Junction 2026</small></div>
+  <div class="brand">Trusted Trade Agents</div>
   <nav class="tabs"><a href="/">Buyer agent</a><a href="/plan" class="on">Week plan</a><a href="/valio">Valio view</a><a href="/connect">Connect an agent</a></nav>
-  <div class="right">Synthetic data · demo</div>
+  <div class="right"><select id="mandate" class="pill" onchange="loadPlans(); clearResults()" aria-label="Buyer"></select></div>
 </div></header>
 
 <div class="page">
-  <div class="page-head">
-    <div>
-      <h1>Plan the week, sign it once</h1>
-      <p>The chef picks what the kitchen needs this week. An approver signs the plan once. After that the agent orders inside it alone, and only exceptions reach a person.</p>
-    </div>
+  <div class="phead">
+    <div><h1>Sign the week once</h1><p>The agent then orders inside the plan alone.</p></div>
+    <div class="dates"><input type="date" id="start" aria-label="From"><span>to</span><input type="date" id="end" aria-label="To"></div>
   </div>
 
-  <div class="layout">
-    <aside>
-      <div class="card">
-        <h2>1 · Buyer and week</h2>
-        <select id="mandate" onchange="loadPlans(); clearResults()"></select>
-        <div class="row2" style="margin-top:10px">
-          <div><label class="field" for="start">From</label><input type="date" id="start"></div>
-          <div><label class="field" for="end">To</label><input type="date" id="end"></div>
-        </div>
-        <div id="mandateNote" class="small muted" style="margin-top:10px"></div>
+  <div class="pgrid">
+    <main>
+      <div class="ptabs"><button class="on" onclick="ptab(this,'find')">Find products</button><button onclick="ptab(this,'recipe')">From a recipe</button></div>
+      <div id="t-find">
+        <div class="composer"><input type="text" id="q" placeholder="Lactose-free milk, butter, oat drink…" onkeydown="if(event.key==='Enter')search()" style="flex:1;border:0;background:transparent;font:inherit;font-size:17px;outline:0;padding:11px 0">
+          <button class="btn btn-primary" onclick="search()">Search</button></div>
+        <div class="chips" id="attrs" style="margin:10px 4px 0"></div>
+        <div id="results" style="margin-top:8px"></div>
       </div>
-      <div class="card">
-        <h2>2 · Find products</h2>
-        <input type="text" id="q" placeholder="e.g. lactose-free milk, butter, oat drink" onkeydown="if(event.key==='Enter')search()">
-        <div class="chips" id="attrs" style="margin-top:10px"></div>
-        <button class="btn btn-soft" style="margin-top:10px" onclick="search()">Search the catalog</button>
-        <div class="small muted" style="margin-top:8px">Searches Valio's product file only; no live calls until you price the plan.</div>
-        <div id="results" style="margin-top:10px"></div>
-      </div>
-      <div class="card">
-        <h2>Or start from a recipe</h2>
-        <textarea id="recipe" placeholder="Paste a recipe with amounts, e.g.&#10;Salmon soup (serves 4)&#10;400 g salmon fillet&#10;5 dl lactose-free milk&#10;30 g butter"></textarea>
-        <div class="row2" style="margin-top:10px">
-          <div><label class="field" for="covers">Covers this week</label><input type="number" id="covers" min="1" value="120"></div>
-          <div><label class="field" for="serves">Recipe serves (if not in the text)</label><input type="number" id="serves" min="1"></div>
-        </div>
-        <button class="btn btn-soft" style="margin-top:10px" onclick="readRecipe()">Read the recipe</button>
-        <div class="small muted" style="margin-top:8px">Amounts are scaled to your covers and packs counted from Valio's data. Everything it works out is a suggestion: check it before sending the plan.</div>
+      <div id="t-recipe" hidden>
+        <textarea id="recipe" placeholder="Salmon soup (serves 4)&#10;400 g salmon fillet&#10;5 dl lactose-free milk&#10;30 g butter"></textarea>
+        <div style="display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap">
+          <input type="number" id="covers" min="1" value="120" aria-label="Covers" style="width:110px"><span class="muted">covers</span>
+          <input type="number" id="serves" min="1" aria-label="Recipe serves" placeholder="serves" style="width:110px">
+          <button class="btn btn-primary" style="width:auto;margin:0;margin-left:auto" onclick="readRecipe()">Read the recipe</button></div>
         <div id="recipeOut" style="margin-top:10px"></div>
       </div>
-    </aside>
 
-    <main>
-      <div class="card">
-        <h2>3 · This week's plan</h2>
-        <table class="ptable">
-          <thead><tr><th>Product</th><th class="num">Units / week</th><th class="num">Price</th><th class="num">Line</th><th>Valio</th><th></th></tr></thead>
-          <tbody id="lines"><tr><td colspan="6" class="muted">Add products from the search.</td></tr></tbody>
-        </table>
-        <div class="tot"><span>Priced total <span class="small muted" id="priceNote"></span></span><b id="total">€0.00</b></div>
-        <div class="row2" style="margin-top:12px">
-          <div><label class="field" for="budget">Budget the approver signs (€)</label><input type="number" id="budget" min="1" step="10" oninput="renderLines()"></div>
-          <div><label class="field" for="who">Planned by</label><input type="text" id="who" value="Head chef"></div>
-        </div>
-        <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
-          <button class="btn btn-soft" onclick="price()">Price with Valio</button>
-          <button class="btn btn-primary" onclick="draft()">Send to the approver</button>
-        </div>
-        <div class="err" id="err"></div>
+      <h2 class="sect" style="margin-top:34px">This week</h2>
+      <table class="ptable">
+        <thead><tr><th>Product</th><th class="num">Packs</th><th class="num">Price</th><th class="num">Line</th><th>Valio</th><th></th></tr></thead>
+        <tbody id="lines"><tr><td colspan="6" class="muted">Add products above.</td></tr></tbody>
+      </table>
+      <div class="sendbar">
+        <div><span class="muted">Total</span> <b id="total">€0.00</b> <span class="small muted" id="priceNote"></span></div>
+        <label class="budget"><span class="muted">Budget</span> €<input type="number" id="budget" min="1" step="10" oninput="renderLines()"></label>
+        <input type="hidden" id="who" value="Head chef">
+        <button class="btn btn-soft" onclick="price()">Price with Valio</button>
+        <button class="btn btn-primary" style="width:auto;margin:0" onclick="draft()">Send to the approver</button>
       </div>
-
-      <div class="card">
-        <h2>4 · Plans for this buyer</h2>
-        <div id="plans" class="muted">No plans yet.</div>
-      </div>
-
-      <div class="card">
-        <h2>5 · Learned from decisions</h2>
-        <p class="small muted" style="margin:0 0 8px">What people approved, rejected or clarified, turned into suggestions. The agent never applies these itself: a person plans it or changes the mandate.</p>
-        <div id="learned" class="muted small">Nothing yet: suggestions appear after a few approvals or ask-backs.</div>
-      </div>
+      <div class="err" id="err"></div>
     </main>
+
+    <aside>
+      <h2 class="sect">Plans</h2>
+      <div id="plans" class="muted">No plans yet.</div>
+      <details id="learnedBox" style="margin-top:28px"><summary>Suggestions from past decisions <span id="learnedN" class="faint"></span></summary>
+        <div id="learned" class="muted small" style="margin-top:10px">Nothing yet.</div></details>
+    </aside>
   </div>
 </div>
 
@@ -128,7 +114,7 @@ const iso = d => d.toISOString().slice(0, 10);
 async function init() {
   const list = await api('/api/mandates');
   list.forEach(m => mandates[m.mandate_id] = m);
-  $('#mandate').innerHTML = list.map(m => `<option value="${m.mandate_id}">${esc(m.buyer)}</option>`).join('');
+  $('#mandate').innerHTML = list.map(m => `<option value="${m.mandate_id}">${esc(m.buyer.replace(' (demo)', ''))}</option>`).join('');
   const d = new Date(); const monday = new Date(d); monday.setDate(d.getDate() + ((8 - d.getDay()) % 7 || 7));
   const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6);
   $('#start').value = iso(d); $('#end').value = iso(sunday);
@@ -146,8 +132,7 @@ function mandateNote() {
   const m = mandates[mid()];
   const banned = (m.hard_limits.forbidden_allergens || []).length;
   const top = m.approvers.map(a => `${esc(a.name)} (${esc(a.role)}, up to ${eur(a.up_to_eur)})`).join(' · ');
-  $('#mandateNote').innerHTML = `Agent alone: up to ${eur(m.auto_approve.max_order_total_eur)} per order. ` +
-    (banned ? `${banned} banned allergen(s) checked on every product. ` : '') + `Approvers: ${top}.`;
+  void banned, top;
 }
 
 function clearResults() { $('#results').innerHTML = ''; lines = []; priced = {}; renderLines(); mandateNote(); }
@@ -161,8 +146,7 @@ async function search() {
       const c = p.mandate_check, cls = c.level === 'block' ? 'bad' : c.level === 'check' ? 'warn' : 'ok';
       const al = [...p.allergens, ...p.mayContain.map(x => 'may contain ' + x)].join(', ') || (p.allergenDataComplete ? 'no allergens listed' : 'no allergen data');
       return `<div class="res"><div><div class="nm">${esc(p.name)}</div>
-        <div class="sub">${esc(p.productId)} · sold per ${esc(p.salesUnit)} · ${esc(al)}</div>
-        <div class="sub ${cls}">${c.level === 'block' ? 'Not allowed: ' : c.level === 'check' ? 'A person checks: ' : ''}${esc(c.why)}</div></div>
+        <div class="sub ${cls === 'ok' ? '' : cls}">${c.level === 'block' ? 'Not allowed: ' + esc(c.why) : c.level === 'check' ? 'A person checks: ' + esc(c.why) : 'per ' + esc(p.salesUnit) + ', fits the buyer’s rules'}</div></div>
         <button class="btn btn-soft" ${c.level === 'block' ? 'disabled title="The mandate forbids it"' : ''} onclick='add(${JSON.stringify({id: p.productId, name: p.name, unit: p.salesUnit})})'>Add</button></div>`;
     }).join('') || '<span class="muted small">Nothing found. Try fewer words.</span>';
   } catch (e) { $('#results').innerHTML = `<span class="bad small">${esc(e.message)}</span>`; }
@@ -174,7 +158,7 @@ function add(p) {
 }
 
 function renderLines() {
-  if (!lines.length) { $('#lines').innerHTML = '<tr><td colspan="6" class="muted">Add products from the search.</td></tr>'; $('#total').textContent = eur(0); return; }
+  if (!lines.length) { $('#lines').innerHTML = '<tr><td colspan="6" class="muted">Add products above.</td></tr>'; $('#total').textContent = eur(0); return; }
   let total = 0, allPriced = true;
   $('#lines').innerHTML = lines.map((l, i) => {
     const pr = priced[l.productId];
@@ -183,17 +167,17 @@ function renderLines() {
     const v = !pr ? '<span class="muted small">not priced</span>' : pr.salesBlock ? '<span class="bad small">sales block</span>' :
       pr.deadlinePassed ? '<span class="warn small">cut-off passed</span>' : pr.available >= l.units ? `<span class="ok small">${pr.stockConfirmed ? 'in stock' : 'supplier stock, unconfirmed'}</span>` :
       `<span class="warn small">${Number(pr.available).toLocaleString()} available</span>`;
-    return `<tr><td>${esc(l.name)}<div class="small muted">${esc(l.productId)} · per ${esc(l.unit)}${l.fromRecipe ? ' · <span class="warn">from the recipe: check the amount</span>' : ''}</div></td>
+    return `<tr><td>${esc(l.name)}<div class="small muted">per ${esc(l.unit)}${l.fromRecipe ? ' · <span class="warn">from the recipe: check the amount</span>' : ''}</div></td>
       <td class="num"><input type="number" min="1" step="1" value="${l.units}" onchange="lines[${i}].units=Math.max(1, Number(this.value)||1); renderLines()"></td>
       <td class="num">${pr && pr.unitPrice ? eur(pr.unitPrice) : '–'}</td><td class="num">${line == null ? '–' : eur(line)}</td><td>${v}</td>
       <td><button class="chip" onclick="lines.splice(${i},1); renderLines()">Remove</button></td></tr>`;
   }).join('');
   $('#total').textContent = eur(total);
-  $('#priceNote').textContent = allPriced ? '(live Valio prices)' : '(price the plan to see the total)';
+  $('#priceNote').textContent = allPriced ? 'live prices' : 'not priced yet';
   if (allPriced && !$('#budget').dataset.touched) $('#budget').value = Math.ceil(total * 1.05 / 10) * 10;
   const budget = Number($('#budget').value);
   $('#priceNote').textContent += allPriced && budget && budget < total
-    ? ` · the budget covers only ${Math.floor(budget / total * 100)} %: units are sales units (per pack or crate), check them` : '';
+    ? ` · budget covers ${Math.floor(budget / total * 100)} %: amounts are packs, not litres` : '';
 }
 
 async function price() {
@@ -223,20 +207,21 @@ async function loadPlans() {
     const pct = Math.min(100, 100 * p.used_eur / p.max_total_eur);
     const items = p.lines.map(l => `${esc(l.name)}: ${Number(l.used).toLocaleString()} of ${Number(l.units).toLocaleString()} ${esc(l.salesUnit)}`).join('<br>');
     const approverOpts = m.approvers.filter(a => a.up_to_eur >= p.max_total_eur).map(a => `<option>${esc(a.name)}</option>`).join('');
-    const head = p.status === 'approved' ? `<span class="chip navy">Signed by ${esc(p.approved_by)} · ${esc(p.role)}</span>` :
-      p.status === 'draft' ? '<span class="chip">Waiting for the approver</span>' : `<span class="chip">${esc(p.status)}</span>`;
+    const head = p.status === 'approved' ? `<span class="chip ok">Signed by ${esc(p.approved_by.split(' ')[0])}</span>` :
+      p.status === 'draft' ? '<span class="chip warn">Waiting for a signature</span>' : `<span class="chip">${esc(p.status)}</span>`;
     const act = p.status === 'draft' ? (approverOpts ? `<div class="row2" style="margin-top:10px"><select id="ap_${p.id}">${approverOpts}</select>
-        <input type="text" id="cm_${p.id}" placeholder="Comment (optional)"></div>
+        <input type="text" id="cm_${p.id}" placeholder="Comment"></div>
         <button class="btn btn-ok" style="margin-top:8px" onclick="approve('${p.id}')">Sign the plan</button>` :
         '<div class="bad small" style="margin-top:8px">No approver in the mandate has authority for this budget.</div>') :
       p.status === 'approved' ? `<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap"><a class="btn btn-soft" href="/">Ask the agent to order</a>
         <button class="chip" onclick="revoke('${p.id}')">Revoke</button></div>` : '';
-    return `<div class="planbox"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap">
-      <b>${esc(p.start)} to ${esc(p.end)}</b>${head}</div>
-      <div class="small" style="margin-top:6px">${items}</div>
-      <div class="small muted" style="margin-top:6px">${eur(p.used_eur)} of ${eur(p.max_total_eur)} used · ${esc(p.id)}</div>
+    const day = d => new Date(d + 'T12:00').toLocaleDateString('en-GB', {day: 'numeric', month: 'short'});
+    return `<div class="planbox"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center">
+      <b>${day(p.start)} to ${day(p.end)}</b>${head}</div>
+      <div class="small" style="margin-top:8px">${items}</div>
+      <div class="small muted" style="margin-top:6px">${eur(p.used_eur).replace('.00', '')} of ${eur(p.max_total_eur).replace('.00', '')} used</div>
       <div class="bar"><i style="width:${pct}%"></i></div>${act}</div>`;
-  }).join('') || '<span class="muted">No plans yet.</span>';
+  }).filter((x, i) => i < 4).join('') || '<span class="muted">No plans yet.</span>';
 }
 
 async function loadLearned() {
@@ -246,7 +231,8 @@ async function loadLearned() {
       ${x.where === 'plan' ? `<button class="btn btn-soft" style="margin-top:8px" onclick='add(${JSON.stringify({id: x.productId, name: x.product, unit: ""})})'>Add to this week's plan</button>` : ''}</div>`);
   const asks = r.clarifications.map(x => `<div class="planbox small"><div>The agent asked back about “${esc(x.asked)}”<div class="muted">${esc(x.why)}</div></div>
       <div style="margin-top:6px">Next request went through: “${esc(x.clarified)}”</div><div class="muted" style="margin-top:4px">Suggestion: ${esc(x.action)}.</div></div>`);
-  $('#learned').innerHTML = [...rules, ...asks].join('') || 'Nothing yet: suggestions appear after a few approvals or ask-backs.';
+  $('#learned').innerHTML = [...rules, ...asks].join('') || 'Nothing yet.';
+  $('#learnedN').textContent = rules.length + asks.length ? `(${rules.length + asks.length})` : '';
 }
 
 async function approve(id) {
@@ -289,6 +275,10 @@ function useRecipe() {
   renderLines();
 }
 
+function ptab(b, k) {
+  document.querySelectorAll('.ptabs button').forEach(x => x.classList.toggle('on', x === b));
+  $('#t-find').hidden = k !== 'find'; $('#t-recipe').hidden = k !== 'recipe';
+}
 $('#budget').addEventListener('input', () => $('#budget').dataset.touched = 1);
 init();
 </script>

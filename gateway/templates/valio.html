@@ -26,18 +26,21 @@
     <button data-p="sec" onclick="vtab(this)">Security</button>
   </div>
   <div class="vpanel" id="p-gaps">
-    <div class="card"><h2>Missing data that held real orders for a person</h2><div id="unlock"></div></div>
-    <div class="card"><h2>How much of the catalog each buyer's agent can decide on</h2><div id="ready"></div></div>
+    <div class="grid2" style="gap:28px">
+      <div><h3 class="sub3">Share of the catalog each buyer's agent can decide on</h3><div id="ready"></div></div>
+      <div><h3 class="sub3">Fix these first</h3><div id="fixfirst"></div></div>
+    </div>
+    <div id="unlock" style="margin-top:22px"></div>
   </div>
   <div class="vpanel" id="p-bench" hidden>
-    <div class="card" id="scoreCard" hidden><h2>Rules in a prompt hold only while the agent obeys them <span id="scoreWhen" style="float:right"></span></h2><div id="score"></div></div>
-    <div class="card"><h2>Trap suite <span id="trapSummary" style="float:right"></span></h2><div id="traps"></div></div>
+    <h3 class="sub3">The same 16 requests through four setups <span id="scoreWhen" class="faint" style="font-weight:400"></span></h3>
+    <div id="score"></div>
+    <div id="traps" style="margin-top:26px"></div>
   </div>
   <div class="vpanel" id="p-sec" hidden>
-    <div class="grid2">
-      <div class="card"><h2>Security events</h2><div id="security"></div></div>
-      <div><div class="card"><h2>Agents</h2><div id="agents"></div></div>
-        <div class="card"><h2>Why orders went to a person or stopped</h2><div id="rules" class="bars"></div></div></div>
+    <div class="grid2" style="gap:28px">
+      <div><h3 class="sub3">Security events</h3><div id="security"></div></div>
+      <div><h3 class="sub3">Why orders went to a person or stopped</h3><div id="rules" class="bars"></div></div>
     </div>
   </div>
 </div>
@@ -59,14 +62,9 @@ async function load() {
     ['', t.pending, 'waiting for a person'], ['', t.blocked, 'stopped by a rule']]
     .map(([c, v, l]) => `<div class="num ${c}"><b>${v}</b><span>${l}</span></div>`).join('');
   $('#agentsOn').textContent = `${d.agents.length} agent${d.agents.length === 1 ? '' : 's'} connected`;
-  $('#agents').innerHTML = d.agents.length ? `<table><thead><tr><th>Agent</th><th class="r">Orders</th><th class="r">Alone</th><th class="r">Escalated</th><th class="r">Blocked</th><th class="r">Placed value</th></tr></thead><tbody>
-    ${d.agents.map(a => `<tr><td><div class="name">${esc(a.agent)}</div><div class="small faint">${a.mandates.join(', ')}</div></td>
-      <td class="r">${a.orders}</td><td class="r">${a.auto || 0}</td><td class="r">${(a.orders - (a.auto || 0) - (a.blocked || 0))}</td>
-      <td class="r">${a.blocked ? `<span class="chip bad">${a.blocked}</span>` : 0}</td><td class="r">${eur(a.value_placed)}</td></tr>`).join('')}</tbody></table>`
-    : '<p class="muted">No agent orders yet. Run one on the Buyer agent tab.</p>';
 
   const max = Math.max(1, ...d.escalations.map(r => r.count));
-  $('#rules').innerHTML = d.escalations.length ? d.escalations.map(r => `<div class="row"><span>${esc(r.rule)} <span class="faint small">${r.level === 'block' ? 'stops the order' : 'needs a person'}</span></span>
+  $('#rules').innerHTML = d.escalations.length ? d.escalations.slice(0, 6).map(r => `<div class="row"><span>${esc(r.rule)}</span>
     <div class="track"><div class="fill" style="width:${r.count / max * 100}%;background:${r.level === 'block' ? 'var(--bad)' : 'var(--accent)'}"></div></div><b class="r">${r.count}</b></div>`).join('')
     : '<p class="muted">Nothing escalated yet.</p>';
 
@@ -100,47 +98,31 @@ async function load() {
     : '<p class="muted">No orders yet. Ask the agent for something on the Buyer agent tab.</p>';
   if (qrFor && !d.recent.some(o => o.id === qrFor && o.status === 'pending_approval')) { $('#waitQr').innerHTML = ''; qrFor = null; }
 
-  $('#security').innerHTML = d.security.length ? `<table><tbody>${d.security.map(e => `<tr><td><div class="name">${esc(SEC[e.type] || e.type)}</div>
-      <div class="small faint">${esc(e.actor)} · ${ago(e.ts)}${e.data.productId ? ' · product ' + esc(e.data.productId) : ''}${e.data.findings ? ' · ' + esc(e.data.findings.join(', ')) : ''}${e.data.reason ? ' · ' + esc(e.data.reason) : ''}</div></td>
-      <td class="r"><span class="chip ${e.type === 'order.rejected' ? 'warn' : 'bad'}">${e.type === 'order.rejected' ? 'caught' : 'flagged'}</span></td></tr>`).join('')}</tbody></table>
-      <p class="small muted" style="margin:12px 0 0">${d.chain.valid ? `<span class="chip ok">Audit chain intact · ${d.chain.events} events</span>` : '<span class="chip bad">Audit chain broken</span>'}</p>`
-    : '<p class="muted">No security events. Try the red-team switches on the Buyer agent tab.</p>';
+  const secCount = {}; d.security.forEach(e => { const k = SEC[e.type] || e.type; secCount[k] = secCount[k] || {n: 0, ts: e.ts, bad: e.type !== 'order.rejected'}; secCount[k].n++; });
+  $('#security').innerHTML = d.security.length ? Object.entries(secCount).map(([k, v]) => `<div class="lrow"><span>${esc(k)}</span><span class="faint">${ago(v.ts)}</span><b class="${v.bad ? 'r' : 'a'}">${v.n}</b></div>`).join('')
+      + `<p class="small" style="margin:12px 0 0;color:${d.chain.valid ? 'var(--ok)' : 'var(--bad)'}">${d.chain.valid ? '✓ Audit chain intact' : '× Audit chain broken'}</p>`
+    : '<p class="muted">None yet.</p>';
 }
 async function loadUnlock() {
   const r = await (await fetch('/api/unlock')).json();
-  if (!r.held_for_missing_data) { $('#unlock').innerHTML = `<p class="muted">No order has waited for a person because of missing data yet (${r.held_orders} held for other reasons).</p>`; return; }
-  $('#unlock').innerHTML = `<p style="margin:0 0 10px"><b>${r.held_for_missing_data} of ${r.held_orders} orders</b> that went to a person waited because the data couldn't prove something. With the data below added, <b>${r.unlocked_if_all_fixed}</b> of them would have gone through alone.</p>
-    <table><tbody>${r.gaps.map(g => `<tr><td><div class="name">${esc(g.product)}</div>
-      <div class="small faint">Add ${esc(g.add)} · held: ${esc(g.requests[0] || '')}${g.still_needs_a_person_because.length ? ' · still needs a person for: ' + esc(g.still_needs_a_person_because.join(', ')) : ''}</div></td>
-      <td class="r small" style="white-space:nowrap">${g.unlocked} of ${g.held_orders} orders<br><span class="faint">€${g.unlocked_eur.toLocaleString('en-US')} of €${g.value_eur.toLocaleString('en-US')}</span></td></tr>`).join('')}</tbody></table>
-    <p class="small muted" style="margin:10px 0 0">What-if on the real held orders: the gateway's rules re-run as if Valio had added the data. Nothing is changed.</p>`;
+  if (!r.held_for_missing_data) { $('#unlock').innerHTML = ''; return; }
+  const g = r.gaps[0];
+  $('#unlock').innerHTML = `<div class="callout"><b>${r.unlocked_if_all_fixed} of ${r.held_for_missing_data}</b> orders that waited for missing data would have gone through alone with it added.
+    ${g ? `<span class="muted">Biggest win: ${esc(g.add)} for ${esc(g.product)}.</span>` : ''}</div>`;
 }
 async function loadReadiness() {
   const r = await (await fetch('/api/readiness')).json();
-  const bar = (pct, color) => `<div class="track"><div class="fill" style="width:${pct}%;background:${color}"></div></div>`;
-  $('#ready').innerHTML = `<div class="grid2" style="gap:24px">
-    <div><div class="eyebrow">Per buyer, from the same rules the gateway applies</div>
-      <div class="bars">${r.mandates.map(m => `<div class="row" style="grid-template-columns:1fr 160px 48px"><span>${esc(m.buyer.replace(' (demo)', ''))}
-        <span class="faint small">${m.needs.length ? 'needs ' + esc(m.needs.join(' + ')) : 'no extra data needed'}</span></span>
-        ${bar(m.ready_pct, m.ready_pct >= 80 ? 'var(--ok)' : m.ready_pct >= 40 ? 'var(--accent)' : 'var(--bad)')}<b class="r">${Math.round(m.ready_pct)} %</b></div>`).join('')}</div>
-      <div class="eyebrow" style="margin-top:16px">Data coverage, ${r.products.toLocaleString('en-US')} food products</div>
-      <div class="bars">${r.fields.map(f => `<div class="row" style="grid-template-columns:1fr 160px 48px"><span>${esc(f.field)}</span>${bar(f.pct, 'var(--navy-2)')}<b class="r">${Math.round(f.pct)} %</b></div>`).join('')}</div>
-      <p class="small muted" style="margin:10px 0 0">${r.non_food_excluded.toLocaleString('en-US')} non-food products (tableware, packaging, office) left out.</p></div>
-    <div><div class="eyebrow">Fix these first: product data that blocks strict buyers' agents</div>
-      <table><tbody>${r.fix_first.map(x => `<tr><td><div class="name">${esc(x.examples[0])}</div><div class="small faint">category ${esc(x.category)}${x.examples[1] ? ' · ' + esc(x.examples[1]) : ''}</div></td>
-        <td class="r small">${x.blocked} of ${x.of}</td></tr>`).join('')}</tbody></table>
-      <p class="small" style="margin:10px 0 0"><b>Completing allergen data and delivery history in these ${r.fix_first.length} categories lets a hospital's agent decide alone on ${r.fix_first_unlocks.toLocaleString('en-US')} more products.</b></p></div></div>`;
+  $('#ready').innerHTML = r.mandates.map(m => `<div class="bigbar"><div><b>${Math.round(m.ready_pct)} %</b><span>${esc(m.buyer.replace(' (demo)', '').replace(', milk-allergy diet', ''))}</span></div>
+    <div class="track"><div class="fill" style="width:${m.ready_pct}%;background:${m.ready_pct >= 80 ? 'var(--ok)' : m.ready_pct >= 40 ? 'var(--valio)' : 'var(--bad)'}"></div></div></div>`).join('');
+  $('#fixfirst').innerHTML = r.fix_first.slice(0, 5).map(x => `<div class="lrow"><span>${esc(x.examples[0])}</span><span class="faint">and similar</span><b>${x.blocked}</b></div>`).join('')
+    + `<p class="small muted" style="margin:12px 0 0">Adding allergen data and delivery history here lets a hospital's agent decide alone on ${r.fix_first_unlocks.toLocaleString('en-US')} more products.</p>`;
 }
 
 async function loadTraps() {
   const t = await (await fetch('/api/traps')).json();
-  if (!t.results.length) { $('#traps').innerHTML = '<p class="muted">Not run yet: <code>python scripts/run_traps.py</code></p>'; return; }
-  const CAT = {lookup: 'Lookup', need: "Buyer's need", controls: 'Controls', exceptions: 'Exceptions', allergy: 'Allergy safety', attack: 'Attacks', reality: 'Reality check'};
-  $('#trapSummary').innerHTML = `<span class="chip ${t.failed ? 'bad' : 'ok'}">${t.passed} / ${t.results.length - t.skipped} passed</span> <span class="faint small" style="text-transform:none;letter-spacing:0;font-weight:400">run ${ago(t.run_at)}</span>`;
-  $('#traps').innerHTML = `<table><tbody>${t.results.map(r => `<tr><td style="width:120px"><span class="chip">${esc(CAT[r.category] || r.category)}</span></td>
-    <td><div class="name">${esc(r.title)}</div><div class="small faint">${esc(r.detail)}</div></td>
-    <td class="r"><span class="chip ${r.result === 'pass' ? 'ok' : r.result === 'fail' ? 'bad' : ''}">${r.result === 'pass' ? '✓ safe' : r.result === 'fail' ? '✕ failed' : 'skipped'}</span></td></tr>`).join('')}</tbody></table>
-    <p class="small muted" style="margin:12px 0 0">Live API and the real product file. Every case is a request where a buying agent can go wrong; the result is what our gateway did.</p>`;
+  if (!t.results.length) { $('#traps').innerHTML = ''; return; }
+  $('#traps').innerHTML = `<details><summary><b style="color:var(--ink)">Trap suite: ${t.passed} of ${t.results.length - t.skipped} traps handled</b> <span class="faint" style="font-weight:400">run ${ago(t.run_at)}</span></summary>
+    <div style="margin-top:10px">${t.results.map(r => `<div class="lrow"><span>${esc(r.title)}</span><span></span><b class="${r.result === 'pass' ? 'g' : 'r'}">${r.result === 'pass' ? '✓' : '×'}</b></div>`).join('')}</div></details>`;
 }
 let qrFor = null;
 async function phoneQr(id, who) {
@@ -153,22 +135,15 @@ async function phoneQr(id, who) {
 
 async function loadScore() {
   const t = await (await fetch('/api/scoreboard')).json();
-  if (!t.rows.length || !t.columns) return;
+  if (!t.rows.length || !t.columns) { $('#score').innerHTML = '<p class="muted">Not run yet.</p>'; return; }
   const cols = Object.keys(t.columns);
-  const MARK = {ok: ['ok', '✓'], wrong: ['bad', '✕ wrong order'], no_approval: ['bad', '✕ skipped sign-off'], missed: ['warn', 'gave up']};
-  $('#scoreCard').hidden = false;
-  $('#scoreWhen').innerHTML = `<span class="faint small" style="text-transform:none;letter-spacing:0;font-weight:400">${t.cases} requests · run ${ago(t.run_at)}</span>`;
-  $('#score').innerHTML = `<div class="scoretiles">${cols.map(c => { const n = t.counts[c], bad = n.wrong + n.no_approval;
-      return `<div class="scoretile ${c === 'gateway' || c === 'no_rules_gw' ? 'ours' : ''}"><div class="big ${bad ? 'bad' : ''}">${bad ? bad : n.ok}<span>${bad ? ' unsafe' : '/' + t.cases}</span></div>
-        <div class="small">${esc(t.columns[c])}</div>${n.missed ? `<div class="small faint">${n.missed} gave up</div>` : ''}</div>`; }).join('')}</div>
-    <details style="margin-top:14px"><summary class="small muted">Every request and what each one did</summary>
-    <table class="scoretable"><thead><tr><th>Request</th>${cols.map(c => `<th class="r">${esc(t.columns[c].split(',').slice(-2).join(',').trim())}</th>`).join('')}</tr></thead><tbody>
-    ${t.rows.map(r => `<tr><td><div class="name">${esc(r.request)}</div><div class="small faint">${esc(r.buyer)} · right answer: ${esc(r.correct)}</div></td>
-      ${cols.map(c => { const [cls, txt] = MARK[r[c].verdict] || ['', r[c].verdict];
-        return `<td class="r"><span class="chip ${cls}" title="${esc(r[c].reason)}">${txt}</span></td>`; }).join('')}</tr>`).join('')}</tbody></table></details>
-    <p class="small muted" style="margin:12px 0 0">Same Claude model in every column, Valio's live API, the same judge on product data. With the buyer's rules
-      in its prompt a strong model behaves; Valio can't choose which agents connect. Rules in the gateway hold for every agent, and leave a signed offer and an audit record.</p>`;
+  const NAMES = {baseline: 'Claude with the buyer’s rules in its prompt', no_rules: 'The same agent without the rules', no_rules_gw: 'Without the rules, through our gateway', gateway: 'Our agent and gateway'};
+  $('#scoreWhen').textContent = `· run ${ago(t.run_at)}`;
+  $('#score').innerHTML = `<div class="nums">${cols.map(c => { const n = t.counts[c], bad = n.wrong + n.no_approval;
+      return `<div class="num ${c === 'no_rules_gw' || c === 'gateway' ? 'blue' : ''}"><b>${bad ? bad + ' unsafe' : n.ok + ' / ' + t.cases}</b><span>${esc(NAMES[c] || t.columns[c])}</span></div>`; }).join('')}</div>
+    <p class="muted" style="margin:-14px 0 0">Valio can’t choose which agents connect. Rules in the gateway hold for all of them.</p>`;
 }
+
 function vtab(b) {
   document.querySelectorAll('.vtabs button').forEach(x => x.classList.toggle('on', x === b));
   document.querySelectorAll('.vpanel').forEach(p => p.hidden = p.id !== 'p-' + b.dataset.p);
