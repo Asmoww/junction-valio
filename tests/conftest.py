@@ -85,3 +85,4 @@ def no_twin_check(request, monkeypatch):
     tested on its own (marker twin_check)."""
     if not request.node.get_closest_marker("twin_check"):
         monkeypatch.setattr(agent, "_waiting_twin", lambda offer: None)
+        monkeypatch.setattr(agent, "_placed_twin", lambda order: None)

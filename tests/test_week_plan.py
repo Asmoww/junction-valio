@@ -129,3 +129,21 @@ def test_plan_orders_do_not_use_up_the_agents_own_24h_allowance():
     before = store.auto_spend_since(HOTEL, "2000-01-01")
     assert order(900, "k-plan-big")[0]["status"] == "placed"
     assert store.auto_spend_since(HOTEL, "2000-01-01") == before  # the plan's budget limits it, not the agent's own
+
+
+@pytest.mark.twin_check
+def test_approving_an_order_already_placed_again_under_a_plan_is_refused():
+    """Review of the week plan: an order waited for approval, the same order was then placed under a signed plan;
+    approving the old one would have doubled it."""
+    from gateway import agent, store
+    from .conftest import FakeValio
+    lines = [{"productId": "464073", "units": 640}]
+    _, jws, _ = agent.quote("mnd_hotel_helsinki", "2026-11-16", lines, FakeValio())
+    waiting, _ = agent.order_from_jws(jws, "k-plan-twin-1")
+    assert waiting["status"] == "pending_approval"
+    placed = dict(waiting, id="ord_twin_placed", offer_id="ofr_twin", idempotency_key="k-plan-twin-2", status="placed",
+                  created=None)
+    store.save_order(placed)
+    o, err = agent.decide(waiting["id"], "approve", "Aino Virtanen", client=FakeValio())
+    assert o is None and "ord_twin_placed" in err
+    assert agent.decide(waiting["id"], "reject", "Aino Virtanen")[0]["status"] == "rejected"

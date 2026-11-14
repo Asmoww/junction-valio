@@ -650,10 +650,11 @@ def peppol_xml(request: Request, order_id: str):
 
 
 @app.get("/v1/mandates/{mandate_id}/credential", tags=["v1: standards"])
-def mandate_credential(mandate_id: str):
+def mandate_credential(request: Request, mandate_id: str):
     """The buyer-signed mandate as a W3C Verifiable Credential (vc+jwt), plus its decoded form."""
     m = policy.mandates().get(mandate_id)
-    if not m:
+    bound = getattr(request.state, "mandate", None)
+    if not m or (getattr(request.state, "principal", None) == "agent" and bound and bound != mandate_id):
         raise HTTPException(404, "unknown mandate")
     token = standards.credential(m)
     ok, vc = standards.verify(token, m)

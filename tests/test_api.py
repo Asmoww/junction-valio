@@ -44,12 +44,13 @@ def test_the_agent_token_is_not_the_sign_in_password():
 
 
 def test_an_agent_cannot_raise_its_own_auto_limit(monkeypatch):
+    """Agents can't reach the demo's /api at all (only /v1 and /mcp), so they can't run with a raised limit."""
     seen = {}
     monkeypatch.setattr(agent, "run", lambda text, m, overrides, **kw: seen.update(overrides) or {"ok": True})
     c = TestClient(main.app, base_url="https://testserver")
-    c.post("/api/run", json={"request": "x", "mandate_id": "mnd_hotel_helsinki", "auto_limit": 1200},
-           headers={"Authorization": f"Bearer {main.AGENT_TOKEN}"})
-    assert seen["auto_approve.max_order_total_eur"] == 500
+    r = c.post("/api/run", json={"request": "x", "mandate_id": "mnd_hotel_helsinki", "auto_limit": 1200},
+               headers={"Authorization": f"Bearer {main.AGENT_TOKEN}"})
+    assert r.status_code == 403 and not seen
 
 
 def test_an_agent_can_order_by_offer_id():

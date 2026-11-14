@@ -123,9 +123,12 @@ def read(mandate_id, text, covers, serves=None, deliver_by="", client=None, type
                 break
         lines.append({"ingredient": ing.get("product"), "recipeAmount": f"{q:g} {unit}" if isinstance(q, (int, float)) else "?",
                       "need": need, "needUnit": base, "attributes": ing.get("attributes") or [], "candidates": candidates,
-                      "assumed": "scaled from the recipe and packs counted from the product name: check before signing"})
-    _count_packs(mandate, lines, deliver_by, client)
-    return {"serves": recipe_serves, "covers": covers, "factor": round(factor, 3), "reader": reader, "lines": lines}, None
+                      "assumed": "scaled from the recipe, packs counted from Valio's prices: check before signing"})
+    if not deliver_by:  # Valio can't price an empty date; the planner sends its start date
+        from datetime import date, timedelta
+        deliver_by = (date.today() + timedelta(days=3)).isoformat()
+    priced = _count_packs(mandate, lines, deliver_by, client)
+    return {"priced": priced, "serves": recipe_serves, "covers": covers, "factor": round(factor, 3), "reader": reader, "lines": lines}, None
 
 
 def _count_packs(mandate, lines, deliver_by, client):
@@ -133,13 +136,13 @@ def _count_packs(mandate, lines, deliver_by, client):
     from . import agent  # late import: agent imports plans
     ids = list(dict.fromkeys(c["productId"] for l in lines for c in l["candidates"]))
     if not ids:
-        return
+        return False
     client = client or agent.ValioClient()
     prices = {}
     for i in range(0, len(ids), 20):
         got, err = agent._valio(client.prices, mandate["customer"], deliver_by, ids[i:i + 20])
         if err:
-            return  # packs stay unknown; the planner's "Price with Valio" fills them in later
+            return False  # packs stay unknown; the planner's "Price with Valio" fills them in later
         prices.update(got or {})
     for l in lines:
         for c in l["candidates"]:
@@ -150,3 +153,4 @@ def _count_packs(mandate, lines, deliver_by, client):
                 if per:
                     c["packSize"], c["units"] = per, math.ceil(l["need"] / per - 1e-9)
             # Pieces ("1 onion") vs packs (a 10 kg sack) can't be counted from data: the chef fills those in.
+    return True

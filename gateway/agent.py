@@ -801,6 +801,20 @@ def _waiting_twin(offer):
     return None
 
 
+def _placed_twin(order):
+    """An order with the same mandate and lines placed after `order` was created, within an hour.
+    Why: review of the week plan: a request waited for approval, the chef signed a plan, the same request
+    was then placed alone under it; approving the old one would have ordered 2,000 L instead of 1,000."""
+    lines = sorted((l["productId"], l["units"]) for l in order["record"]["offer"]["lines"])
+    created = datetime.fromisoformat(order["created"])
+    for o in store.list_orders(200):
+        if (o["id"] != order["id"] and o["status"] == "placed" and o["mandate_id"] == order["mandate_id"]
+                and created <= datetime.fromisoformat(o["created"]) <= created + timedelta(hours=1)
+                and sorted((l["productId"], l["units"]) for l in o["record"]["offer"]["lines"]) == lines):
+            return o
+    return None
+
+
 def decide(order_id, decision, approver, comment="", client=None):
     """A person approves or rejects a pending order.
 
@@ -826,6 +840,9 @@ def _decide(order_id, decision, approver, comment, client):
         return None, f"{approver or 'this person'} is not an approver in the buyer's mandate"
     if decision == "approve" and order["total"] > who["up_to_eur"]:
         return None, f"{approver} can approve up to €{who['up_to_eur']:,}; this order is €{order['total']:,.2f}"
+    if decision == "approve" and (twin := _placed_twin(order)):
+        return None, (f"an identical order ({twin['id']}) was placed after this one was sent for approval: "
+                      "reject this one, or approve it only if the kitchen really needs both")
     gate = (order["policy"].get("ladder") or {}).get("decided_by")
     unproven = [r["rule"] + ": " + str(r.get("detail", "")) for r in order["policy"].get("rules", [])
                 if not r["ok"] and gates.gate_of(r["rule"]) == "proven"]
