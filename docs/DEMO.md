@@ -9,6 +9,10 @@ checked on the live site. Runs take 5-8 s: talk while the agent works.
 - Open two tabs: **Buyer agent** and **Valio view**. No phone sign-in needed: the approval QR opens a one-order link.
 - For the table: Claude Code (or Claude Desktop) with our MCP server added, as on the Connect page.
 - Run `python scripts/run_traps.py` once, so the trap results in the Valio view are fresh.
+- Run `python scripts/seed_demo.py` after the reset, so the **Unlock automation** card has real held orders to
+  rank (four ordinary hospital/hotel orders that wait at gate 4 for missing data). Reject them after the demo.
+- Run `python scripts/autonomy.py` (after `scoreboard.py`), so the scoreboard card shows ordered-alone counts
+  without and with a signed week plan.
 
 ## 3 minutes on stage
 **0:00 Problem (one line).** "Soon your customers' AI agents will buy from you. Valio's catalog wasn't built
