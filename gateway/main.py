@@ -13,7 +13,7 @@ from fastapi import Body, FastAPI, File, Form, Header, HTTPException, Request, S
 from fastapi.security import HTTPBearer
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from . import learning, unlock, plans, recipe, agent, ai, catalog, gates, policy, security, recalls, signing, standards, store, vision, preplanner, game, receipt, trust, a2a, ap2, onboard
+from . import learning, unlock, plans, recipe, agent, ai, catalog, gates, policy, security, recalls, signing, standards, store, vision, preplanner, game, receipt, trust, a2a, ap2, onboard, schemas
 from .config import AGENT_TOKEN as AGENT_TOKEN_ENV, AGENT_TOKEN_SCOPE, DEMO_CLOCK, DEMO_PASSWORD
 from .mcp_server import app as mcp_app
 from .mcp_server import mcp
@@ -29,8 +29,8 @@ async def lifespan(_):
 
 app = FastAPI(
     lifespan=lifespan,
-    title="Valio Aimo Trade Gateway (demo)",
-    version="0.1.0",
+    title="Vahti for Valio Aimo (demo)",
+    version="0.3.0",
     description="Open interface for external purchasing agents: lookup → signed fixed-price offer → order → "
                 "mandate check → human approval. Every decision is logged in a hash-chained audit trail.",
 )
@@ -63,7 +63,7 @@ def _bound_mandate(token):
 
 
 OPEN_PATHS = {"/login", "/healthz", "/.well-known/jwks.json", "/v1/mandates/verify", "/static/style.css",
-              "/.well-known/agent-card.json"}
+              "/.well-known/agent-card.json", "/openapi.json", "/docs"}  # the API description is public; calling it is not
 if not DEMO_PASSWORD:
     logging.getLogger("uvicorn.error").warning(
         "DEMO_PASSWORD is not set: the whole gateway, including approvals, is open. Local development only.")
@@ -658,9 +658,10 @@ def product(product_id: str):
 
 
 @app.post("/v1/quotes", tags=["v1: offer"])
-def quote(body: dict = Body(..., examples=[{"mandate_id": "mnd_hotel_helsinki", "deliver_by": "2026-11-16",
-                                            "lines": [{"productId": "463335", "units": 1000}]}])):
+def quote(req: schemas.QuoteRequest):
     """Price and availability for specific lines, returned as a signed fixed-price offer (valid 15 min)."""
+    body = req.model_dump(exclude_none=True)
+    body["lines"] = [l.model_dump(exclude_none=True) for l in req.lines]
     if body.get("mandate_id") not in policy.mandates():
         raise HTTPException(404, "unknown mandate")
     if err := agent.caller_refusal(body["mandate_id"]):
@@ -674,9 +675,10 @@ def quote(body: dict = Body(..., examples=[{"mandate_id": "mnd_hotel_helsinki", 
 
 
 @app.post("/v1/orders", tags=["v1: order"])
-def order(body: dict = Body(...), idempotency_key: str = Header(...)):
+def order(req: schemas.OrderRequest, idempotency_key: str = Header(...)):
     """Commit a signed offer, by `offer_id` or the full `jws`. The gateway verifies the signature, re-checks
     prices and applies the mandate."""
+    body = req.model_dump(exclude_none=True)
     jws = body.get("jws") or (store.get_offer(body.get("offer_id") or "") or {}).get("jws")
     if not jws:
         raise HTTPException(422, "give offer_id or jws")
@@ -695,10 +697,10 @@ def get_order(request: Request, order_id: str):
 
 
 @app.post("/v1/approvals/{order_id}", tags=["v1: approval"])
-def approve(request: Request, order_id: str,
-            body: dict = Body(..., examples=[{"decision": "approve", "approver": "Aino Virtanen"}])):
+def approve(request: Request, order_id: str, req: schemas.ApprovalRequest):
     """Human sign-off. Only a signed-in person can call this (agents' Bearer tokens get 403), and the
     approver must be named in the buyer's mandate with authority for the order total."""
+    body = req.model_dump()
     if getattr(request.state, "principal", None) != "human":
         store.log(order_id, "agent", "security.agent_tried_to_approve", {"decision": body.get("decision")})
         raise HTTPException(403, "approvals must come from a person, not an agent")
@@ -791,8 +793,11 @@ def _why_you(failed, order, mandate):
             out.append("the agent's own spending today would pass its daily limit")
         elif r["rule"] == "Unstated details within tolerance":
             out.append("a detail the request didn't state changes the price")
+        elif r["rule"] == "Earned trust":
+            out.append(str(r["detail"]).split(";")[0])  # "New built-in agent (0 clean orders): may order alone up to …"
         else:
-            out.append(f'{r["rule"].lower()}: {str(r["detail"])[:80]}')
+            d = str(r["detail"])
+            out.append(f'{r["rule"].lower()}: {d if len(d) <= 100 else d[:100].rsplit(" ", 1)[0] + "…"}')
     return "; ".join(out[:2]) + "."
 
 
@@ -842,8 +847,8 @@ def decision(request: Request, order_id: str):
 
 
 @app.post("/v1/offers/verify", tags=["v1: trust"])
-def verify_offer(body: dict = Body(...)):
-    ok, payload = signing.verify(body["jws"])
+def verify_offer(req: schemas.VerifyOfferRequest):
+    ok, payload = signing.verify(req.jws)
     if not ok:
         store.log("security", "verifier", "security.invalid_signature", {"error": payload})
     return {"valid": ok, "payload": payload if ok else None, "error": None if ok else payload}

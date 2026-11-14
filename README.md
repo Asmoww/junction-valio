@@ -63,8 +63,9 @@ hostile agent can't skip them. Only a signed-in person named in the buyer's mand
 - **Scoreboard** ([scripts/scoreboard.py](scripts/scoreboard.py)): 16 requests through a Claude agent with the buyer's
   rules in its prompt, the same agent without them (raw API and through the gateway), and our agent. Reported as it
   came out: a strong model with good rules in its prompt does well; the gateway holds for every agent.
-- **171 offline tests** (fake catalog and fake Valio, no keys needed), run in CI on every push.
+- **327 offline tests** (fake catalog and fake Valio, no keys needed), run in CI on every push.
 - Every quirk of the mock data and how we handle it: [docs/ASSUMPTIONS.md](docs/ASSUMPTIONS.md).
+- From demo to production, and what an agent can never see: [docs/PRODUCTION.md](docs/PRODUCTION.md).
 
 ## Run it
 ```bash
@@ -79,3 +80,5 @@ uv run pytest -m live tests/traps              # trap suite against the live moc
 
 Python, FastAPI, Claude Sonnet 5.5 (reads free-text requests and checks product types; it never makes the
 decisions), MCP Python SDK, Ed25519 / JWS, SQLite. Data is synthetic and used only for this challenge.
+
+Licence: Apache-2.0 ([LICENSE](LICENSE)).

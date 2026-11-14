@@ -315,13 +315,22 @@ components:
           type: array
           items:
             type: object
+            additionalProperties: false
             required: [productId, units]
             properties:
               productId: {type: string}
-              units: {type: number, description: In sales units}
+              units: {type: number, exclusiveMinimum: 0, description: In sales units}
+              perUnit: {type: number, description: "What one sales unit holds as the agent understood it; refused if Valio's data disagrees"}
               substitution: {type: string}
         requested_quantity: {type: number, description: "What the buyer asked for, in the same unit as the lines (sales units for /v1/quotes; the agent seals the buyer's own unit, e.g. litres). Sealed into the signed offer; an order claiming a different requested_units is refused."}
         requested_unit: {type: string, enum: [L, KG, PCS], description: "Unit of requested_quantity (sales units if omitted). Pack sizes come from Valio's prices, never from the caller: a perUnit that disagrees is refused. Sealed into the signed offer."}
+        request_limits:
+          type: object
+          additionalProperties: false
+          description: "The agent's own limits for this purchase. They can only tighten the buyer's signed rules, and are sealed into the offer."
+          properties:
+            max_total_eur: {type: number, minimum: 0}
+            forbidden_allergens: {type: array, items: {type: string}, description: "Codes (AM, AP, ...) or names (milk, peanuts)"}
     Offer:
       description: Signed payload. Fixed catalog price (not negotiated), valid until expires_at.
       type: object
