@@ -1,0 +1,53 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>Carton · buyer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&display=swap" rel="stylesheet">
+<style>
+:root { --blue:#0047bb; --navy:#061a44; --milk:#f2f6fd; --ink:#061a44; --mute:#6b7a99; --amber:#c46a00; --green:#1b8a5a; --red:#cf2f2a; --line:#dfe6f3; }
+* { box-sizing:border-box } body { margin:0; font:16px/1.5 Archivo, system-ui, sans-serif; color:var(--ink); background:#fff }
+.bar { display:flex; align-items:center; gap:28px; padding:22px 56px; position:absolute; inset:0 0 auto 0; color:#fff; z-index:2 }
+.logo { font-weight:900; font-stretch:125%; letter-spacing:-.02em; font-size:19px }
+.bar nav { display:flex; gap:24px; font-size:15px; opacity:.75 } .bar nav b { opacity:1; font-weight:600 }
+.who { margin-left:auto; border:1.5px solid rgba(255,255,255,.5); border-radius:99px; padding:6px 16px; font-size:14px }
+.band { background:var(--blue); color:#fff; padding:120px 56px 0; position:relative }
+.ask { font-size:15px; opacity:.7; margin:0 0 14px }
+.req { display:flex; flex-wrap:wrap; align-items:flex-end; gap:0 34px; font-weight:850; font-stretch:118%; font-size:62px; line-height:1.02; letter-spacing:-.035em; margin:0 }
+.req span small { display:block; font-size:14px; font-weight:500; font-stretch:100%; letter-spacing:0; opacity:.6; margin-bottom:6px }
+.track { display:grid; grid-template-columns:repeat(6,1fr); margin-top:72px; position:relative; top:9px }
+.g { position:relative; padding-bottom:34px; font-size:14px; color:rgba(255,255,255,.6) }
+.g::before { content:""; position:absolute; left:0; right:0; bottom:9px; height:3px; background:#fff }
+.g i { position:absolute; left:0; bottom:0; width:21px; height:21px; border-radius:50%; background:#fff; border:3px solid var(--blue); box-shadow:0 0 0 3px #fff }
+.g.stop::before { background:rgba(255,255,255,.35) }
+.g.stop i { background:var(--amber); box-shadow:0 0 0 3px #fff; width:27px; height:27px; bottom:-3px }
+.g.stop { color:#fff; font-weight:700 }
+.answer { padding:64px 56px 56px; display:grid; grid-template-columns:1fr auto; gap:40px; align-items:end }
+h1 { font-size:48px; font-weight:850; font-stretch:112%; letter-spacing:-.03em; margin:0 0 10px; line-height:1.05 }
+h1 em { font-style:normal; color:var(--amber) }
+.line { font-size:20px; margin:0; color:var(--ink) } .line b { font-weight:700 }
+.why { margin-top:22px; font-size:15px; color:var(--blue); font-weight:600 }
+.act { display:flex; gap:12px } .btn { font:inherit; font-weight:700; font-size:17px; border-radius:12px; padding:16px 26px; border:0 }
+.ok { background:var(--blue); color:#fff } .ghost { background:var(--milk); color:var(--ink) }
+.price { font-weight:850; font-stretch:112%; font-size:48px; letter-spacing:-.03em; text-align:right; line-height:1 }
+.price small { display:block; font-size:15px; font-weight:500; font-stretch:100%; color:var(--mute); letter-spacing:0; margin-top:6px }
+.next { margin:0 56px; border-top:1px solid var(--line); padding-top:26px; display:flex; gap:14px }
+.next input { flex:1; font:inherit; font-size:18px; border:0; outline:0; color:var(--ink); background:transparent }
+.next input::placeholder { color:#9aa7c2 } .next button { font:inherit; font-weight:700; border:0; background:var(--ink); color:#fff; border-radius:12px; padding:12px 22px }
+.g.done i { background:#fff }
+</style>
+<header class="bar"><span class="logo">Valio Aimo agents</span><nav><b>Buy</b><span>Plan</span><span>Valio</span><span>Connect</span></nav><span class="who">Hotel Aurora</span></header>
+<section class="band">
+  <p class="ask">The kitchen asked for</p>
+  <p class="req"><span><small>amount</small>1,000 L</span><span><small>must be</small>lactose-free</span><span><small>product</small>milk</span><span><small>by</small>Monday</span></p>
+  <div class="track"><div class="g"><i></i>A purchase</div><div class="g"><i></i>Clear</div><div class="g"><i></i>In stock</div><div class="g"><i></i>Allowed</div><div class="g"><i></i>Proven</div><div class="g stop"><i></i>Over the agent’s €500</div></div>
+</section>
+<section class="answer">
+  <div>
+    <h1>Aino’s yes needed</h1>
+    <p class="line"><b>1,000 × Valio Eila lactose-free milk 1 L</b> at €1.01, cheapest of 14 that arrive Monday</p>
+    <div class="why">Why this one</div>
+  </div>
+  <div>
+    <div class="price">€1,010<small>signed fixed price</small></div>
+    <div class="act" style="margin-top:22px"><button class="btn ghost">Reject</button><button class="btn ghost">Send to phone</button><button class="btn ok">Approve as Aino</button></div>
+  </div>
+</section>
+<div class="next"><input placeholder="What else does the kitchen need?"><button>Ask the agent</button></div>
+</html>

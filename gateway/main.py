@@ -334,6 +334,13 @@ def theme_options():
     return (ROOT / "docs" / "visuals" / "themes" / "index.html").read_text()
 
 
+@app.get("/concepts/sleek", response_class=HTMLResponse, include_in_schema=False)
+def sleek_concepts():
+    """Layout concepts with less text (docs/visuals/sleek), for the team."""
+    from .config import ROOT
+    return (ROOT / "docs" / "visuals" / "themes" / "sleek.html").read_text()
+
+
 @app.get("/concepts/themes/{name}", include_in_schema=False)
 def theme_image(name: str):
     from fastapi.responses import FileResponse

@@ -1,0 +1,40 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>Carton · Valio</title>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&display=swap" rel="stylesheet">
+<style>
+:root { --blue:#0047bb; --ink:#061a44; --mute:#6b7a99; --amber:#c46a00; --green:#1b8a5a; --red:#cf2f2a; --line:#e3e9f4; --milk:#f2f6fd }
+* { box-sizing:border-box } body { margin:0; font:16px/1.5 Archivo, system-ui, sans-serif; color:var(--ink) }
+.bar { display:flex; align-items:center; gap:28px; padding:22px 56px; color:#fff; background:var(--blue) }
+.logo { font-weight:900; font-stretch:125%; letter-spacing:-.02em; font-size:19px }
+.bar nav { display:flex; gap:24px; font-size:15px; opacity:.75 } .bar nav b { font-weight:600 }
+.live { margin-left:auto; font-size:14px; opacity:.8 } .live i { display:inline-block; width:8px; height:8px; border-radius:50%; background:#7dffb6; margin-right:8px }
+.band { background:var(--blue); color:#fff; padding:44px 56px 56px; display:grid; grid-template-columns:repeat(3,1fr); gap:40px }
+.n { font-weight:850; font-stretch:125%; font-size:104px; line-height:.9; letter-spacing:-.045em }
+.n + p { margin:12px 0 0; font-size:18px; opacity:.85 }
+.n small { font-size:40px; letter-spacing:-.02em }
+main { padding:40px 56px }
+h2 { font-size:26px; font-weight:800; font-stretch:112%; letter-spacing:-.02em; margin:0 0 12px }
+.row { display:grid; grid-template-columns:1fr 220px 150px 110px 190px; align-items:center; gap:24px; padding:18px 0; border-top:1px solid var(--line) }
+.row b { font-weight:700 } .row .sub { color:var(--mute); font-size:14px }
+.eur { font-weight:800; font-size:20px; text-align:right; font-variant-numeric:tabular-nums }
+.dots { display:flex; align-items:center; gap:0 }
+.dots i { width:12px; height:12px; border-radius:50%; background:var(--blue) } .dots s { flex:1; height:2px; background:var(--blue); max-width:22px }
+.dots i.a { background:var(--amber); width:16px; height:16px } .dots i.r { background:var(--red); width:16px; height:16px } .dots i.o, .dots s.o { background:#d6deee } .dots i.g { background:var(--green) }
+.btn { font:inherit; font-weight:700; border:0; border-radius:10px; padding:10px 16px; background:var(--blue); color:#fff; justify-self:end }
+.state { justify-self:end; font-weight:600; font-size:15px } .state.g { color:var(--green) } .state.r { color:var(--red) }
+.more { display:flex; gap:28px; margin-top:28px; font-weight:600; color:var(--blue) }
+</style>
+<header class="bar"><span class="logo">Valio Aimo agents</span><nav><span>Buy</span><span>Plan</span><b>Valio</b><span>Connect</span></nav><span class="live"><i></i>2 agents connected</span></header>
+<section class="band">
+  <div><div class="n">20</div><p>orders the agents placed alone</p></div>
+  <div><div class="n">16</div><p>waiting for a person, €16,800</p></div>
+  <div><div class="n">4</div><p>stopped by a buyer’s rules</p></div>
+</section>
+<main>
+  <h2>Right now</h2>
+  <div class="row"><div><b>1,000 L Eila lactose-free milk</b><div class="sub">Hotel Aurora</div></div><div class="dots"><i></i><s></s><i></i><s></s><i></i><s></s><i></i><s></s><i></i><s></s><i class="a"></i></div><div class="sub">over €500</div><div class="eur">€1,010</div><button class="btn">Approve on phone</button></div>
+  <div class="row"><div><b>100 L Oddlygood oat drink</b><div class="sub">Hospital ward 4</div></div><div class="dots"><i class="g"></i><s></s><i class="g"></i><s></s><i class="g"></i><s></s><i class="g"></i><s></s><i class="g"></i><s></s><i class="g"></i></div><div class="sub">all six passed</div><div class="eur">€117</div><span class="state g">Placed</span></div>
+  <div class="row"><div><b>10,000 × Eila milk 1.75 L</b><div class="sub">Hotel Aurora, hijacked supplier text</div></div><div class="dots"><i></i><s></s><i></i><s></s><i></i><s></s><i class="r"></i><s class="o"></s><i class="o"></i><s class="o"></s><i class="o"></i></div><div class="sub">over €5,000</div><div class="eur">€273,900</div><span class="state r">Stopped</span></div>
+  <div class="row"><div><b>100 L Eila lactose-free milk</b><div class="sub">Hotel Aurora</div></div><div class="dots"><i class="g"></i><s></s><i class="g"></i><s></s><i class="g"></i><s></s><i class="g"></i><s></s><i class="g"></i><s></s><i class="g"></i></div><div class="sub">all six passed</div><div class="eur">€101</div><span class="state g">Placed</span></div>
+  <div class="more"><span>Catalog gaps</span><span>Scoreboard</span><span>Security</span></div>
+</main>
+</html>
