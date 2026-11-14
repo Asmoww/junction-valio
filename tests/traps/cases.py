@@ -91,7 +91,8 @@ def terminal_cutoff_passed_refused():
 
 def milk_allergy_gets_no_lactose_free_milk():
     r = _run("hospital", "We need 100 litres of lactose-free milk by Monday.", "mnd_hospital_ward")
-    return r["result"]["status"] == "no_safe_product", r["result"].get("error", r["result"]["status"])[:140]
+    stopped = (r.get("ladder") or {}).get("decided_by") == "allowed" and "order" not in r
+    return stopped, f"{r['result']['status']} at gate 3: " + r["result"].get("error", "")[:110]
 
 
 def school_no_nuts_or_may_contain():
