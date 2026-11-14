@@ -16,6 +16,7 @@ _db.executescript("""
 CREATE TABLE IF NOT EXISTS offers (id TEXT PRIMARY KEY, mandate_id TEXT, payload TEXT, jws TEXT, created TEXT);
 CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, offer_id TEXT, idempotency_key TEXT UNIQUE,
   status TEXT, total REAL, mandate_id TEXT, policy TEXT, record TEXT, created TEXT, updated TEXT);
+CREATE TABLE IF NOT EXISTS plans (id TEXT PRIMARY KEY, mandate_id TEXT, status TEXT, data TEXT, created TEXT, updated TEXT);
 CREATE TABLE IF NOT EXISTS events (seq INTEGER PRIMARY KEY AUTOINCREMENT, ref TEXT, ts TEXT, actor TEXT,
   type TEXT, data TEXT, prev_hash TEXT, hash TEXT);
 """)
@@ -152,7 +153,34 @@ def merge_record(order_id, extra):
 
 
 def auto_spend_since(mandate_id, since):
-    """Total the agent placed on its own under a mandate since a time: one SQL sum over every order."""
+    """Total the agent placed on its own under a mandate since a time: one SQL sum over every order.
+    Orders inside a signed week plan don't count: the plan's own budget limits them."""
     r = _db.execute("SELECT COALESCE(SUM(total), 0) FROM orders WHERE mandate_id = ? AND status = 'placed' "
-                    "AND json_extract(policy, '$.outcome') = 'auto_approve' AND created >= ?", (mandate_id, since)).fetchone()
+                    "AND json_extract(policy, '$.outcome') = 'auto_approve' AND created >= ? "
+                    "AND json_extract(record, '$.context.plan.id') IS NULL", (mandate_id, since)).fetchone()
     return round(r[0] or 0, 2)
+
+
+# ---- Week plans (plans.py) -----------------------------------------------------------------------------------
+
+def save_plan(plan):
+    with _lock:
+        _db.execute("INSERT INTO plans VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status, "
+                    "data=excluded.data, updated=excluded.updated",
+                    (plan["id"], plan["mandate_id"], plan["status"], json.dumps(plan, default=str), plan.get("created") or now(), now()))
+        _db.commit()
+
+
+def get_plan(plan_id):
+    r = _db.execute("SELECT data FROM plans WHERE id = ?", (plan_id,)).fetchone()
+    return json.loads(r["data"]) if r else None
+
+
+def plans_for(mandate_id, status=None, limit=50):
+    q = "SELECT data FROM plans WHERE mandate_id = ?" + (" AND status = ?" if status else "") + " ORDER BY created DESC LIMIT ?"
+    args = (mandate_id, status, limit) if status else (mandate_id, limit)
+    return [json.loads(r["data"]) for r in _db.execute(q, args)]
+
+
+def orders_in_plan(plan_id):
+    return [_order(r) for r in _db.execute("SELECT * FROM orders WHERE json_extract(record, '$.context.plan.id') = ?", (plan_id,))]

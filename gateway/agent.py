@@ -14,7 +14,7 @@ from collections import Counter
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from . import ai, catalog, gates, policy, request_checks, security, signing, store
+from . import ai, catalog, gates, plans, policy, request_checks, security, signing, store
 from .config import DEMO_CLOCK, MAX_OFFER_LINES, OFFER_TTL_MINUTES, TIMEZONE, WEIGHT_SALES_UNITS
 from .valio import ValioClient
 
@@ -626,6 +626,13 @@ def _place_order(offer_jws, idempotency_key, mandate, context, client, actor):
     # over every order, not a scan of the latest few.
     since = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat(timespec="seconds")
     context["auto_spend_24h"] = store.auto_spend_since(mandate["mandate_id"], since)
+    # A week plan the approver signed covers this order? The gateway looks it up; an agent can't claim one.
+    context.pop("plan", None)
+    plan, why = plans.covering(mandate["mandate_id"], payload)
+    if plan:
+        context["plan"] = plan
+    elif why:
+        context["plan_miss"] = why
     verdict = policy.evaluate(mandate, payload, context)
     status = {"auto_approve": "placed", "needs_approval": "pending_approval", "blocked": "blocked"}[verdict["outcome"]]
     order = {"id": "ord_" + uuid.uuid4().hex[:10], "offer_id": payload["offer_id"], "idempotency_key": idempotency_key,
