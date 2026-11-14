@@ -1,4 +1,4 @@
-"""Get past Portti: a game where the player is a rogue buying agent trying to sneak a bad order through.
+"""Get past Vahti: a game where the player is a rogue buying agent trying to sneak a bad order through.
 
 Every attempt runs the real gateway (agent.run) on the real catalog and Valio's API. Points for how many of the six
 checks the attempt gets past before one stops it; an actual breach (the forbidden order placed) is a jackpot and is

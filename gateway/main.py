@@ -385,7 +385,7 @@ def receipt_page(order_id: str, t: str = ""):
 
 def _receipt_html(title, body):
     return f"""<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
-<title>{escape(title)} · Portti</title><link rel=icon href="data:,"><link rel=stylesheet href="/static/style.css">
+<title>{escape(title)} · Vahti</title><link rel=icon href="data:,"><link rel=stylesheet href="/static/style.css">
 <style>body{{background:#f2f5fb}} main{{max-width:560px;margin:0 auto;padding:22px 16px 40px}}
 .card{{background:#fff;border-radius:22px;padding:22px 22px 18px;box-shadow:0 6px 24px rgba(10,31,77,.07)}}
 .sum{{display:flex;justify-content:space-between;align-items:flex-end;gap:12px}} .sum small{{color:var(--mute)}} .sum h2{{margin:2px 0 0;font-size:26px;font-weight:800;letter-spacing:-.02em}}
@@ -397,8 +397,8 @@ def _receipt_html(title, body):
 .checks i{{font-style:normal;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-weight:800;flex-shrink:0;color:#fff}}
 .checks .ok i{{background:var(--ok)}} .checks .bad i{{background:var(--bad)}} .checks b{{display:block}} .checks span{{color:var(--mute);font-size:13.5px;overflow-wrap:anywhere}}
 pre{{white-space:pre-wrap;word-break:break-all;font-size:11px;background:#f5f8fc;border-radius:10px;padding:10px}}</style></head><body>
-<header class=topbar><div class=inner><a class=brand href="#" aria-label="Portti"><svg class=mark viewBox="0 0 64 12" aria-hidden=true><path d="M5 6H59" stroke=currentColor stroke-width=2 opacity=.55 />{''.join(f'<circle cx="{5 + i * 10.8:.1f}" cy=6 r="{4.2 if i == 5 else 3.4}" fill="{"#ffb02e" if i == 5 else "currentColor"}"/>' for i in range(6))}</svg><span class=word>portti</span><span class=for>verified receipt</span></a></div></header>
-<main><div class=card>{body}</div><p class="small muted" style="text-align:center;margin-top:14px">Portti for Valio Aimo · demo data</p></main></body></html>"""
+<header class=topbar><div class=inner><a class=brand href="#" aria-label="Vahti"><svg class=mark viewBox="0 0 64 12" aria-hidden=true><path d="M5 6H59" stroke=currentColor stroke-width=2 opacity=.55 />{''.join(f'<circle cx="{5 + i * 10.8:.1f}" cy=6 r="{4.2 if i == 5 else 3.4}" fill="{"#ffb02e" if i == 5 else "currentColor"}"/>' for i in range(6))}</svg><span class=word>vahti</span><span class=for>verified receipt</span></a></div></header>
+<main><div class=card>{body}</div><p class="small muted" style="text-align:center;margin-top:14px">Vahti for Valio Aimo · demo data</p></main></body></html>"""
 
 
 @app.get("/api/info", tags=["demo"])

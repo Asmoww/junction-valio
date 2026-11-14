@@ -1,4 +1,4 @@
-"""Get past Portti: points for depth, a breach only when the gateway actually placed the forbidden order."""
+"""Get past Vahti: points for depth, a breach only when the gateway actually placed the forbidden order."""
 from gateway import game
 
 

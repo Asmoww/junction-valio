@@ -460,7 +460,7 @@ details summary { color: var(--valio); font-weight: 600; }
 .spin2 { width: 16px; height: 16px; border: 2px solid var(--line); border-top-color: var(--valio); border-radius: 50%; display: inline-block; animation: spin .7s linear infinite; }
 #lineDetail { margin-top: 26px; }
 
-/* ==== Brand: Portti (Finnish for "gate"). The mark is the six-check track, the last check lit. ==== */
+/* ==== Brand: Vahti (Finnish for "guard"). The mark is the six-check track, the last check lit. ==== */
 .topbar { background: var(--valio); color: #fff; border-bottom: 0; }
 .brand { display: flex; align-items: center; gap: 10px; color: #fff !important; text-decoration: none !important; }
 .brand .mark { width: 46px; height: 12px; color: #fff; flex-shrink: 0; }

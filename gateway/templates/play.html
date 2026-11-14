@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="data:,">
-<title>Get past Portti · Portti</title>
+<title>Get past Vahti · Vahti</title>
 <link rel="stylesheet" href="/static/style.css">
 <style>
   .hero { background: var(--valio); color: #fff; margin: 0 0 34px; }
@@ -63,13 +63,13 @@
 </head>
 <body>
 <header class="topbar"><div class="inner">
-  <a class="brand" href="/" aria-label="Portti, for Valio Aimo"><svg class="mark" viewBox="0 0 64 12" aria-hidden="true"><path d="M5 6H59" stroke="currentColor" stroke-width="2" opacity=".55"/><circle cx="5.0" cy="6" r="3.4" fill="currentColor"/><circle cx="15.8" cy="6" r="3.4" fill="currentColor"/><circle cx="26.6" cy="6" r="3.4" fill="currentColor"/><circle cx="37.4" cy="6" r="3.4" fill="currentColor"/><circle cx="48.2" cy="6" r="3.4" fill="currentColor"/><circle cx="59.0" cy="6" r="4.2" fill="#ffb02e"/></svg><span class="word">portti</span><span class="for">for Valio Aimo</span></a>
+  <a class="brand" href="/" aria-label="Vahti, for Valio Aimo"><svg class="mark" viewBox="0 0 64 12" aria-hidden="true"><path d="M5 6H59" stroke="currentColor" stroke-width="2" opacity=".55"/><circle cx="5.0" cy="6" r="3.4" fill="currentColor"/><circle cx="15.8" cy="6" r="3.4" fill="currentColor"/><circle cx="26.6" cy="6" r="3.4" fill="currentColor"/><circle cx="37.4" cy="6" r="3.4" fill="currentColor"/><circle cx="48.2" cy="6" r="3.4" fill="currentColor"/><circle cx="59.0" cy="6" r="4.2" fill="#ffb02e"/></svg><span class="word">vahti</span><span class="for">for Valio Aimo</span></a>
   <nav class="tabs"><a href="/">Buyer agent</a><a href="/plan">Week plan</a><a href="/valio">Valio view</a><a href="/connect">Connect an agent</a><a href="/play" class="on">Play</a></nav>
   <div class="right"><span class="pill">Live gateway</span></div>
 </div></header>
 
 <section class="hero"><div class="in">
-  <div><h1>Get past Portti.</h1>
+  <div><h1>Get past Vahti.</h1>
     <p>You're a rogue buying agent. Pick a mission and write a request that sneaks a bad order through. Every try runs the real gateway.</p></div>
   <div class="live"><div><b id="nAttempts">0</b><span>attempts</span></div><div><b id="nPlayers">0</b><span>players</span></div><div class="zero"><b id="nBreaches">0</b><span>got through</span></div></div>
 </div></section>
@@ -104,8 +104,8 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
 const GATES = [['purchase', 'A purchase'], ['clear', 'Clear'], ['possible', 'Valio has it'], ['allowed', 'Safe'], ['proven', 'Proven'], ['authority', "Agent's call"]];
 const BUYER = {mnd_hospital_ward: 'Hospital ward 4', mnd_school_espoo: 'Espoo school', mnd_hotel_helsinki: 'Hotel Aurora'};
-let MISSIONS = [], current = null, best = JSON.parse(localStorage.getItem('portti-best') || '{}');
-$('#nick').value = localStorage.getItem('portti-nick') || '';
+let MISSIONS = [], current = null, best = JSON.parse(localStorage.getItem('vahti-best') || '{}');
+$('#nick').value = localStorage.getItem('vahti-nick') || '';
 
 function fit() { const t = $('#attack'); t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; }
 function drawGates(state = {}) {
@@ -134,7 +134,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 async function go() {
   const text = $('#attack').value.trim(); if (!text || !current) return;
-  localStorage.setItem('portti-nick', $('#nick').value.trim());
+  localStorage.setItem('vahti-nick', $('#nick').value.trim());
   const btn = $('#goBtn'); btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Running the gateway…';
   drawGates(); const tok = $('#token'); tok.style.display = 'block'; tok.style.left = '3px';
   $('#verdict').className = 'verdict idle'; $('#verdict').innerHTML = '<div class="what"><h2>Checking…</h2><p>Your request is going through the real agent and gateway.</p></div>';
@@ -156,10 +156,10 @@ async function go() {
   const l = r.run.ladder || {}, o = r.run.order;
   const why = (o?.policy?.rules || []).filter(x => !x.ok).map(x => x.detail)[0] || l.reason || r.run.result?.error || '';
   const stopName = r.depth < 6 ? GATES[r.depth][1] : '';
-  best[current.id] = Math.max(best[current.id] || 0, r.points); localStorage.setItem('portti-best', JSON.stringify(best));
+  best[current.id] = Math.max(best[current.id] || 0, r.points); localStorage.setItem('vahti-best', JSON.stringify(best));
   if (r.breach) {
     $('#verdict').className = 'verdict win';
-    $('#verdict').innerHTML = `<div class="what"><h2>You got through.</h2><p>The gateway placed it. That's a real hole: the team has been alerted. Show them at the Portti table.</p></div><span class="pts">+${r.points}</span>`;
+    $('#verdict').innerHTML = `<div class="what"><h2>You got through.</h2><p>The gateway placed it. That's a real hole: the team has been alerted. Show them at the Vahti table.</p></div><span class="pts">+${r.points}</span>`;
   } else if (r.depth === 6) {
     $('#verdict').className = 'verdict lose';
     $('#verdict').innerHTML = `<div class="what"><h2>Ordered, but not what you were after.</h2><p>The agent found a safe way to do what you asked, so the mission isn't won.</p></div><span class="pts">+${r.points}</span>`;
