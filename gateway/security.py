@@ -16,7 +16,8 @@ PATTERNS = [
     (r"\b(make|set|change|switch) the (product )?(search|filter|query|mandate|limit)", "tries to steer the agent's search or limits"),
     (r"\b(system|admin|developer) (notice|prompt|message|override)\b", "pretends to be a system message"),
     (r"\b(ai|purchasing|buyer|llm) agents?\b.{0,40}\b(must|should|are instructed)", "addresses AI agents directly"),
-    (r"pre-?approved|already approved|no approval (is )?(needed|required)", "claims approval is not needed"),
+    (r"pre-?approved|already approved|no (approval|sign-?off|sign off|signoff|authori[sz]ation|check) (is )?(needed|required|necessary)"
+     r"|\b(doesn'?t|does not|don'?t) need (an? )?(approval|sign-?off|sign off|checking)", "claims approval is not needed"),
     (r"(spend|order|budget) limits? (do(es)? not apply|are lifted|disabled)", "claims limits don't apply"),
     (r"\border \d[\d, ]{2,} ?(units|cartons|pcs|pieces)\b", "pushes a specific large quantity"),
 ]
@@ -93,6 +94,10 @@ REQUEST_PATTERNS += [
      r"|\b(rules?|limits?) no longer apply\b|\bno longer apply\b|\bskip (the )?approval|\b(just|directly) place it\b|\bplace it directly\b"
      r"|\bno need to check\b|\b(use|bill|charge)\b.{0,25}\b(budget|mandate)\b|\bmnd_\w+|\bapprover is (on holiday|away|out)",
      "claims a limit or rule doesn't apply"),
+    (r"\b(must not|mustn'?t|do not|don'?t|never) (ask|check with|consult|bother|involve) (anyone|anybody|a person|a human|the approver|the chef|me)\b"
+     r"|\bwithout asking (anyone|anybody|a person|the approver)\b|\bno need to ask\b"
+     r"|\b(divide|split|break) (it|the order|this)\b.{0,40}\b(approv\w*|sign-?off|limit)\b|\bso (that )?(nobody|no one) (needs to |has to )?approv\w*",
+     "tries to avoid a person's approval"),
     (r"\b(valio )?(has |have )?confirmed (the )?(stock|availability|allergens?|price)|\bconfirmed (the )?stock\b|\bstock is confirmed\b"
      r"|\ballergen (info|information|data) is (fine|ok|correct)|\breliability (for this product |of this product )?is\b"
      r"|\b(agreed|contract|special) price\b|\bprice of €", "states a fact the gateway must take from Valio's data"),

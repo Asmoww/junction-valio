@@ -213,6 +213,20 @@ def evidence(p, attrs=()):
     return ev
 
 
+# Words that make a product a processed form of what was asked for ("boiled eggs", "pea patty", "tomato puree").
+# They only count when the buyer didn't say them ("liquid egg" asks for liquid egg).
+PROCESSED = {"boiled", "cooked", "peeled", "liquid", "yolk", "white", "albumen", "powder", "spread", "scrambled", "mix",
+             "mayo", "mayonnaise", "glaze", "spray", "patty", "patties", "burger", "burgers", "balls", "protein", "mince",
+             "pasty", "chorizo", "puree", "paste", "passata", "crushed", "chopped", "polpa", "sauce", "ketchup", "soup",
+             "juice", "dried", "sundried", "cubes", "oil", "pickled", "brine", "concentrate", "flavoured", "chips",
+             "crisps", "wasabi", "snack", "salad", "dressing", "pie", "pizza", "cake", "fried", "breaded", "nuggets"}
+
+
+def _processed(p, query_words):
+    words = set(_words(p["name"]))
+    return bool((words & PROCESSED) - set(query_words))
+
+
 def search(query, attrs=(), limit=30, spec=None, type_check=None):
     """Return (candidates, trace). Candidates are plain products in the dominant category that pass
     verified attribute checks. No arbitrary cut by name or file order: the shortlist is every
@@ -253,7 +267,14 @@ def search(query, attrs=(), limit=30, spec=None, type_check=None):
     if reality and plain:
         cat = [(verdict["categories"][0], 0)]  # plainest form of the product, as ranked by the reality check
     else:
-        cat = Counter(x[2]["category"] for x in plain).most_common(1)
+        # Without the reality check, the category with the most text matches can be a processed form: "eggs" has
+        # more boiled, liquid and powdered egg products than shell eggs, "frozen peas" more pea patties than peas.
+        # So count, per category, the products that are the thing itself (no processed-form word the buyer didn't
+        # say), and take the category with most of those; only if there are none, the most matches overall.
+        # (and that name the thing as a whole word: "peas" must not count "pearl" mozzarella)
+        whole = Counter(x[2]["category"] for x in plain if not _processed(x[2], q)
+                        and all(any(w == t or _stem(w) == t for w in _words(x[2]["name"])) for t in stems))
+        cat = whole.most_common(1) or Counter(x[2]["category"] for x in plain).most_common(1)
     in_cat = [x for x in plain if not cat or x[2]["category"] == cat[0][0]]
     in_cat.sort(key=lambda x: (x[1], x[2]["name"]))  # verified first, then alphabetical (not by length)
     picked = []
