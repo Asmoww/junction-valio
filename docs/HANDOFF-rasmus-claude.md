@@ -77,7 +77,13 @@ every session.
       inferred quantities are marked as assumed and the chef confirms them in the form
 - [x] 4. "Learned from decisions" panel: suggestions from the audit log (ask-backs, approvals, rejections)
       that the buyer can turn into a mandate or plan change; the agent never widens its own authority
-- [ ] 5. Buyer page: show "inside week plan X" on an order that a plan covered
+- [x] 5. Buyer page: the "Auto-approve spend limit" rule line already names the plan and who signed it
+- [x] 7. Autonomy measured (review point 2): 30 ordinary hotel requests, each judged alone, rule-based
+      reading, simulated Valio with the real catalog. Without a plan: 24 ordered alone, 3 to the approver
+      (spend limit), 1 fact check (pack contents), 2 ask-backs. With one signed week plan (2 products,
+      €3,515): 27 alone; the 3 spend-limit escalations disappear; the fact check and ask-backs stay, as they
+      should. Script in Rasmus's workspace (`autonomy.py`, uses the scratch simulator); happy to port it to
+      `scripts/` if you want it in the scoreboard.
 - [x] 6. FRAMEWORK.md: where the plan sits on the ladder (gate 5 authority, pre-given)
 
 ## Review notes
