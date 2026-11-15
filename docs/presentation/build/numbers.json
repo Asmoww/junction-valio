@@ -1,0 +1,13 @@
+{
+ "run_at": "Sun 15 Nov 2026 03:37 EET",
+ "reader": "Gemma 4 31B · Verda, Finland (EU)",
+ "traps": {
+  "passed": 26,
+  "total": 26
+ },
+ "tests": 397,
+ "everyday": {
+  "placed": 25,
+  "total": 36
+ }
+}
