@@ -4,6 +4,7 @@ import tempfile
 
 os.environ["TG_STATE_DIR"] = tempfile.mkdtemp(prefix="tg-test-")
 os.environ["DEMO_PASSWORD"] = "test-password"
+os.environ["PUBLIC_DEMO"] = ""  # tests check the password gate; tests/test_public_demo.py checks the open mode
 os.environ["DEMO_CLOCK"] = ""  # offline tests use Valio's real clock, whatever the server's .env says
 
 import pytest  # noqa: E402

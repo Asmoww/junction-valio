@@ -38,6 +38,7 @@ app = FastAPI(
 )
 TEMPLATES = Path(__file__).parent / "templates"
 _COOKIE = "tg_session"
+PUBLIC_DEMO = os.environ.get("PUBLIC_DEMO", "").lower() in ("1", "true", "yes")  # pages open without the password
 _token = hmac.new(DEMO_PASSWORD.encode(), b"tg-session", hashlib.sha256).hexdigest() if DEMO_PASSWORD else ""
 # Agents and people have different secrets: an agent's token is not the sign-in password, so a hijacked agent
 # can't swap its token for a browser session and approve its own order.
@@ -157,6 +158,13 @@ async def password_gate(request: Request, call_next):
     if request.url.path.startswith(("/v1", "/api", "/mcp", "/a2a")):
         return JSONResponse({"detail": "authentication required"}, status_code=401,
                             headers={"WWW-Authenticate": _www_authenticate(request, scope=SCOPES["inquiry"])})
+    if PUBLIC_DEMO:
+        # Open demo (judging): a person opening a page gets the people session without a password. The API still
+        # needs that browser session or an agent token, so an agent calling /v1 without one is refused as before.
+        request.state.principal = "human"
+        response = await call_next(request)
+        response.set_cookie(_COOKIE, _token, httponly=True, secure=True, samesite="lax", max_age=7 * 86400)
+        return response
     return RedirectResponse(f"/login?next={urlquote(request.url.path)}", status_code=303)
 
 
@@ -172,6 +180,8 @@ p{color:#b00020;font-size:.9rem}</style></head><body><form method=post action=/l
 
 @app.get("/login", response_class=HTMLResponse, include_in_schema=False)
 def login_page(next: str = "/", err: int = 0):
+    if PUBLIC_DEMO:  # nothing to sign in to: go straight to the page (the gate sets the session cookie)
+        return RedirectResponse(next if next.startswith("/") and not next.startswith("//") else "/", status_code=303)
     return LOGIN_HTML.replace("{next}", escape(security.safe_next(next))).replace(
         "{err}", "<p>Wrong password</p>" if err else "")
 
