@@ -1762,11 +1762,11 @@ def spec_gaps(candidates, intent):
 
 def _profile_fat(intent, mandate):
     """The buyer profile's fat level for this product, unless the product words already state one."""
+    # Only when the product IS the profile's product ("milk"), not one that contains the word ("coffee milk",
+    # "milk chocolate"): a fat filter before the search would otherwise pick a different product altogether.
     words = {catalog._stem(w) for w in re.findall(r"[a-zåäö]+", catalog.fold(intent.get("product") or ""))}
-    prof = next((v for k, v in (mandate.get("profile") or {}).items() if catalog._stem(k) in words), None)
-    stated = re.search(r"skim|semi|whole|full[- ]?fat|low[- ]?fat|fat[- ]?free|light|rasvat|kevyt|täys|ykkös",
-                       catalog.fold(intent.get("product") or ""))
-    return None if (not prof or stated) else prof.get("fat_pct")
+    prof = next((v for k, v in (mandate.get("profile") or {}).items() if {catalog._stem(k)} == words), None)
+    return prof.get("fat_pct") if prof else None
 
 
 def apply_profile(candidates, intent, mandate):

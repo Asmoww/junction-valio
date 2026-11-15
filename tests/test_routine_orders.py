@@ -58,3 +58,10 @@ def test_confirmed_stock_is_recommended_when_it_costs_little_more():
     assert opts[0]["lines"][0]["productId"] == "S" and "stock confirmed by Valio" in opts[0]["why"]
     far = dict(stock, total=99.0)
     assert agent.build_options([terminal, far], {"quantity": 40}, tolerance=25)[0]["lines"][0]["productId"] == "T"
+
+
+def test_the_profile_narrows_the_search_only_for_the_profiles_own_product():
+    mandate = {"profile": {"milk": {"fat_pct": 1.5}}}
+    assert agent._profile_fat({"product": "milk"}, mandate) == 1.5
+    for product in ("coffee milk", "milk chocolate", "skimmed milk", "oat drink"):
+        assert agent._profile_fat({"product": product}, mandate) is None, product

@@ -260,7 +260,8 @@ def search(query, attrs=(), limit=30, spec=None, type_check=None):
         verdict = type_check(query, groups)
         if verdict is not None:
             removed = {c: groups[c]["samples"][:2] for c in groups if c not in verdict["categories"]}
-            reality = {"checked_by": "Claude", "kept_categories": verdict["categories"],
+            from . import ai  # lazy: ai imports nothing from catalog at module level
+            reality = {"checked_by": ai.reader_name(), "kept_categories": verdict["categories"],
                        "removed": [{"category": c, "count": counts[c], "examples": ex} for c, ex in removed.items()],
                        "reason": verdict["reason"]}
             plain = [x for x in plain if x[2]["category"] in verdict["categories"]]
